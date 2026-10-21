@@ -39,13 +39,19 @@ function PinGate({ onOk }) {
   );
 }
 
-function ImportPanel({ pin, onDone }) {
-  const [tab, setTab] = useState('file');
+function ImportPanel({ pin, sync, onSyncChange, onDone }) {
+  const [tab, setTab] = useState('url');
   const [csv, setCsv] = useState('');
   const [url, setUrl] = useState('');
+  const [intervalSec, setIntervalSec] = useState(0);
   const [fileName, setFileName] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    if (sync?.url && !url) setUrl(sync.url);
+    if (sync?.interval_sec !== undefined) setIntervalSec(sync.interval_sec);
+  }, [sync?.url, sync?.interval_sec]);
 
   const run = async (dry) => {
     setBusy(true);
@@ -54,8 +60,21 @@ function ImportPanel({ pin, onDone }) {
     const r = await api('/api/import', { method: 'POST', pin, body: { ...body, dry_run: dry } });
     setBusy(false);
     setResult(r);
+    if (r.sync) onSyncChange?.(r.sync);
     if (!dry && r.ok) onDone?.();
   };
+
+  const changeAutoSync = async (newInterval) => {
+    setIntervalSec(newInterval);
+    const r = await api('/api/admin/sync', {
+      method: 'POST',
+      pin,
+      body: { url: url.trim(), interval_sec: newInterval, run_now: newInterval > 0 },
+    });
+    if (r.sync) onSyncChange?.(r.sync);
+    if (r.result) setResult(r.result);
+  };
+
   const onFile = (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -65,11 +84,12 @@ function ImportPanel({ pin, onDone }) {
     rd.readAsText(f);
   };
   const hasInput = tab === 'url' ? url.trim() : csv.trim();
+  const isPubLink = /\/d\/e\/|\/pub\b/.test(url);
 
   return (
     <div className="card col">
       <div className="row">
-        <h3 style={{ margin: 0 }}>📥 Import Jadwal Pertandingan</h3>
+        <h3 style={{ margin: 0 }}>📥 Import & Live Sync Jadwal</h3>
         <div className="spacer" />
         <a className="btn btn-sm" href="/api/template.csv">
           ⬇ Template CSV
@@ -77,9 +97,9 @@ function ImportPanel({ pin, onDone }) {
       </div>
       <div className="tabs">
         {[
-          ['file', 'File CSV'],
+          ['url', '⚡ Live URL Google Sheets'],
           ['paste', 'Tempel dari Sheets/Excel'],
-          ['url', 'URL Google Sheets'],
+          ['file', 'File CSV'],
         ].map(([k, l]) => (
           <button key={k} className={`btn btn-sm ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
             {l}
@@ -95,17 +115,53 @@ function ImportPanel({ pin, onDone }) {
       )}
       {tab === 'paste' && <textarea className="input mono" rows={7} placeholder="Tempel tabel termasuk baris header (tab / koma / titik koma)" value={csv} onChange={(e) => setCsv(e.target.value)} />}
       {tab === 'url' && (
-        <label className="field">
-          Link Google Sheets (dibagikan &quot;Siapa saja yang memiliki link&quot;) atau link &quot;Publikasikan ke web → CSV&quot;
-          <input className="input" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…/edit#gid=0" />
-        </label>
+        <div className="col">
+          <label className="field">
+            Link Edit Google Sheets (Bagikan → &quot;Siapa saja yang memiliki link&quot; untuk update instan &lt; 1 detik!)
+            <input
+              className="input"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://docs.google.com/spreadsheets/d/1abc.../edit#gid=0"
+            />
+          </label>
+          {isPubLink && (
+            <div className="notice warn small">
+              ⚠️ Anda menggunakan link <b>/pub (Publikasikan ke web)</b> yang memiliki <b>delay cache 5 menit dari Google</b>. Agar update instan (&lt; 1 detik), salin langsung <b>URL dari address bar Google Sheets</b> (<span className="mono">.../spreadsheets/d/.../edit#gid=0</span>) dan pastikan tombol <b>Bagikan (Share)</b> disetel ke <b>&quot;Siapa saja yang memiliki link&quot;</b>.
+            </div>
+          )}
+          <div className="row" style={{ background: '#0a1328', padding: '.6rem .8rem', borderRadius: 10, border: '1px solid var(--line)' }}>
+            <span className="small" style={{ fontWeight: 700 }}>🔄 Auto-Sync Berkala:</span>
+            <select
+              className="input"
+              style={{ width: 170, padding: '.35rem .6rem' }}
+              value={intervalSec}
+              onChange={(e) => changeAutoSync(Number(e.target.value))}
+              disabled={!url.trim()}
+            >
+              <option value={0}>Mati (Manual)</option>
+              <option value={5}>Setiap 5 detik ⚡</option>
+              <option value={10}>Setiap 10 detik</option>
+              <option value={15}>Setiap 15 detik</option>
+              <option value={30}>Setiap 30 detik</option>
+              <option value={60}>Setiap 60 detik</option>
+            </select>
+            {sync?.last_sync && (
+              <span className="small muted">
+                Sinkron terakhir: <b style={{ color: 'var(--text)' }}>{tm(sync.last_sync)}</b>
+                {sync.last_result ? ` (${sync.last_result.created} baru, ${sync.last_result.updated} update)` : ''}
+              </span>
+            )}
+          </div>
+          {sync?.last_error && <div className="notice error small">Auto-Sync Error: {sync.last_error}</div>}
+        </div>
       )}
       <div className="row">
         <button className="btn" disabled={!hasInput || busy} onClick={() => run(true)}>
           Validasi
         </button>
         <button className="btn btn-primary" disabled={!hasInput || busy} onClick={() => run(false)}>
-          {busy ? 'Memproses…' : 'Import / Update'}
+          {busy ? 'Memproses…' : '⚡ Tarik & Update Sekarang'}
         </button>
         <span className="small muted">Match yang sudah dimulai hanya diperbarui metadata jadwalnya (lapangan/jam).</span>
       </div>
@@ -114,7 +170,7 @@ function ImportPanel({ pin, onDone }) {
           {!result.ok && <div className="notice error">{result.error}</div>}
           {result.ok && (
             <div className={`notice ${result.errors?.length ? 'warn' : 'ok'}`}>
-              {result.dry_run ? `Validasi: ${result.valid}/${result.total} baris valid.` : `Import selesai: ${result.created} baru, ${result.updated} diperbarui dari ${result.total} baris.`}
+              {result.dry_run ? `Validasi: ${result.valid}/${result.total} baris valid.` : `Sinkron selesai: ${result.created} baru, ${result.updated} diperbarui dari ${result.total} baris.`}
               {result.errors?.length ? ` ${result.errors.length} baris ditolak.` : ''}
             </div>
           )}
@@ -448,6 +504,7 @@ export default function AdminPage() {
   const [pin, setPin] = useState(null);
   const [matches, setMatches] = useState([]);
   const [exporter, setExporter] = useState(null);
+  const [sync, setSync] = useState(null);
   const [connected, setConnected] = useState(false);
   const [courtCount, setCourtCount] = useState(15);
   const [logsFor, setLogsFor] = useState(null);
@@ -469,6 +526,7 @@ export default function AdminPage() {
       if (r.ok) {
         setMatches(r.matches);
         setExporter(r.exporter);
+        if (r.sync) setSync(r.sync);
       } else if (r.reason === 'bad_pin') {
         sessionStorage.removeItem('sp_admin_pin');
         setPin(null);
@@ -477,6 +535,7 @@ export default function AdminPage() {
     const onState = (d) => {
       setMatches(d.matches);
       setExporter(d.exporter);
+      if (d.sync) setSync(d.sync);
     };
     const onDisc = () => setConnected(false);
     s.on('connect', sub);
@@ -544,7 +603,7 @@ export default function AdminPage() {
       />
 
       <div className="setup-grid">
-        <ImportPanel pin={pin} onDone={() => notify({ type: 'ok', text: 'Import selesai' })} />
+        <ImportPanel pin={pin} sync={sync} onSyncChange={setSync} onDone={() => notify({ type: 'ok', text: 'Import selesai' })} />
         <div className="card col">
           <h3 style={{ margin: 0 }}>📤 Ekspor & Sinkronisasi</h3>
           <div className="row">

@@ -1,16 +1,52 @@
 /**
- * SmashPoint -> Google Sheets receiver (Google Apps Script Web App)
+ * SmashPoint <-> Google Sheets Two-Way Integration (Google Apps Script)
  *
- * Setup:
- * 1. Buka Google Sheet tujuan -> Extensions -> Apps Script, tempel kode ini.
- * 2. Ubah SECRET agar sama dengan GOOGLE_SHEETS_WEBHOOK_SECRET di .env SmashPoint.
- * 3. Deploy -> New deployment -> Web app. Execute as: Me. Who has access: Anyone.
- * 4. Salin URL Web App ke GOOGLE_SHEETS_WEBHOOK_URL di .env SmashPoint.
+ * Fitur:
+ * 1. INSTANT LIVE SCHEDULE READ (doGet):
+ *    Membaca tab jadwal secara langsung (0 detik delay cache CDN) jika URL Web App
+ *    dimasukkan ke kolom URL Import di halaman Admin SmashPoint.
+ * 2. TOMBOL MENU "⚡ SmashPoint" DI GOOGLE SHEETS (onOpen):
+ *    Jika laptop Server berada di jaringan yang bisa diakses atau memakai tunnel,
+ *    panitia bisa langsung klik menu "⚡ SmashPoint -> Push Jadwal ke Server".
+ * 3. AUTO-EXPORT HASIL & AUDIT LOG PERTANDINGAN (doPost):
+ *    Menerima hasil akhir dari SmashPoint ke sheet "Results" & "Logs".
  *
- * Sheet "Results" berisi 1 baris per match; sheet "Logs" berisi audit trail.
- * Pengiriman ulang match yang sama akan memperbarui baris (upsert by match_number).
+ * Cara Setup:
+ * 1. Buka Google Sheet Jadwal -> Extensions -> Apps Script, tempel kode ini.
+ * 2. Deploy -> New deployment -> Web app:
+ *    - Execute as: Me
+ *    - Who has access: Anyone
+ * 3. Salin URL Web App tersebut:
+ *    - Bisa dipakai di kolom "Live URL Google Sheets" di halaman Admin SmashPoint (0 delay!)
+ *    - Juga bisa dipasang di GOOGLE_SHEETS_WEBHOOK_URL pada .env untuk menerima hasil pertandingan.
  */
 const SECRET = 'ganti-dengan-secret-anda';
+const SCHEDULE_SHEET_NAME = ''; // Kosongkan untuk memakai sheet pertama, atau isi mis. 'Jadwal'
+
+/**
+ * doGet: Mengirimkan seluruh baris jadwal secara LIVE (JSON) tanpa cache CDN 5 menit Google.
+ * Cukup tempel URL Web App Apps Script ini di tab "Live URL Google Sheets" Admin SmashPoint!
+ */
+function doGet(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = SCHEDULE_SHEET_NAME ? ss.getSheetByName(SCHEDULE_SHEET_NAME) : ss.getSheets()[0];
+  if (!sh || sh.getLastRow() < 2) {
+    return ContentService.createTextOutput(JSON.stringify({ rows: [] })).setMimeType(ContentService.MimeType.JSON);
+  }
+  const values = sh.getDataRange().getDisplayValues();
+  const headers = values[0].map((h) => String(h).trim());
+  const rows = [];
+  for (let i = 1; i < values.length; i++) {
+    const r = values[i];
+    if (r.every((c) => !String(c).trim())) continue;
+    const obj = {};
+    for (let c = 0; c < headers.length; c++) {
+      if (headers[c]) obj[headers[c]] = r[c];
+    }
+    rows.push(obj);
+  }
+  return ContentService.createTextOutput(JSON.stringify({ rows })).setMimeType(ContentService.MimeType.JSON);
+}
 
 function doPost(e) {
   const body = JSON.parse(e.postData.contents);

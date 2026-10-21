@@ -4,6 +4,7 @@
  * State Machine store and Session Manager - so in-memory state is shared.
  */
 import http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import next from 'next';
@@ -74,14 +75,122 @@ function readBody(req, limit = 5 * 1024 * 1024) {
 const isAdmin = (req) => String(req.headers['x-admin-pin'] || '') === ADMIN_PIN;
 const validDevice = (id) => typeof id === 'string' && id.length >= 8 && id.length <= 100;
 
+/**
+ * Convert a Google Sheets link into a live, non-cached CSV endpoint.
+ * Note: "Publish to the web" (/pub?output=csv) is cached by Google CDN for ~5 minutes,
+ * whereas /gviz/tq?tqx=out:csv or /export?format=csv reads live sheet state immediately (<1s)
+ * as long as the sheet is shared as "Anyone with the link can view".
+ */
 function toSheetsCsvUrl(url) {
   const u = String(url || '').trim();
+  const cb = `_t=${Date.now()}`;
+  // Standard Google Sheets URL: /spreadsheets/d/<ID>/edit#gid=<GID>
   const m = u.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (m && !/\/pub\b|output=csv|format=csv/.test(u)) {
+  if (m && !/\/d\/e\//.test(u)) {
+    const id = m[1];
     const gid = (u.match(/[#&?]gid=(\d+)/) || [])[1] || '0';
-    return `https://docs.google.com/spreadsheets/d/${m[1]}/export?format=csv&gid=${gid}`;
+    const sheet = (u.match(/[?&]sheet=([^&#]+)/) || [])[1];
+    // Use gviz live endpoint + cache-buster for instant (<1s) updates
+    return `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}${sheet ? `&sheet=${sheet}` : ''}&${cb}`;
   }
-  return u;
+  // If user pasted a /d/e/<PUB_ID>/pub link or custom URL, append cache-buster
+  return u.includes('?') ? `${u}&${cb}` : `${u}?${cb}`;
+}
+
+// ------------------------------------------------------------------ Auto-Sync Poller for Google Sheets
+const syncConfigFile = path.join(ROOT, 'data', 'sheets-sync.json');
+const sheetSync = {
+  url: process.env.GOOGLE_SHEETS_SCHEDULE_URL || '',
+  intervalSec: 0, // 0 = off, >= 5 = poll every N seconds
+  lastSync: null,
+  lastResult: null,
+  lastError: null,
+  busy: false,
+  timer: null,
+};
+try {
+  if (fs.existsSync(syncConfigFile)) {
+    const saved = JSON.parse(fs.readFileSync(syncConfigFile, 'utf8'));
+    if (saved.url) sheetSync.url = saved.url;
+    if (Number.isInteger(saved.intervalSec)) sheetSync.intervalSec = saved.intervalSec;
+  }
+} catch { /* ignore */ }
+
+function saveSyncConfig() {
+  try {
+    fs.writeFileSync(syncConfigFile, JSON.stringify({ url: sheetSync.url, intervalSec: sheetSync.intervalSec }));
+  } catch { /* ignore */ }
+}
+
+async function fetchAndIngestUrl(rawUrl, { dryRun = false } = {}) {
+  const target = toSheetsCsvUrl(rawUrl);
+  const r = await fetch(target, {
+    redirect: 'follow',
+    headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
+  }).catch((e) => {
+    throw new StoreError(`Gagal mengambil URL: ${e.message}`);
+  });
+  if (!r.ok) {
+    throw new StoreError(`Gagal mengambil URL (HTTP ${r.status}). Pastikan Sheet diatur Bagikan -> "Siapa saja yang memiliki link (Pelihat)".`);
+  }
+  const text = await r.text();
+  if (/^\s*<(!doctype|html)/i.test(text)) {
+    throw new StoreError('Sheet belum dibuka aksesnya. Klik tombol "Bagikan (Share)" di kanan atas Google Sheets -> ubah ke "Siapa saja yang memiliki link (Anyone with the link)".');
+  }
+  // Support both JSON (from Apps Script Web App doGet) and CSV/TSV
+  let input = text;
+  if (/^\s*[\[{]/.test(text)) {
+    try {
+      const j = JSON.parse(text);
+      input = Array.isArray(j) ? j : j.rows || j.matches || text;
+    } catch { /* fallback to CSV */ }
+  }
+  const parsed = ingest(input, { courtCount: COURT_COUNT });
+  if (dryRun) return { ok: true, dry_run: true, valid: parsed.matches.length, total: parsed.total, errors: parsed.errors };
+  const result = store.upsertMatches(parsed.matches);
+  return { ok: true, total: parsed.total, ...result, errors: parsed.errors };
+}
+
+async function runAutoSync() {
+  if (sheetSync.busy || !sheetSync.url) return null;
+  sheetSync.busy = true;
+  try {
+    const res = await fetchAndIngestUrl(sheetSync.url);
+    sheetSync.lastSync = new Date().toISOString();
+    sheetSync.lastResult = { total: res.total, created: res.created, updated: res.updated, errors: res.errors?.length || 0 };
+    sheetSync.lastError = null;
+    emitAdmin();
+    return res;
+  } catch (e) {
+    sheetSync.lastError = e.message;
+    emitAdmin();
+    return { ok: false, error: e.message };
+  } finally {
+    sheetSync.busy = false;
+  }
+}
+
+function restartAutoSyncTimer() {
+  if (sheetSync.timer) {
+    clearInterval(sheetSync.timer);
+    sheetSync.timer = null;
+  }
+  if (sheetSync.url && sheetSync.intervalSec >= 5) {
+    sheetSync.timer = setInterval(() => runAutoSync(), sheetSync.intervalSec * 1000);
+    sheetSync.timer.unref?.();
+  }
+}
+restartAutoSyncTimer();
+
+function syncStatus() {
+  return {
+    url: sheetSync.url,
+    interval_sec: sheetSync.intervalSec,
+    last_sync: sheetSync.lastSync,
+    last_result: sheetSync.lastResult,
+    last_error: sheetSync.lastError,
+    is_pub_link: /\/d\/e\/|\/pub\b/.test(sheetSync.url || ''),
+  };
 }
 
 async function handleApi(req, res, url) {
@@ -143,24 +252,44 @@ async function handleApi(req, res, url) {
   }
   if (!isAdmin(req)) return send(res, 403, { ok: false, error: 'Akses admin ditolak (PIN salah)' });
 
-  if (pathname === '/api/admin/status') return send(res, 200, { exporter: sheetsExporter.status() });
+  if (pathname === '/api/admin/status') return send(res, 200, { exporter: sheetsExporter.status(), sync: syncStatus() });
   if (pathname === '/api/admin/export/retry' && method === 'POST') {
     await sheetsExporter.flush();
     return send(res, 200, { ok: true, exporter: sheetsExporter.status() });
   }
 
+  if (pathname === '/api/admin/sync' && method === 'POST') {
+    const b = await readBody(req);
+    if (b.url !== undefined) sheetSync.url = String(b.url || '').trim();
+    if (b.interval_sec !== undefined) {
+      const iv = parseInt(b.interval_sec, 10);
+      sheetSync.intervalSec = Number.isInteger(iv) && iv >= 5 ? iv : 0;
+    }
+    saveSyncConfig();
+    restartAutoSyncTimer();
+    let syncRes = null;
+    if (b.run_now && sheetSync.url) {
+      syncRes = await runAutoSync();
+    }
+    return send(res, 200, { ok: true, sync: syncStatus(), result: syncRes });
+  }
+
   if (pathname === '/api/import' && method === 'POST') {
     const b = await readBody(req);
-    let input = b.rows || b.csv || '';
     if (b.url) {
-      const target = toSheetsCsvUrl(b.url);
-      const r = await fetch(target, { redirect: 'follow' }).catch((e) => {
-        throw new StoreError(`Gagal mengambil URL: ${e.message}`);
-      });
-      if (!r.ok) throw new StoreError(`Gagal mengambil URL (HTTP ${r.status}). Pastikan Sheet dibagikan "Siapa saja yang memiliki link" atau dipublikasikan sebagai CSV.`);
-      input = await r.text();
-      if (/^\s*<(!doctype|html)/i.test(input)) throw new StoreError('URL mengembalikan halaman HTML, bukan CSV. Gunakan link publikasi CSV.');
+      sheetSync.url = String(b.url).trim();
+      saveSyncConfig();
+      restartAutoSyncTimer();
+      const resData = await fetchAndIngestUrl(b.url, { dryRun: Boolean(b.dry_run) });
+      if (!b.dry_run) {
+        sheetSync.lastSync = new Date().toISOString();
+        sheetSync.lastResult = { total: resData.total, created: resData.created, updated: resData.updated, errors: resData.errors?.length || 0 };
+        sheetSync.lastError = null;
+        emitAdmin();
+      }
+      return send(res, 200, { ...resData, sync: syncStatus() });
     }
+    const input = b.rows || b.csv || '';
     const parsed = ingest(input, { courtCount: COURT_COUNT });
     if (b.dry_run) return send(res, 200, { ok: true, dry_run: true, valid: parsed.matches.length, total: parsed.total, errors: parsed.errors });
     const result = store.upsertMatches(parsed.matches);
@@ -208,7 +337,7 @@ function emitAdmin() {
   if (adminTimer) return;
   adminTimer = setTimeout(() => {
     adminTimer = null;
-    io.to('admin').emit('admin:state', { matches: store.list().map((m) => store.toPublic(m)), exporter: sheetsExporter.status() });
+    io.to('admin').emit('admin:state', { matches: store.list().map((m) => store.toPublic(m)), exporter: sheetsExporter.status(), sync: syncStatus() });
   }, 200);
 }
 function emitCourt(court) {
@@ -272,7 +401,7 @@ io.on('connection', (socket) => {
   socket.on('admin:watch', wrap(({ pin }) => {
     if (String(pin || '') !== ADMIN_PIN) throw new StoreError('PIN Admin salah', 'bad_pin');
     socket.join('admin');
-    return { ok: true, matches: store.list().map((m) => store.toPublic(m)), exporter: sheetsExporter.status() };
+    return { ok: true, matches: store.list().map((m) => store.toPublic(m)), exporter: sheetsExporter.status(), sync: syncStatus() };
   }));
 
   // ---- session manager
