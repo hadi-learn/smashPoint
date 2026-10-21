@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { DISCIPLINE_LABEL, isDoubles } from '@/lib/engine';
-import { api } from '@/lib/client';
+import { DISCIPLINE_LABEL, isDoubles, matchDurationText } from '@/lib/engine';
+import { api, useNow } from '@/lib/client';
 
 export const STATUS_BADGE = {
   scheduled: ['Terjadwal', ''],
@@ -25,8 +25,10 @@ function detailsText(d) {
 }
 
 export function MatchInfo({ match }) {
+  const now = useNow(1000);
   const r = match.rules;
   const dbl = isDoubles(match);
+  const dur = matchDurationText(match, now);
   const info = [
     ['Turnamen', match.tournament_name || '-'],
     ['Kategori', match.category_name || '-'],
@@ -38,6 +40,7 @@ export function MatchInfo({ match }) {
     ['Tanggal', match.scheduled_date || '-'],
     ['Lapangan', match.court_number],
     ['Jam', match.scheduled_time || '-'],
+    ...(dur ? [['Durasi', `⏱ ${dur}`]] : []),
   ];
   const team = (t) => {
     const tm = match.teams[`team_${t}`];

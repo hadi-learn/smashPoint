@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api, emitAck, getSocket, useNow } from '@/lib/client';
-import { teamLabel } from '@/lib/engine';
+import { matchDurationText, teamLabel } from '@/lib/engine';
 import { StatusBadge } from '@/components/referee/Entry';
 
 const ACTIVE = ['locked', 'in_progress'];
@@ -215,6 +215,11 @@ function CourtGrid({ matches, courtCount, now, onUnlock }) {
                   <b>{m.match_number}</b>
                   <StatusBadge match={m} />
                   {st.phase === 'interval' && <span className="badge gold">INTERVAL</span>}
+                  {st.started_at && (
+                    <span className="badge cyan mono" title="Durasi Pertandingan">
+                      ⏱ {matchDurationText(m, now)}
+                    </span>
+                  )}
                 </div>
                 <div className="cteam">{teamLabel(m, 'a')}</div>
                 <div className="cteam">{teamLabel(m, 'b')}</div>
@@ -266,7 +271,7 @@ function CourtGrid({ matches, courtCount, now, onUnlock }) {
   );
 }
 
-function MatchTable({ matches, pin, courtCount, onLogs, notify }) {
+function MatchTable({ matches, pin, courtCount, now, onLogs, notify }) {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [court, setCourt] = useState('');
@@ -290,7 +295,7 @@ function MatchTable({ matches, pin, courtCount, onLogs, notify }) {
   return (
     <div className="card col">
       <div className="row">
-        <h3 style={{ margin: 0 }}>📋 Daftar Pertandingan ({filtered.length}/{matches.length})</h3>
+        <h3 style={{ margin: 0 }}>📋 Daftar & Laporan Pertandingan ({filtered.length}/{matches.length})</h3>
         <div className="spacer" />
         <input className="input" style={{ width: 220 }} placeholder="Cari match / pemain / club" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="input" style={{ width: 150 }} value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -322,6 +327,7 @@ function MatchTable({ matches, pin, courtCount, onLogs, notify }) {
               <th>Jam</th>
               <th>Status</th>
               <th>Skor</th>
+              <th>Durasi</th>
               <th>Pengontrol</th>
               <th>Aksi</th>
             </tr>
@@ -330,6 +336,7 @@ function MatchTable({ matches, pin, courtCount, onLogs, notify }) {
             {filtered.map((m) => {
               const sm = m.session_management;
               const st = m.live_state;
+              const dur = matchDurationText(m, now);
               return (
                 <tr key={m.match_number}>
                   <td>
@@ -390,6 +397,13 @@ function MatchTable({ matches, pin, courtCount, onLogs, notify }) {
                     {st.score.a}-{st.score.b}
                     {m.rules.scoring_type === 'sets' && <span className="muted"> [{st.sets.a}-{st.sets.b}]</span>}
                   </td>
+                  <td className="mono small">
+                    {dur ? (
+                      <span className={`badge ${sm.status === 'in_progress' ? 'cyan' : ''}`}>⏱ {dur}</span>
+                    ) : (
+                      <span className="muted">-</span>
+                    )}
+                  </td>
                   <td className="small">{sm.locked ? `🔒 ${sm.controller_label || `…${sm.controller_tag}`}` : <span className="muted">-</span>}</td>
                   <td>
                     <div className="row" style={{ gap: '.3rem', flexWrap: 'nowrap' }}>
@@ -438,7 +452,7 @@ export default function AdminPage() {
   const [courtCount, setCourtCount] = useState(15);
   const [logsFor, setLogsFor] = useState(null);
   const [notice, setNotice] = useState(null);
-  const now = useNow(2000);
+  const now = useNow(1000);
 
   useEffect(() => {
     const p = sessionStorage.getItem('sp_admin_pin');
@@ -585,7 +599,7 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <MatchTable matches={matches} pin={pin} courtCount={courtCount} onLogs={setLogsFor} notify={notify} />
+      <MatchTable matches={matches} pin={pin} courtCount={courtCount} now={now} onLogs={setLogsFor} notify={notify} />
       {logsFor && <LogsModal id={logsFor} onClose={() => setLogsFor(null)} />}
     </main>
   );

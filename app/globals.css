@@ -300,6 +300,11 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   color: #f8fafc; font-size: 1.4vw; font-weight: 900; padding: 0.4vw 1.1vw;
   border-radius: 0.55vw; letter-spacing: 0.05em;
 }
+.arena-duration-badge {
+  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(34, 211, 238, 0.45);
+  color: var(--cyan); font-size: 1.4vw; font-weight: 900; padding: 0.4vw 1vw;
+  border-radius: 0.55vw; letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
+}
 
 .arena-body {
   position: relative; flex: 1; display: grid;
@@ -665,6 +670,11 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   font-size: 10.5px; font-weight: 800; color: #94a3b8; letter-spacing: 0.05em;
 }
 .bwf-match-id { color: #e2e8f0; font-weight: 900; }
+.bwf-duration {
+  color: var(--cyan); font-weight: 900; font-variant-numeric: tabular-nums;
+  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(34, 211, 238, 0.35);
+  padding: 1px 6px; border-radius: 4px;
+}
 .bwf-rule-tag { color: #94a3b8; }
 .bwf-serve-pill {
   margin-left: auto; padding: 1px 7px; border-radius: 4px;

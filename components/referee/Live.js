@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { isDoubles, playerName, teamLabel } from '@/lib/engine';
+import { isDoubles, matchDurationText, playerName, teamLabel } from '@/lib/engine';
 import CourtMap from '../CourtMap';
 import { Shuttle } from '../Icons';
 
@@ -208,7 +208,7 @@ export function TakeoverModal({ match, onClose, onSubmit }) {
   );
 }
 
-export default function LiveScreen({ match, readOnly, pending, connected, send, spectator }) {
+export default function LiveScreen({ match, now, readOnly, pending, connected, send, spectator }) {
   const [showOverride, setShowOverride] = useState(false);
   const st = match.live_state;
   const ss = st.service_status;
@@ -219,6 +219,7 @@ export default function LiveScreen({ match, readOnly, pending, connected, send, 
   const canAct = !readOnly && !pending && connected && !finished;
   const canScore = canAct && st.phase === 'live';
   const isSets = match.rules.scoring_type === 'sets';
+  const duration = matchDurationText(match, now);
 
   const teamHeader = (t, align) => (
     <div className={`team ${align}`}>
@@ -236,7 +237,10 @@ export default function LiveScreen({ match, readOnly, pending, connected, send, 
       <div className="phase-overlay">
         <h2>HASIL AKHIR</h2>
         <div style={{ fontSize: '1.6rem', fontWeight: 800 }}>🏆 {teamLabel(match, st.winner)}</div>
-        <div className="muted">{st.set_history.map((s) => `${s.a}-${s.b}`).join('  ·  ')}</div>
+        <div className="muted">
+          {st.set_history.map((s) => `${s.a}-${s.b}`).join('  ·  ')}
+          {duration ? `  ·  ⏱ ${duration}` : ''}
+        </div>
         {match.export_status && <span className="badge cyan">Ekspor: {match.export_status.message}</span>}
       </div>
     );
@@ -285,7 +289,10 @@ export default function LiveScreen({ match, readOnly, pending, connected, send, 
       <div className="phase-overlay">
         <h2>PERTANDINGAN SELESAI</h2>
         <div style={{ fontSize: '1.6rem', fontWeight: 800 }}>🏆 {teamLabel(match, st.winner)}</div>
-        <div className="muted">{st.set_history.map((s) => `${s.a}-${s.b}`).join('  ·  ')}</div>
+        <div className="muted">
+          {st.set_history.map((s) => `${s.a}-${s.b}`).join('  ·  ')}
+          {duration ? `  ·  ⏱ ${duration}` : ''}
+        </div>
         {!readOnly && (
           <div className="row">
             <button className="btn btn-yellow btn-lg" disabled={!canAct} onClick={() => send('UNDO')}>
@@ -337,6 +344,7 @@ export default function LiveScreen({ match, readOnly, pending, connected, send, 
                 </div>
               )}
               <div className="small">{match.rules.scoring_method === 'side_out' ? 'SIDE-OUT' : 'RALLY'} · {match.rules.win_point}</div>
+              {duration && <div className="small mono" style={{ color: 'var(--cyan)', marginTop: '.15rem' }}>⏱ {duration}</div>}
               {ss.side && st.phase !== 'setup' && (
                 <div className={`badge ${sideOutDbl && ss.turn === 2 ? 'orange' : 'gold'}`} style={{ marginTop: '.3rem' }}>
                   <Shuttle size={14} />

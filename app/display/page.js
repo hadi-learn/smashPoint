@@ -2,8 +2,8 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { DISCIPLINE_LABEL, isDoubles, teamLabel } from '@/lib/engine';
-import { api, emitAck, getSocket } from '@/lib/client';
+import { DISCIPLINE_LABEL, isDoubles, matchDurationText, teamLabel } from '@/lib/engine';
+import { api, emitAck, getSocket, useNow } from '@/lib/client';
 import { Shuttle } from '@/components/Icons';
 
 /** DetectSpecialPoint: Game Point, Match Point, Set Point, Deuce */
@@ -42,7 +42,7 @@ function detectPointAlert(match) {
  * International Broadcast Scorebug (BWF / HSBC World Tour style).
  * Used both in the top-left of the OBS Overlay and as a live status widget.
  */
-function BroadcastScorebug({ match, compact = false }) {
+function BroadcastScorebug({ match, now, compact = false }) {
   const st = match.live_state;
   const ss = st.service_status;
   const dbl = isDoubles(match);
@@ -50,6 +50,7 @@ function BroadcastScorebug({ match, compact = false }) {
   const isSets = match.rules.scoring_type === 'sets';
   const finished = match.session_management.status === 'finished' || st.phase === 'finished';
   const alert = detectPointAlert(match);
+  const duration = matchDurationText(match, now);
 
   // Order rows consistently: top = Team A (or left side), bottom = Team B (or right side)
   const rows = ['a', 'b'];
@@ -141,6 +142,7 @@ function BroadcastScorebug({ match, compact = false }) {
       {/* Bottom Dynamic Status / Point Alert Sub-bar */}
       <div className="bwf-bug-footer">
         <span className="bwf-match-id">{match.match_number}</span>
+        {duration && <span className="bwf-duration">⏱ {duration}</span>}
         <span className="bwf-rule-tag">
           {isSets ? `GAME ${st.current_set} OF 3` : `RACE TO ${match.rules.win_point}`} · {sideOut ? 'SIDE-OUT' : 'RALLY POINT'}
         </span>
@@ -175,7 +177,7 @@ function servingSideBadge(match) {
  * Full-Screen Arena LED Scoreboard (for Courtside Smart TV / Big Monitor).
  * Redesigned with broadcast-grade horizontal rows + massive court-side split panels.
  */
-function ArenaBoard({ match }) {
+function ArenaBoard({ match, now }) {
   const st = match.live_state;
   const ss = st.service_status;
   const L = st.sides.left;
@@ -197,12 +199,15 @@ function ArenaBoard({ match }) {
   const isSets = match.rules.scoring_type === 'sets';
   const sideOut = match.rules.scoring_method === 'side_out';
   const alert = detectPointAlert(match);
+  const duration = matchDurationText(match, now);
 
   let overlay = null;
   if (finished) {
     overlay = (
       <div className="tv-overlay">
-        <div className="tv-overlay-badge">OFFICIAL RESULT · PERTANDINGAN SELESAI</div>
+        <div className="tv-overlay-badge">
+          OFFICIAL RESULT · PERTANDINGAN SELESAI{duration ? ` · ⏱ ${duration}` : ''}
+        </div>
         <h1>{teamLabel(match, st.winner)}</h1>
         <h2>{match.teams[`team_${st.winner}`]?.club}</h2>
         <div className="tv-overlay-scores">
@@ -256,6 +261,7 @@ function ArenaBoard({ match }) {
 
         <div className="arena-header-right">
           {alert && <span className={`arena-alert-pill ${alert.tone}`}>{alert.type}</span>}
+          {duration && <span className="arena-duration-badge mono">⏱ {duration}</span>}
           <span className="arena-match-badge">{match.match_number}</span>
         </div>
       </header>
@@ -365,15 +371,16 @@ function ArenaTeamCard({ match, t, screen }) {
  * Places the BWF broadcast scorebug strictly at the top-left corner (`top: 28px; left: 36px`)
  * on a transparent (or chroma key green/blue) canvas so OBS Browser Source or Window Capture works out of the box.
  */
-function ObsOverlayView({ match, bgMode }) {
+function ObsOverlayView({ match, now, bgMode }) {
   const st = match.live_state;
   const finished = match.session_management.status === 'finished' || st.phase === 'finished';
+  const duration = matchDurationText(match, now);
 
   return (
     <div className={`obs-canvas bg-${bgMode}`}>
       {/* Top-Left Corner Broadcast Scorebug */}
       <div className="obs-top-left">
-        <BroadcastScorebug match={match} />
+        <BroadcastScorebug match={match} now={now} />
       </div>
 
       {/* Optional Lower-Third Banner when Match Finished or Interval */}
@@ -383,7 +390,7 @@ function ObsOverlayView({ match, bgMode }) {
           <div className="obs-lt-body">
             <div className="obs-lt-kicker">
               {finished
-                ? `OFFICIAL WINNER · ${match.tournament_name}`
+                ? `OFFICIAL WINNER · ${match.tournament_name}${duration ? ` · ⏱ ${duration}` : ''}`
                 : st.phase === 'interval'
                 ? 'MATCH INTERVAL'
                 : `END OF GAME ${st.current_set}`}
@@ -543,6 +550,7 @@ function Display() {
   const [upcoming, setUpcoming] = useState([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState(null);
+  const now = useNow(1000);
 
   useEffect(() => {
     setMode(params.get('mode') === 'obs' ? 'obs' : 'arena');
@@ -676,9 +684,9 @@ function Display() {
       {!error &&
         (match ? (
           isObs ? (
-            <ObsOverlayView match={match} bgMode={bgMode} />
+            <ObsOverlayView match={match} now={now} bgMode={bgMode} />
           ) : (
-            <ArenaBoard match={match} />
+            <ArenaBoard match={match} now={now} />
           )
         ) : (
           <Idle court={court || '-'} upcoming={upcoming} isObs={isObs} bgMode={bgMode} />

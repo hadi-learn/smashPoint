@@ -1,7 +1,8 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { emitAck, getDeviceId, getSocket, lsGet, lsSet } from '@/lib/client';
+import { emitAck, getDeviceId, getSocket, lsGet, lsSet, useNow } from '@/lib/client';
+import { matchDurationText } from '@/lib/engine';
 import { EntryScreen, MatchInfo, StatusBadge } from '@/components/referee/Entry';
 import SetupScreen from '@/components/referee/Setup';
 import LiveScreen, { TakeoverModal } from '@/components/referee/Live';
@@ -20,6 +21,7 @@ export default function RefereePage() {
   const [pending, setPending] = useState(false);
   const [showTakeover, setShowTakeover] = useState(false);
   const [ready, setReady] = useState(false);
+  const now = useNow(1000);
 
   const refs = useRef({});
   refs.current = { deviceId, label, matchNo, mode, match };
@@ -235,6 +237,7 @@ export default function RefereePage() {
     body = (
       <LiveScreen
         match={match}
+        now={now}
         readOnly={spectator}
         pending={pending}
         connected={connected}
@@ -267,6 +270,11 @@ export default function RefereePage() {
         </Link>
         {matchNo && <span className="badge blue">Match {matchNo}</span>}
         {match && <span className="badge">Lapangan {match.court_number}</span>}
+        {match?.live_state?.started_at && (
+          <span className="badge cyan mono" title="Durasi Pertandingan">
+            ⏱ {matchDurationText(match, now)}
+          </span>
+        )}
         {mode === 'controller' && <span className="badge green">● PENGONTROL</span>}
         {mode === 'spectator' && <span className="badge red">👁 MODE PANTAU (Read-Only)</span>}
         {pending && <span className="badge gold">mengirim…</span>}

@@ -197,7 +197,7 @@ async function handleApi(req, res, url) {
 
 // ------------------------------------------------------------------ boot
 const server = http.createServer();
-const app = next({ dev: !prod, hostname: 'localhost', port: PORT });
+const app = next({ dev: !prod, hostname: HOST, port: PORT });
 const nextHandler = app.getRequestHandler();
 
 const io = new Server(server, { cors: { origin: '*' }, destroyUpgrade: false, pingInterval: 10000, pingTimeout: 20000 });
@@ -331,12 +331,15 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 server.listen(PORT, HOST, () => {
-  const ips = Object.values(os.networkInterfaces())
-    .flat()
-    .filter((i) => i && i.family === 'IPv4' && !i.internal)
-    .map((i) => i.address);
+  const ifaces = Object.entries(os.networkInterfaces()).flatMap(([name, list]) =>
+    (list || [])
+      .filter((i) => i && i.family === 'IPv4' && !i.internal)
+      .map((i) => ({ name, address: i.address }))
+  );
   console.log(`\n  SmashPoint v2.1 ${prod ? '(production)' : '(development)'} siap`);
   console.log(`  Lokal : http://localhost:${PORT}`);
-  for (const ip of ips) console.log(`  LAN   : http://${ip}:${PORT}`);
+  for (const { name, address } of ifaces) {
+    console.log(`  LAN   : http://${address}:${PORT}   <-- [${name}]`);
+  }
   console.log(`  Admin PIN / Master PIN: ${ADMIN_PIN === '1234' || MASTER_PIN === '1234' ? '(default 1234 - ganti via .env!)' : '(dari .env)'}\n`);
 });
