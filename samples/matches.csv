@@ -1,0 +1,7 @@
+match_number,tournament_name,category_name,discipline,scoring_method,scoring_type,win_point,interval_point,team_a_p1_name,team_a_p2_name,team_a_club,team_a_details,team_b_p1_name,team_b_p2_name,team_b_club,team_b_details,scheduled_date,court_number,scheduled_time
+M-101,Pak Pele Cup 3 2026,Veteran U-110,MD,side_out,continuous,30,15,Budi Santoso,Agus Wijaya,PB Djarum,"{""age"": 56}",Hendro Gunawan,Rudy Hartono,PB Jaya Raya,"{""age"": 54}",2026-10-20,3,14:30 WIB
+M-102,Pak Pele Cup 3 2026,Dewasa Putra,MS,rally_point,sets,21,11,Andi Pratama,,PB Mutiara,,Rizky Ramadhan,,PB Exist,,2026-10-20,1,14:30 WIB
+M-103,Pak Pele Cup 3 2026,Dewasa Campuran,XD,rally_point,sets,21,11,Dimas Saputra,Sari Lestari,PB Tangkas,,Fajar Nugroho,Wulan Sari,PB Pelita,,2026-10-20,2,14:45 WIB
+M-104,Pak Pele Cup 3 2026,Veteran U-90,MD,rally_point,continuous,42,21,Joko Susilo,Bambang Irawan,PB Sinar,,Eko Prasetyo,Teguh Santosa,PB Garuda,,2026-10-20,3,15:30 WIB
+M-105,Pak Pele Cup 3 2026,Remaja Putri,WS,rally_point,sets,21,11,Putri Ayu,,PB Djarum,,Nabila Zahra,,PB Jaya Raya,,2026-10-20,4,15:00 WIB
+FIN-01,Pak Pele Cup 3 2026,Veteran U-110,WD,side_out,sets,15,8,Rina Marlina,Dewi Kartika,PB Djarum,,Yuni Astuti,Lina Herlina,PB Jaya Raya,,2026-10-21,1,17:00 WIB

@@ -1,0 +1,7 @@
+node_modules/
+.next/
+data/
+exports/
+.env
+.env.local
+*.log
