@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api, emitAck, getSocket, useNow } from '@/lib/client';
-import { matchDurationText, teamLabel } from '@/lib/engine';
+import { DISCIPLINES, DISCIPLINE_LABEL, DOUBLES, matchDurationText, teamLabel } from '@/lib/engine';
 import { StatusBadge } from '@/components/referee/Entry';
 
 const ACTIVE = ['locked', 'in_progress'];
@@ -189,6 +189,402 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
   );
 }
 
+function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
+  const st = match.live_state;
+  const sm = match.session_management;
+  const [tournamentName, setTournamentName] = useState(match.tournament_name || '');
+  const [categoryName, setCategoryName] = useState(match.category_name || '');
+  const [discipline, setDiscipline] = useState(match.discipline || 'MD');
+  const [scheduledDate, setScheduledDate] = useState(match.scheduled_date || '');
+  const [scheduledTime, setScheduledTime] = useState(match.scheduled_time || '');
+  const [courtNumber, setCourtNumber] = useState(String(match.court_number || 1));
+
+  const [scoringMethod, setScoringMethod] = useState(match.rules?.scoring_method || 'rally_point');
+  const [scoringType, setScoringType] = useState(match.rules?.scoring_type || 'sets');
+  const [winPoint, setWinPoint] = useState(String(match.rules?.win_point ?? 21));
+  const [intervalPoint, setIntervalPoint] = useState(String(match.rules?.interval_point ?? 11));
+
+  const [teamA, setTeamA] = useState({
+    p1: match.teams?.team_a?.p1 || '',
+    p2: match.teams?.team_a?.p2 || '',
+    club: match.teams?.team_a?.club || '',
+  });
+  const [teamB, setTeamB] = useState({
+    p1: match.teams?.team_b?.p1 || '',
+    p2: match.teams?.team_b?.p2 || '',
+    club: match.teams?.team_b?.club || '',
+  });
+
+  const [status, setStatus] = useState(sm.status || 'scheduled');
+  const [scoreA, setScoreA] = useState(String(st.score?.a ?? 0));
+  const [scoreB, setScoreB] = useState(String(st.score?.b ?? 0));
+  const [setsA, setSetsA] = useState(String(st.sets?.a ?? 0));
+  const [setsB, setSetsB] = useState(String(st.sets?.b ?? 0));
+  const [winner, setWinner] = useState(st.winner || '');
+  const [setHistory, setSetHistory] = useState(
+    st.set_history?.length
+      ? st.set_history.map((s) => ({ a: String(s.a), b: String(s.b), winner: s.winner || '' }))
+      : []
+  );
+  const [adminNote, setAdminNote] = useState('');
+  const [reExport, setReExport] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const isDbl = DOUBLES.includes(discipline);
+
+  const applyQuickPreset = (preset, winTeam) => {
+    const loseTeam = winTeam === 'a' ? 'b' : 'a';
+    const wp = parseInt(winPoint, 10) || 21;
+    setStatus('finished');
+    setWinner(winTeam);
+    if (scoringType === 'sets') {
+      setSetsA(winTeam === 'a' ? '2' : '0');
+      setSetsB(winTeam === 'b' ? '2' : '0');
+      setScoreA(winTeam === 'a' ? String(wp) : '0');
+      setScoreB(winTeam === 'b' ? String(wp) : '0');
+      setSetHistory([
+        { a: winTeam === 'a' ? String(wp) : '0', b: winTeam === 'b' ? String(wp) : '0', winner: winTeam },
+        { a: winTeam === 'a' ? String(wp) : '0', b: winTeam === 'b' ? String(wp) : '0', winner: winTeam },
+      ]);
+    } else {
+      setScoreA(winTeam === 'a' ? String(wp) : '0');
+      setScoreB(winTeam === 'b' ? String(wp) : '0');
+      setSetHistory([
+        { a: winTeam === 'a' ? String(wp) : '0', b: winTeam === 'b' ? String(wp) : '0', winner: winTeam },
+      ]);
+    }
+    setAdminNote(`${preset}: Tim ${loseTeam.toUpperCase()} (${loseTeam === 'a' ? teamA.p1 : teamB.p1}) -> Pemenang Tim ${winTeam.toUpperCase()}`);
+  };
+
+  const addSetRow = () => {
+    setSetHistory((h) => [...h, { a: '21', b: '15', winner: 'a' }]);
+  };
+
+  const removeSetRow = (idx) => {
+    setSetHistory((h) => h.filter((_, i) => i !== idx));
+  };
+
+  const updateSetRow = (idx, field, val) => {
+    setSetHistory((h) =>
+      h.map((row, i) => {
+        if (i !== idx) return row;
+        const next = { ...row, [field]: val };
+        const na = parseInt(next.a, 10) || 0;
+        const nb = parseInt(next.b, 10) || 0;
+        if (field === 'a' || field === 'b') {
+          next.winner = na >= nb ? 'a' : 'b';
+        }
+        return next;
+      })
+    );
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    const body = {
+      tournament_name: tournamentName,
+      category_name: categoryName,
+      discipline,
+      scheduled_date: scheduledDate,
+      scheduled_time: scheduledTime,
+      court_number: parseInt(courtNumber, 10),
+      rules: {
+        scoring_method: scoringMethod,
+        scoring_type: scoringType,
+        win_point: parseInt(winPoint, 10),
+        interval_point: parseInt(intervalPoint, 10),
+      },
+      teams: {
+        team_a: { p1: teamA.p1, p2: isDbl ? teamA.p2 : null, club: teamA.club },
+        team_b: { p1: teamB.p1, p2: isDbl ? teamB.p2 : null, club: teamB.club },
+      },
+      status,
+      score: { a: parseInt(scoreA, 10) || 0, b: parseInt(scoreB, 10) || 0 },
+      sets: { a: parseInt(setsA, 10) || 0, b: parseInt(setsB, 10) || 0 },
+      set_history: setHistory.map((s, idx) => ({
+        set: idx + 1,
+        a: parseInt(s.a, 10) || 0,
+        b: parseInt(s.b, 10) || 0,
+        winner: s.winner || ((parseInt(s.a, 10) || 0) >= (parseInt(s.b, 10) || 0) ? 'a' : 'b'),
+      })),
+      winner: winner || null,
+      admin_note: adminNote,
+      re_export: reExport,
+    };
+
+    const r = await api(`/api/matches/${encodeURIComponent(match.match_number)}`, {
+      method: 'PATCH',
+      pin,
+      body,
+    });
+    setBusy(false);
+    if (r.ok) {
+      notify({ type: 'ok', text: `Match ${match.match_number} berhasil diperbarui` });
+      onClose();
+    } else {
+      setErr(r.error || 'Gagal menyimpan perubahan');
+    }
+  };
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <form className="modal col" style={{ width: 'min(920px, 100%)' }} onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <div className="row">
+          <h2 style={{ margin: 0 }}>✏️ Edit Lengkap Pertandingan · {match.match_number}</h2>
+          <StatusBadge match={match} />
+          <div className="spacer" />
+          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+
+        {err && <div className="notice error">{err}</div>}
+
+        {/* Section 1: Jadwal, Lapangan & Aturan */}
+        <div className="card col" style={{ padding: '.85rem' }}>
+          <div className="small" style={{ fontWeight: 800, color: 'var(--gold)' }}>1. JADWAL, LAPANGAN & ATURAN PERTANDINGAN</div>
+          <div className="info-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
+            <label className="field">
+              Nama Turnamen
+              <input className="input" value={tournamentName} onChange={(e) => setTournamentName(e.target.value)} />
+            </label>
+            <label className="field">
+              Kategori
+              <input className="input" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} />
+            </label>
+            <label className="field">
+              Disiplin
+              <select className="input" value={discipline} onChange={(e) => setDiscipline(e.target.value)}>
+                {DISCIPLINES.map((d) => (
+                  <option key={d} value={d}>
+                    {d} - {DISCIPLINE_LABEL[d]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Tanggal (YYYY-MM-DD)
+              <input className="input" value={scheduledDate} placeholder="2026-10-20" onChange={(e) => setScheduledDate(e.target.value)} />
+            </label>
+            <label className="field">
+              Jam Pertandingan
+              <input className="input" value={scheduledTime} placeholder="14:30 WIB" onChange={(e) => setScheduledTime(e.target.value)} />
+            </label>
+            <label className="field">
+              Lapangan (Court)
+              <select className="input" value={courtNumber} onChange={(e) => setCourtNumber(e.target.value)}>
+                {Array.from({ length: courtCount }, (_, i) => (
+                  <option key={i} value={i + 1}>
+                    Lapangan {i + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Metode Skor
+              <select className="input" value={scoringMethod} onChange={(e) => setScoringMethod(e.target.value)}>
+                <option value="rally_point">Rally Point</option>
+                <option value="side_out">Side-Out (Pindah Bola)</option>
+              </select>
+            </label>
+            <label className="field">
+              Tipe Pertandingan
+              <select className="input" value={scoringType} onChange={(e) => setScoringType(e.target.value)}>
+                <option value="sets">Sets (Best of 3)</option>
+                <option value="continuous">Continuous (1 Game Panjang)</option>
+              </select>
+            </label>
+            <label className="field">
+              Win Point
+              <input className="input" type="number" min={1} max={200} value={winPoint} onChange={(e) => setWinPoint(e.target.value)} />
+            </label>
+            <label className="field">
+              Interval Point
+              <input className="input" type="number" min={0} max={199} value={intervalPoint} onChange={(e) => setIntervalPoint(e.target.value)} />
+            </label>
+          </div>
+        </div>
+
+        {/* Section 2: Nama Pemain & Club */}
+        <div className="setup-grid">
+          <div className="card col" style={{ padding: '.85rem' }}>
+            <div className="small" style={{ fontWeight: 800, color: '#93c5fd' }}>2A. TIM A (PEMAIN & CLUB)</div>
+            <label className="field">
+              Pemain 1 Tim A
+              <input className="input" value={teamA.p1} onChange={(e) => setTeamA({ ...teamA, p1: e.target.value })} required />
+            </label>
+            {isDbl && (
+              <label className="field">
+                Pemain 2 Tim A (Ganda)
+                <input className="input" value={teamA.p2} onChange={(e) => setTeamA({ ...teamA, p2: e.target.value })} required />
+              </label>
+            )}
+            <label className="field">
+              Club / PB Tim A
+              <input className="input" value={teamA.club} onChange={(e) => setTeamA({ ...teamA, club: e.target.value })} />
+            </label>
+          </div>
+
+          <div className="card col" style={{ padding: '.85rem' }}>
+            <div className="small" style={{ fontWeight: 800, color: '#fca5a5' }}>2B. TIM B (PEMAIN & CLUB)</div>
+            <label className="field">
+              Pemain 1 Tim B
+              <input className="input" value={teamB.p1} onChange={(e) => setTeamB({ ...teamB, p1: e.target.value })} required />
+            </label>
+            {isDbl && (
+              <label className="field">
+                Pemain 2 Tim B (Ganda)
+                <input className="input" value={teamB.p2} onChange={(e) => setTeamB({ ...teamB, p2: e.target.value })} required />
+              </label>
+            )}
+            <label className="field">
+              Club / PB Tim B
+              <input className="input" value={teamB.club} onChange={(e) => setTeamB({ ...teamB, club: e.target.value })} />
+            </label>
+          </div>
+        </div>
+
+        {/* Section 3: Status, Skor, Hasil Akhir, Diskualifikasi / WO */}
+        <div className="card col" style={{ padding: '.85rem' }}>
+          <div className="row">
+            <div className="small" style={{ fontWeight: 800, color: 'var(--gold)' }}>
+              3. STATUS PERTANDINGAN, SKOR & KEPUTUSAN KHUSUS (DISKUALIFIKASI / WO / RETIRED)
+            </div>
+          </div>
+
+          {/* Tombol Aksi Cepat Diskualifikasi / Walkover */}
+          <div className="row" style={{ background: '#0a1328', padding: '.6rem .8rem', borderRadius: 10, border: '1px solid var(--line)' }}>
+            <span className="small muted" style={{ fontWeight: 700 }}>⚡ Keputusan Cepat:</span>
+            <button type="button" className="btn btn-sm btn-blue" onClick={() => applyQuickPreset('Diskualifikasi/WO Tim B', 'a')}>
+              🏆 Menangkan Tim A (Tim B Diskualifikasi / WO)
+            </button>
+            <button type="button" className="btn btn-sm btn-red" onClick={() => applyQuickPreset('Diskualifikasi/WO Tim A', 'b')}>
+              🏆 Menangkan Tim B (Tim A Diskualifikasi / WO)
+            </button>
+          </div>
+
+          <div className="info-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))' }}>
+            <label className="field">
+              Status Pertandingan
+              <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
+                <option value="scheduled">Terjadwal (Belum Mulai)</option>
+                <option value="locked">Setup (Dikunci Wasit)</option>
+                <option value="in_progress">Berlangsung (Live)</option>
+                <option value="finished">Selesai (Finished)</option>
+              </select>
+            </label>
+            <label className="field">
+              Pemenang Pertandingan
+              <select className="input" value={winner} onChange={(e) => setWinner(e.target.value)}>
+                <option value="">— Belum Ditentukan —</option>
+                <option value="a">Tim A ({teamA.p1})</option>
+                <option value="b">Tim B ({teamB.p1})</option>
+              </select>
+            </label>
+            <label className="field">
+              Skor Poin Aktif Tim A
+              <input className="input" type="number" min={0} max={200} value={scoreA} onChange={(e) => setScoreA(e.target.value)} />
+            </label>
+            <label className="field">
+              Skor Poin Aktif Tim B
+              <input className="input" type="number" min={0} max={200} value={scoreB} onChange={(e) => setScoreB(e.target.value)} />
+            </label>
+            {scoringType === 'sets' && (
+              <>
+                <label className="field">
+                  Set Menang Tim A
+                  <input className="input" type="number" min={0} max={5} value={setsA} onChange={(e) => setSetsA(e.target.value)} />
+                </label>
+                <label className="field">
+                  Set Menang Tim B
+                  <input className="input" type="number" min={0} max={5} value={setsB} onChange={(e) => setSetsB(e.target.value)} />
+                </label>
+              </>
+            )}
+          </div>
+
+          {/* Riwayat Skor Per Set */}
+          <div className="col" style={{ marginTop: '.25rem' }}>
+            <div className="row">
+              <span className="small muted">Riwayat Skor Set (ditampilkan di Laporan Hasil & TV/OBS):</span>
+              <button type="button" className="btn btn-sm" onClick={addSetRow}>
+                + Tambah Set
+              </button>
+            </div>
+            {setHistory.map((s, idx) => (
+              <div key={idx} className="row" style={{ background: '#0a1328', padding: '.4rem .7rem', borderRadius: 8 }}>
+                <b className="small" style={{ minWidth: 55 }}>Set {idx + 1}</b>
+                <span className="small muted">Tim A:</span>
+                <input
+                  className="inline-input"
+                  style={{ width: 65 }}
+                  type="number"
+                  min={0}
+                  value={s.a}
+                  onChange={(e) => updateSetRow(idx, 'a', e.target.value)}
+                />
+                <span className="small muted">Tim B:</span>
+                <input
+                  className="inline-input"
+                  style={{ width: 65 }}
+                  type="number"
+                  min={0}
+                  value={s.b}
+                  onChange={(e) => updateSetRow(idx, 'b', e.target.value)}
+                />
+                <span className="small muted">Pemenang Set:</span>
+                <select
+                  className="inline-input"
+                  style={{ width: 95 }}
+                  value={s.winner}
+                  onChange={(e) => updateSetRow(idx, 'winner', e.target.value)}
+                >
+                  <option value="a">Tim A</option>
+                  <option value="b">Tim B</option>
+                </select>
+                <div className="spacer" />
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => removeSetRow(idx)}>
+                  🗑 Hapus
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="row" style={{ marginTop: '.3rem' }}>
+            <label className="field" style={{ flex: 1 }}>
+              Catatan Audit Log (Alasan perubahan / diskualifikasi / koreksi)
+              <input
+                className="input"
+                value={adminNote}
+                onChange={(e) => setAdminNote(e.target.value)}
+                placeholder="Contoh: Tim B didiskualifikasi karena melanggar regulasi umur kategori"
+              />
+            </label>
+          </div>
+          {status === 'finished' && (
+            <label className="row small" style={{ cursor: 'pointer' }}>
+              <input type="checkbox" checked={reExport} onChange={(e) => setReExport(e.target.checked)} />
+              Otomatis perbarui file ekspor CSV & kirim ulang hasil ke Google Sheets
+            </label>
+          )}
+        </div>
+
+        <div className="row">
+          <button type="submit" className="btn btn-primary btn-lg" disabled={busy}>
+            {busy ? 'Menyimpan…' : '💾 Simpan Semua Perubahan'}
+          </button>
+          <button type="button" className="btn btn-ghost btn-lg" onClick={onClose}>
+            Batal
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function LogsModal({ id, onClose }) {
   const [logs, setLogs] = useState(null);
   useEffect(() => {
@@ -327,7 +723,7 @@ function CourtGrid({ matches, courtCount, now, onUnlock }) {
   );
 }
 
-function MatchTable({ matches, pin, courtCount, now, onLogs, notify }) {
+function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [court, setCourt] = useState('');
@@ -463,6 +859,9 @@ function MatchTable({ matches, pin, courtCount, now, onLogs, notify }) {
                   <td className="small">{sm.locked ? `🔒 ${sm.controller_label || `…${sm.controller_tag}`}` : <span className="muted">-</span>}</td>
                   <td>
                     <div className="row" style={{ gap: '.3rem', flexWrap: 'nowrap' }}>
+                      <button className="btn btn-sm btn-yellow" onClick={() => onEdit(m)} title="Edit lengkap (pemain, club, skor, status, diskualifikasi/WO)">
+                        ✏️ Edit
+                      </button>
                       <button className="btn btn-sm" onClick={() => onLogs(m.match_number)} title="Audit log">
                         Log
                       </button>
@@ -508,6 +907,7 @@ export default function AdminPage() {
   const [connected, setConnected] = useState(false);
   const [courtCount, setCourtCount] = useState(15);
   const [logsFor, setLogsFor] = useState(null);
+  const [editMatch, setEditMatch] = useState(null);
   const [notice, setNotice] = useState(null);
   const now = useNow(1000);
 
@@ -658,7 +1058,16 @@ export default function AdminPage() {
         </div>
       </div>
 
-      <MatchTable matches={matches} pin={pin} courtCount={courtCount} now={now} onLogs={setLogsFor} notify={notify} />
+      <MatchTable matches={matches} pin={pin} courtCount={courtCount} now={now} onEdit={setEditMatch} onLogs={setLogsFor} notify={notify} />
+      {editMatch && (
+        <EditMatchModal
+          match={matches.find((x) => x.match_number === editMatch.match_number) || editMatch}
+          pin={pin}
+          courtCount={courtCount}
+          onClose={() => setEditMatch(null)}
+          notify={notify}
+        />
+      )}
       {logsFor && <LogsModal id={logsFor} onClose={() => setLogsFor(null)} />}
     </main>
   );

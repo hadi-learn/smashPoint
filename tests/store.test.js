@@ -91,6 +91,28 @@ M-101,Pak Pele Cup 3,Veteran U-110,MD,side_out,continuous,30,15,Budi,Agus,Djarum
   assert.equal(undoAct.ok, true);
   assert.equal(undoAct.match.live_state.score.a, 0);
 
+  // 9. Test Admin full match edit (players, club, score, status -> finished due to disqualification)
+  let exportedMatch = null;
+  store.on('finished', (m) => {
+    exportedMatch = m;
+  });
+  const edited = store.adminUpdate('M-101', {
+    teams: {
+      team_a: { p1: 'Budi Baru', p2: 'Agus Baru', club: 'PB Juara' },
+    },
+    score: { a: 0, b: 30 },
+    set_history: [{ set: 1, a: 0, b: 30, winner: 'b' }],
+    winner: 'b',
+    status: 'finished',
+    admin_note: 'Tim A didiskualifikasi',
+  });
+  assert.equal(edited.teams.team_a.p1, 'Budi Baru');
+  assert.equal(edited.teams.team_a.club, 'PB Juara');
+  assert.equal(edited.session_management.status, 'finished');
+  assert.equal(edited.live_state.winner, 'b');
+  assert.equal(edited.live_state.score.b, 30);
+  assert.ok(exportedMatch);
+
   // Clean up
   store.flush();
   fs.rmSync(testDir, { recursive: true, force: true });
