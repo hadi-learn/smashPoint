@@ -432,11 +432,14 @@ await app.prepare();
 const nextUpgrade = typeof app.getUpgradeHandler === 'function' ? app.getUpgradeHandler() : null;
 
 server.on('request', async (req, res) => {
+  // Ignore Socket.io HTTP long-polling requests (already handled by engine.io)
+  if (req.url?.startsWith('/socket.io')) return;
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (url.pathname.startsWith('/api/')) {
     try {
       await handleApi(req, res, url);
     } catch (e) {
+      if (res.headersSent) return;
       if (e instanceof StoreError) send(res, e.status || 400, { ok: false, error: e.message, reason: e.code });
       else {
         console.error('[api]', e);
