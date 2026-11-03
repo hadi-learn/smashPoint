@@ -199,6 +199,49 @@ function servingSideBadge(match) {
   );
 }
 
+function renderPreviousScore(p) {
+  if (Array.isArray(p.score_sets) && p.score_sets.length > 0) {
+    return (
+      <span className="tv-prev-score">
+        {p.score_sets.map((s, idx) => {
+          const aWonSet = (s.winner || (s.a >= s.b ? 'a' : 'b')) === 'a';
+          return (
+            <span key={idx} className="tv-prev-set-item">
+              {idx > 0 && <span className="tv-prev-set-comma">, </span>}
+              <span className={aWonSet ? 'score-won' : 'score-lost'}>{s.a}</span>
+              <span className="tv-prev-score-sep">-</span>
+              <span className={!aWonSet ? 'score-won' : 'score-lost'}>{s.b}</span>
+            </span>
+          );
+        })}
+      </span>
+    );
+  }
+  // Fallback if score_sets is not present: parse from score_text
+  const parts = String(p.score_text || '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (parts.length > 0) {
+    return (
+      <span className="tv-prev-score">
+        {parts.map((pt, idx) => {
+          const [saRaw, sbRaw] = pt.split('-');
+          const sa = parseInt(saRaw, 10);
+          const sb = parseInt(sbRaw, 10);
+          const aWonSet = Number.isFinite(sa) && Number.isFinite(sb) ? sa >= sb : p.winner === 'a';
+          return (
+            <span key={idx} className="tv-prev-set-item">
+              {idx > 0 && <span className="tv-prev-set-comma">, </span>}
+              <span className={aWonSet ? 'score-won' : 'score-lost'}>{saRaw}</span>
+              <span className="tv-prev-score-sep">-</span>
+              <span className={!aWonSet ? 'score-won' : 'score-lost'}>{sbRaw}</span>
+            </span>
+          );
+        })}
+      </span>
+    );
+  }
+  return <span className="tv-prev-score">{p.score_text}</span>;
+}
+
 /**
  * Full-Screen Arena LED Scoreboard (for Courtside Smart TV / Big Monitor).
  * Redesigned with broadcast-grade horizontal rows + massive court-side split panels.
@@ -269,7 +312,7 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
                         {p.team_b_club ? <small> ({p.team_b_club})</small> : ''}
                       </span>
                     </span>
-                    <span className="tv-prev-score">{p.score_text}</span>
+                    {renderPreviousScore(p)}
                   </div>
                 );
               })}
@@ -314,7 +357,7 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
 
             <div className="tv-result-card opponent">
               <div className="tv-result-card-left">
-                <div className="tv-result-role">LAWAN (RUNNER-UP)</div>
+                <div className="tv-result-role">LAWAN</div>
                 <div className="tv-result-names">{teamLabel(match, loseSide)}</div>
                 {loseTeam?.club && <div className="tv-result-club">{loseTeam.club}</div>}
               </div>
@@ -635,7 +678,7 @@ function Idle({ court, previous = [], upcoming = [], isObs, bgMode }) {
                       {p.team_b}
                     </span>
                   </span>
-                  <span className="tv-prev-score">{p.score_text}</span>
+                  {renderPreviousScore(p)}
                 </div>
               );
             })}
