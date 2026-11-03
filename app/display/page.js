@@ -203,20 +203,54 @@ function ArenaBoard({ match, now }) {
 
   let overlay = null;
   if (finished) {
+    const winSide = st.winner || (st.score[L] >= st.score[R] ? L : R);
+    const loseSide = winSide === 'a' ? 'b' : 'a';
+    const winTeam = match.teams[`team_${winSide}`];
+    const loseTeam = match.teams[`team_${loseSide}`];
+    const lastSet = st.set_history[st.set_history.length - 1];
+    const winScore = isSets ? st.sets[winSide] : (lastSet ? lastSet[winSide] : st.score[winSide]);
+    const loseScore = isSets ? st.sets[loseSide] : (lastSet ? lastSet[loseSide] : st.score[loseSide]);
+
     overlay = (
       <div className="tv-overlay">
         <div className="tv-overlay-badge">
-          OFFICIAL RESULT · PERTANDINGAN SELESAI{duration ? ` · ⏱ ${duration}` : ''}
+          OFFICIAL RESULT · HASIL AKHIR PERTANDINGAN{duration ? ` · ⏱ ${duration}` : ''}
         </div>
-        <h1>{teamLabel(match, st.winner)}</h1>
-        <h2>{match.teams[`team_${st.winner}`]?.club}</h2>
-        <div className="tv-overlay-scores">
-          {st.set_history.map((s) => (
-            <span key={s.set} className="tv-overlay-set">
-              SET {s.set}: <strong>{s.a} - {s.b}</strong>
-            </span>
-          ))}
+
+        {/* Full Matchup Result Card: Winner vs Opponent + Scores */}
+        <div className="tv-result-grid">
+          <div className="tv-result-card winner">
+            <div className="tv-result-role">🏆 PEMENANG (WINNER)</div>
+            <div className="tv-result-names">{teamLabel(match, winSide)}</div>
+            {winTeam?.club && <div className="tv-result-club">{winTeam.club}</div>}
+            <div className="tv-result-main-score">{winScore}</div>
+            {isSets && <div className="tv-result-score-label">SET MENANG</div>}
+          </div>
+
+          <div className="tv-result-vs">VS</div>
+
+          <div className="tv-result-card opponent">
+            <div className="tv-result-role">LAWAN (RUNNER-UP)</div>
+            <div className="tv-result-names">{teamLabel(match, loseSide)}</div>
+            {loseTeam?.club && <div className="tv-result-club">{loseTeam.club}</div>}
+            <div className="tv-result-main-score">{loseScore}</div>
+            {isSets && <div className="tv-result-score-label">SET MENANG</div>}
+          </div>
         </div>
+
+        {/* Detailed Set-by-Set Score Breakdown */}
+        {st.set_history.length > 0 && (
+          <div className="tv-overlay-scores">
+            {st.set_history.map((s) => (
+              <span key={s.set} className="tv-overlay-set">
+                {isSets ? `SET ${s.set}` : 'SKOR AKHIR'}:{' '}
+                <strong style={{ color: 'var(--gold)' }}>{s[winSide]}</strong>
+                {' - '}
+                <strong>{s[loseSide]}</strong>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     );
   } else if (st.phase === 'interval') {
@@ -390,20 +424,40 @@ function ObsOverlayView({ match, now, bgMode }) {
           <div className="obs-lt-body">
             <div className="obs-lt-kicker">
               {finished
-                ? `OFFICIAL WINNER · ${match.tournament_name}${duration ? ` · ⏱ ${duration}` : ''}`
+                ? `OFFICIAL RESULT · ${match.tournament_name}${duration ? ` · ⏱ ${duration}` : ''}`
                 : st.phase === 'interval'
                 ? 'MATCH INTERVAL'
                 : `END OF GAME ${st.current_set}`}
             </div>
             <div className="obs-lt-headline">
-              {finished
-                ? `${teamLabel(match, st.winner)} (${match.teams[`team_${st.winner}`]?.club || ''})`
-                : `${teamLabel(match, 'a')}  vs  ${teamLabel(match, 'b')}`}
+              {finished ? (
+                (() => {
+                  const winSide = st.winner || (st.score.a >= st.score.b ? 'a' : 'b');
+                  const loseSide = winSide === 'a' ? 'b' : 'a';
+                  return (
+                    <>
+                      <span style={{ color: 'var(--gold)' }}>🏆 {teamLabel(match, winSide)}</span>
+                      {match.teams[`team_${winSide}`]?.club ? ` (${match.teams[`team_${winSide}`].club})` : ''}
+                      <span style={{ color: '#94a3b8', fontWeight: 700, margin: '0 10px' }}>def.</span>
+                      <span style={{ color: '#cbd5e1' }}>{teamLabel(match, loseSide)}</span>
+                      {match.teams[`team_${loseSide}`]?.club ? ` (${match.teams[`team_${loseSide}`].club})` : ''}
+                    </>
+                  );
+                })()
+              ) : (
+                `${teamLabel(match, 'a')}  vs  ${teamLabel(match, 'b')}`
+              )}
             </div>
           </div>
           <div className="obs-lt-score">
             {st.set_history.length > 0
-              ? st.set_history.map((s) => `${s.a}-${s.b}`).join('  ·  ')
+              ? st.set_history
+                  .map((s) => {
+                    const winSide = st.winner || 'a';
+                    const loseSide = winSide === 'a' ? 'b' : 'a';
+                    return finished ? `${s[winSide]}-${s[loseSide]}` : `${s.a}-${s.b}`;
+                  })
+                  .join('  ·  ')
               : `${st.score.a} - ${st.score.b}`}
           </div>
         </div>
