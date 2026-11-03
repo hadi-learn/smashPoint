@@ -208,12 +208,13 @@ export function TakeoverModal({ match, onClose, onSubmit }) {
   );
 }
 
-export default function LiveScreen({ match, now, readOnly, pending, connected, send, spectator }) {
+export default function LiveScreen({ match, now, readOnly, pending, connected, send, spectator, orientation = 'landscape' }) {
   const [showOverride, setShowOverride] = useState(false);
   const st = match.live_state;
   const ss = st.service_status;
   const L = st.sides.left;
   const R = st.sides.right;
+  const isPortrait = orientation === 'portrait';
   const sideOutDbl = match.rules.scoring_method === 'side_out' && isDoubles(match);
   const finished = match.session_management.status === 'finished';
   const canAct = !readOnly && !pending && connected && !finished;
@@ -221,11 +222,11 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
   const isSets = match.rules.scoring_type === 'sets';
   const duration = matchDurationText(match, now);
 
-  const teamHeader = (t, align) => (
+  const teamHeader = (t, align, sideTag) => (
     <div className={`team ${align}`}>
       <span className="tname">{teamLabel(match, t)}</span>
-      <span className="small muted">
-        Tim {T(t)} · {match.teams[`team_${t}`].club || '-'}
+      <span className="tclub">
+        {sideTag ? `${sideTag} · ` : ''}Tim {T(t)} · {match.teams[`team_${t}`].club || '-'}
       </span>
       <span className={`num ${ss.side === t ? 'serving' : ''}`}>{st.score[t]}</span>
     </div>
@@ -316,46 +317,86 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
 
   const rallyBtn = (screen) => {
     const t = screen === 'left' ? L : R;
+    const club = match.teams[`team_${t}`].club;
+    const isServeHere = ss.side === t && st.phase !== 'setup';
+    const sideLabel = isPortrait
+      ? screen === 'left'
+        ? 'LAPANGAN ATAS'
+        : 'LAPANGAN BAWAH'
+      : screen === 'left'
+        ? 'LAPANGAN KIRI'
+        : 'LAPANGAN KANAN';
+    const arrow = isPortrait ? (screen === 'left' ? '▲' : '▼') : screen === 'left' ? '◀' : '▶';
+
     return (
-      <button className={`rally-btn ${screen}`} disabled={!canScore} onClick={() => send('WIN_RALLY', { side: screen })}>
-        {screen === 'left' ? '◀' : '▶'}
-        <span>
-          TIM {screen === 'left' ? 'KIRI' : 'KANAN'}
-          <br />
-          MENANG RELI
-        </span>
-        <small>{teamLabel(match, t)}</small>
+      <button
+        className={`rally-btn ${screen} ${isPortrait ? 'portrait-btn' : 'landscape-btn'} ${isServeHere ? 'is-serving' : ''}`}
+        disabled={!canScore}
+        onClick={() => send('WIN_RALLY', { side: screen })}
+      >
+        <div className="rally-btn-top">
+          <span className="rally-side-pill">
+            {arrow} {sideLabel} · MENANG RELI
+          </span>
+          {isServeHere && (
+            <span className={`rally-serve-tag ${sideOutDbl && ss.turn === 2 ? 'serve-2' : 'serve-1'}`}>
+              <Shuttle size={14} />
+              {sideOutDbl ? (ss.turn === 2 ? ' 2nd Serve' : ' 1st Serve') : ' Servis'}
+            </span>
+          )}
+        </div>
+        <div className="rally-btn-main">
+          <div className="rally-team-info">
+            <div className="rally-players">{teamLabel(match, t)}</div>
+            {club && <div className="rally-club">{club}</div>}
+          </div>
+          <div className={`rally-score ${isServeHere ? 'serving' : ''}`}>{st.score[t]}</div>
+        </div>
       </button>
     );
   };
 
   return (
     <>
-      <div className="ref-live">
+      <div className={`ref-live ${isPortrait ? 'portrait' : 'landscape'}`}>
         {rallyBtn('left')}
         <div className="ref-center">
-          <div className="scoreline">
-            {teamHeader(L, '')}
+          <div className={`scoreline ${isPortrait ? 'portrait-bar' : ''}`}>
+            {!isPortrait && teamHeader(L, '', 'KIRI')}
             <div className="mid">
-              <div>{isSets ? `SET ${st.current_set}` : 'GAME'}</div>
-              {isSets && (
-                <div style={{ fontSize: '1.4rem', color: 'var(--text)' }}>
-                  {st.sets[L]} - {st.sets[R]}
-                </div>
-              )}
-              <div className="small">{match.rules.scoring_method === 'side_out' ? 'SIDE-OUT' : 'RALLY'} · {match.rules.win_point}</div>
-              {duration && <div className="small mono" style={{ color: 'var(--cyan)', marginTop: '.15rem' }}>⏱ {duration}</div>}
+              <div className="mid-top-row">
+                <span>{isSets ? `SET ${st.current_set}` : 'GAME'}</span>
+                {isSets && (
+                  <span className="mid-sets">
+                    ({st.sets[L]} - {st.sets[R]})
+                  </span>
+                )}
+                <span>· {match.rules.scoring_method === 'side_out' ? 'SIDE-OUT' : 'RALLY'} {match.rules.win_point}</span>
+                {duration && <span className="mid-dur mono">⏱ {duration}</span>}
+              </div>
               {ss.side && st.phase !== 'setup' && (
-                <div className={`badge ${sideOutDbl && ss.turn === 2 ? 'orange' : 'gold'}`} style={{ marginTop: '.3rem' }}>
-                  <Shuttle size={14} />
-                  {sideOutDbl && ss.turn === 2 ? <Shuttle size={14} /> : null} {ss.player_name}
-                  {sideOutDbl ? ` · ${ss.turn === 2 ? '2nd Serve' : '1st Serve'}` : ''}
+                <div className={`ref-serve-banner ${sideOutDbl && ss.turn === 2 ? 'serve-2' : 'serve-1'}`}>
+                  <Shuttle size={16} />
+                  {sideOutDbl && ss.turn === 2 ? <Shuttle size={16} /> : null}
+                  <span>
+                    Servis: <b>{ss.player_name}</b>
+                    {sideOutDbl ? ` (${ss.turn === 2 ? 'SERVIS KE-2 / 2nd Serve' : 'SERVIS KE-1 / 1st Serve'})` : ''}
+                  </span>
                 </div>
               )}
             </div>
-            {teamHeader(R, 'right')}
+            {!isPortrait && teamHeader(R, 'right', 'KANAN')}
           </div>
-          <CourtMap match={match} positions={st.court_positions} serverId={st.phase === 'setup' ? null : ss.player_id} receiverId={st.phase === 'setup' ? null : ss.receiver_id} serveTurn={ss.turn} spinKey={L} overlay={overlay} />
+          <CourtMap
+            match={match}
+            positions={st.court_positions}
+            serverId={st.phase === 'setup' ? null : ss.player_id}
+            receiverId={st.phase === 'setup' ? null : ss.receiver_id}
+            serveTurn={ss.turn}
+            spinKey={L}
+            overlay={overlay}
+            orientation={orientation}
+          />
           {st.set_history.length > 0 && (
             <div className="row small muted" style={{ justifyContent: 'center' }}>
               {st.set_history.map((s) => (
@@ -378,10 +419,10 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
               className="btn btn-blue"
               disabled={!canAct || st.phase !== 'live'}
               onClick={() => {
-                if (window.confirm('Tukar sisi tim secara manual (Kiri ↔ Kanan)?')) send('SWITCH_SIDE');
+                if (window.confirm('Tukar sisi tim secara manual?')) send('SWITCH_SIDE');
               }}
             >
-              ⇄ TUKAR SISI
+              {isPortrait ? '⇅ TUKAR SISI (ATAS ↔ BAWAH)' : '⇄ TUKAR SISI (KIRI ↔ KANAN)'}
             </button>
             <button className="btn btn-red" disabled={!canAct} onClick={() => setShowOverride(true)}>
               ⚠ OVERRIDE

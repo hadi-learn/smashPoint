@@ -21,16 +21,23 @@ export default function RefereePage() {
   const [pending, setPending] = useState(false);
   const [showTakeover, setShowTakeover] = useState(false);
   const [ready, setReady] = useState(false);
+  const [layoutMode, setLayoutMode] = useState('auto'); // auto | landscape | portrait
+  const [fontScale, setFontScale] = useState(115); // 85 .. 170 (%)
+  const [isPortraitViewport, setIsPortraitViewport] = useState(false);
   const now = useNow(1000);
 
   const refs = useRef({});
   refs.current = { deviceId, label, matchNo, mode, match };
   const pendingRef = useRef(false);
 
-  // ---- boot: restore device identity, session & cached live_state (PRD 8.2)
+  // ---- boot: restore device identity, session, UI preferences & cached live_state (PRD 8.2)
   useEffect(() => {
     setDeviceId(getDeviceId());
     setLabelState(lsGet('sp_device_label', ''));
+    const savedLayout = lsGet('sp_ref_layout', 'auto');
+    if (['auto', 'landscape', 'portrait'].includes(savedLayout)) setLayoutMode(savedLayout);
+    const savedScale = Number(lsGet('sp_ref_font_scale', 115));
+    if (Number.isFinite(savedScale) && savedScale >= 85 && savedScale <= 175) setFontScale(savedScale);
     const sess = lsGet('sp_ref_session');
     if (sess?.match_number) {
       setMatchNo(sess.match_number);
@@ -40,6 +47,29 @@ export default function RefereePage() {
     }
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const checkViewport = () => {
+      setIsPortraitViewport(window.innerHeight > window.innerWidth && window.innerWidth < 920);
+    };
+    checkViewport();
+    window.addEventListener('resize', checkViewport);
+    return () => window.removeEventListener('resize', checkViewport);
+  }, []);
+
+  const changeLayoutMode = (m) => {
+    setLayoutMode(m);
+    lsSet('sp_ref_layout', m);
+  };
+
+  const changeFontScale = (v) => {
+    const clamped = Math.max(85, Math.min(175, Number(v) || 100));
+    setFontScale(clamped);
+    lsSet('sp_ref_font_scale', clamped);
+  };
+
+  const effectiveOrientation = layoutMode === 'auto' ? (isPortraitViewport ? 'portrait' : 'landscape') : layoutMode;
 
   useEffect(() => {
     if (ready) lsSet('sp_ref_session', matchNo ? { match_number: matchNo, mode } : null);
@@ -231,7 +261,7 @@ export default function RefereePage() {
       </div>
     );
   } else if (mode === 'controller' && match.live_state.phase === 'setup' && sm.status !== 'finished') {
-    body = <SetupScreen key={`${match.match_number}-${match.live_state.current_set}`} match={match} send={send} pending={pending} connected={connected} />;
+    body = <SetupScreen key={`${match.match_number}-${match.live_state.current_set}`} match={match} send={send} pending={pending} connected={connected} orientation={effectiveOrientation} />;
   } else {
     const spectator = mode === 'spectator';
     body = (
@@ -242,6 +272,7 @@ export default function RefereePage() {
         pending={pending}
         connected={connected}
         send={send}
+        orientation={effectiveOrientation}
         spectator={
           <>
             {spectator && sm.status !== 'finished' && (sm.locked ? (
@@ -263,7 +294,7 @@ export default function RefereePage() {
   }
 
   return (
-    <div className="ref-shell">
+    <div className="ref-shell" style={{ '--ref-scale': fontScale / 100 }}>
       <div className="ref-topbar">
         <Link href="/" className="title" style={{ color: 'var(--text)' }}>
           🏸 SmashPoint <span className="muted small">Wasit</span>
@@ -279,6 +310,54 @@ export default function RefereePage() {
         {mode === 'spectator' && <span className="badge red">👁 MODE PANTAU (Read-Only)</span>}
         {pending && <span className="badge gold">mengirim…</span>}
         <div className="spacer" />
+
+        {/* Pengaturan Ergonomi Wasit: Mode Orientasi (Portrait/Landscape) & Slider Ukuran Huruf */}
+        {match && mode !== 'none' && (
+          <div className="ref-display-controls">
+            <div className="ref-orient-group" title="Pilih Orientasi Tampilan">
+              <button
+                type="button"
+                className={`ref-orient-btn ${layoutMode === 'auto' ? 'active' : ''}`}
+                onClick={() => changeLayoutMode('auto')}
+              >
+                🔄 Auto
+              </button>
+              <button
+                type="button"
+                className={`ref-orient-btn ${layoutMode === 'landscape' ? 'active' : ''}`}
+                onClick={() => changeLayoutMode('landscape')}
+              >
+                ↔ Landscape
+              </button>
+              <button
+                type="button"
+                className={`ref-orient-btn ${layoutMode === 'portrait' ? 'active' : ''}`}
+                onClick={() => changeLayoutMode('portrait')}
+              >
+                ↕ Portrait
+              </button>
+            </div>
+            <div className="ref-font-slider" title="Ukuran Huruf Informasi Penting (Skor, Nama, Klub, Serve)">
+              <button type="button" className="ref-font-step" onClick={() => changeFontScale(fontScale - 10)}>
+                A-
+              </button>
+              <input
+                type="range"
+                min={85}
+                max={175}
+                step={5}
+                value={fontScale}
+                onChange={(e) => changeFontScale(e.target.value)}
+                aria-label="Ukuran Huruf"
+              />
+              <button type="button" className="ref-font-step" onClick={() => changeFontScale(fontScale + 10)}>
+                A+
+              </button>
+              <span className="ref-font-pct mono">{fontScale}%</span>
+            </div>
+          </div>
+        )}
+
         {label && <span className="small muted">{label}</span>}
         <span className="row small" style={{ gap: '.4rem' }}>
           <span className={`dot ${connected ? 'on' : ''}`} /> {connected ? 'Online' : 'Offline - menyambung ulang…'}

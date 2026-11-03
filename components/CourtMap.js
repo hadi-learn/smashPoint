@@ -11,12 +11,22 @@ const SLOT_TAG = {
   right_bottom: 'Kotak Kiri · Ganjil',
 };
 
-// Center coordinates (in 0..200 x 0..100 BWF proportional SVG viewBox) for each service box
-const SLOT_COORDS = {
+// Center coordinates (in 0..200 x 0..100 BWF proportional SVG viewBox) for each service box in Landscape
+const SLOT_COORDS_LANDSCAPE = {
   left_top: { x: 46, y: 29 },
   left_bottom: { x: 46, y: 71 },
   right_top: { x: 154, y: 29 },
   right_bottom: { x: 154, y: 71 },
+};
+
+// Center coordinates (in 0..100 x 0..200 BWF proportional SVG viewBox) for each service box in Portrait (Top vs Bottom)
+// Top Half = Team Left (`left_bottom` on left col, `left_top` on right col -> facing Down)
+// Bottom Half = Team Right (`right_bottom` on left col, `right_top` on right col -> facing Up)
+const SLOT_COORDS_PORTRAIT = {
+  left_bottom: { x: 29, y: 46 },
+  left_top: { x: 71, y: 46 },
+  right_bottom: { x: 29, y: 154 },
+  right_top: { x: 71, y: 154 },
 };
 
 function findSlot(positions, pid) {
@@ -28,14 +38,31 @@ function findSlot(positions, pid) {
 }
 
 /**
- * Authentic BWF Badminton Court markings (viewBox 0..200 x 0..100):
- * - Outer boundaries (doubles sidelines & back boundary lines)
- * - Singles sidelines (inset top & bottom)
- * - Long service lines for doubles (inset near left & right baselines)
- * - Short service lines (left & right of the center net)
- * - Center lines dividing even/odd service courts between short service line and baseline
+ * Authentic BWF Badminton Court markings:
+ * - Landscape (viewBox 0..200 x 0..100): vertical net at x=100
+ * - Portrait (viewBox 0..100 x 0..200): horizontal net at y=100
  */
-function BadmintonMarkings() {
+function BadmintonMarkings({ isPortrait }) {
+  if (isPortrait) {
+    return (
+      <svg className="court-markings" viewBox="0 0 100 200" preserveAspectRatio="none" aria-hidden="true">
+        {/* Outer court boundary */}
+        <rect x="2" y="2" width="96" height="196" fill="none" stroke="rgba(255,255,255,0.88)" strokeWidth="1.2" />
+        {/* Singles Sidelines (vertical left & right inner lines) */}
+        <line x1="9.5" y1="2" x2="9.5" y2="198" stroke="rgba(255,255,255,0.78)" strokeWidth="0.85" />
+        <line x1="90.5" y1="2" x2="90.5" y2="198" stroke="rgba(255,255,255,0.78)" strokeWidth="0.85" />
+        {/* Doubles Long Service Lines (horizontal top & bottom back inner lines) */}
+        <line x1="2" y1="13.5" x2="98" y2="13.5" stroke="rgba(255,255,255,0.78)" strokeWidth="0.85" />
+        <line x1="2" y1="186.5" x2="98" y2="186.5" stroke="rgba(255,255,255,0.78)" strokeWidth="0.85" />
+        {/* Short Service Lines (above and below horizontal net) */}
+        <line x1="2" y1="70.5" x2="98" y2="70.5" stroke="rgba(255,255,255,0.88)" strokeWidth="1.05" />
+        <line x1="2" y1="129.5" x2="98" y2="129.5" stroke="rgba(255,255,255,0.88)" strokeWidth="1.05" />
+        {/* Center Service Lines (vertical from baseline to short service line on each half) */}
+        <line x1="50" y1="2" x2="50" y2="70.5" stroke="rgba(255,255,255,0.88)" strokeWidth="1.05" />
+        <line x1="50" y1="129.5" x2="50" y2="198" stroke="rgba(255,255,255,0.88)" strokeWidth="1.05" />
+      </svg>
+    );
+  }
   return (
     <svg className="court-markings" viewBox="0 0 200 100" preserveAspectRatio="none" aria-hidden="true">
       {/* Outer court boundary (Doubles Sidelines + Back Baselines) */}
@@ -63,8 +90,9 @@ function BadmintonMarkings() {
 /**
  * Visual court map: authentic BWF court markings + 4 interactive quadrants +
  * realistic parabolic shuttlecock flight animation when struck from server to receiver.
+ * Supports both Landscape (Left vs Right) and Portrait (Top vs Bottom) orientations!
  */
-export default function CourtMap({ match, positions, serverId, receiverId, serveTurn = 1, spinKey, renderActions, overlay, showTags = true }) {
+export default function CourtMap({ match, positions, serverId, receiverId, serveTurn = 1, spinKey, renderActions, overlay, showTags = true, orientation = 'landscape' }) {
   const [spin, setSpin] = useState(false);
   const first = useRef(true);
   useEffect(() => {
@@ -77,14 +105,16 @@ export default function CourtMap({ match, positions, serverId, receiverId, serve
     return () => clearTimeout(t);
   }, [spinKey]);
 
+  const isPortrait = orientation === 'portrait';
   const isSecond = match?.rules?.scoring_method === 'side_out' && serveTurn === 2;
   const serveCls = isSecond ? 'serve-2' : 'serve-1';
   const strokeColor = isSecond ? '#fb923c' : '#facc15';
 
+  const coordsMap = isPortrait ? SLOT_COORDS_PORTRAIT : SLOT_COORDS_LANDSCAPE;
   const srvSlot = findSlot(positions, serverId);
   const rcvSlot = findSlot(positions, receiverId);
-  const from = srvSlot ? SLOT_COORDS[srvSlot] : null;
-  const to = rcvSlot ? SLOT_COORDS[rcvSlot] : null;
+  const from = srvSlot ? coordsMap[srvSlot] : null;
+  const to = rcvSlot ? coordsMap[rcvSlot] : null;
 
   // Build a parabolic arc (quadratic Bezier) representing the shuttlecock rising over the net and dropping into the receiver's box
   let flight = null;
@@ -94,17 +124,16 @@ export default function CourtMap({ match, positions, serverId, receiverId, serve
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len;
     const uy = dy / len;
-    const x1 = from.x + ux * 10;
-    const y1 = from.y + uy * 5;
-    const x2 = to.x - ux * 12;
-    const y2 = to.y - uy * 6;
-    // Control point lifted upward (negative Y) to simulate 3D loft over the net
-    const cx = (x1 + x2) / 2;
-    const cy = (y1 + y2) / 2 - 14;
+    const x1 = from.x + ux * (isPortrait ? 6 : 10);
+    const y1 = from.y + uy * (isPortrait ? 10 : 5);
+    const x2 = to.x - ux * (isPortrait ? 7 : 12);
+    const y2 = to.y - uy * (isPortrait ? 12 : 6);
+    // Control point lifted slightly to simulate 3D loft over the net
+    const cx = (x1 + x2) / 2 - (isPortrait ? 10 : 0);
+    const cy = (y1 + y2) / 2 - (isPortrait ? 0 : 14);
     const pathD = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
-    // Shadow path on the court floor (straight line)
     const shadowD = `M ${x1} ${y1 + 2} L ${x2} ${y2 + 2}`;
-    flight = { x1, y1, x2, y2, cx, cy, pathD, shadowD, key: `${srvSlot}-${rcvSlot}-${serveTurn}` };
+    flight = { x1, y1, x2, y2, cx, cy, pathD, shadowD, key: `${srvSlot}-${rcvSlot}-${serveTurn}-${orientation}` };
   }
 
   const box = (slot) => {
@@ -128,19 +157,34 @@ export default function CourtMap({ match, positions, serverId, receiverId, serve
   };
 
   return (
-    <div className={`court ${spin ? 'spin' : ''}`}>
-      <BadmintonMarkings />
-      <div className="court-half left">
-        {box('left_top')}
-        {box('left_bottom')}
-      </div>
-      <div className="court-half right">
-        {box('right_top')}
-        {box('right_bottom')}
-      </div>
+    <div className={`court ${isPortrait ? 'portrait' : 'landscape'} ${spin ? 'spin' : ''}`}>
+      <BadmintonMarkings isPortrait={isPortrait} />
+      {isPortrait ? (
+        <>
+          <div className="court-half top">
+            {box('left_bottom')}
+            {box('left_top')}
+          </div>
+          <div className="court-half bottom">
+            {box('right_bottom')}
+            {box('right_top')}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="court-half left">
+            {box('left_top')}
+            {box('left_bottom')}
+          </div>
+          <div className="court-half right">
+            {box('right_top')}
+            {box('right_bottom')}
+          </div>
+        </>
+      )}
       <div className="net" />
       {flight && !overlay && (
-        <svg key={flight.key} className="serve-vector" viewBox="0 0 200 100" preserveAspectRatio="none" aria-hidden="true">
+        <svg key={flight.key} className="serve-vector" viewBox={isPortrait ? '0 0 100 200' : '0 0 200 100'} preserveAspectRatio="none" aria-hidden="true">
           <defs>
             <linearGradient id={`arcGrad-${serveCls}`} gradientUnits="userSpaceOnUse" x1={flight.x1} y1={flight.y1} x2={flight.x2} y2={flight.y2}>
               <stop offset="0%" stopColor={strokeColor} stopOpacity="0.15" />
