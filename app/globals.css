@@ -972,34 +972,34 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 
 .bwf-bug {
   display: inline-flex; flex-direction: column;
-  min-width: 540px; max-width: 760px;
+  min-width: 430px; max-width: 580px;
   border-radius: 10px; overflow: hidden;
-  background: #070e22;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.72), 0 2px 6px rgba(0, 0, 0, 0.5);
+  background: #040917;
+  border: 1.5px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.82), 0 2px 6px rgba(0, 0, 0, 0.6);
   font-family: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
 }
 
 /* Top Metadata Header Ribbon of Scorebug */
 .bwf-bug-meta {
-  display: flex; align-items: center; gap: 8px;
-  padding: 5px 12px;
-  background: linear-gradient(90deg, #0f172a 0%, #1e293b 60%, #0f172a 100%);
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 11px;
+  background: linear-gradient(90deg, #091124 0%, #16223f 60%, #091124 100%);
   border-bottom: 2px solid var(--gold);
-  font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
-  color: #e2e8f0;
+  font-size: 11.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
+  color: #f8fafc;
 }
-.bwf-tourney { color: var(--gold); font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+.bwf-tourney { color: var(--gold); font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 210px; }
 .bwf-sep { color: #64748b; }
-.bwf-cat { color: #cbd5e1; white-space: nowrap; }
+.bwf-cat { color: #e2e8f0; white-space: nowrap; font-weight: 800; }
 .bwf-disc {
-  background: rgba(59, 130, 246, 0.25); border: 1px solid rgba(96, 165, 250, 0.45);
-  color: #93c5fd; padding: 1px 6px; border-radius: 4px; font-size: 10px;
+  background: rgba(59, 130, 246, 0.3); border: 1px solid rgba(96, 165, 250, 0.55);
+  color: #bfdbfe; padding: 1px 6px; border-radius: 4px; font-size: 10.5px; font-weight: 900;
 }
 .bwf-court-tag {
   margin-left: auto;
   background: var(--gold); color: #0f172a; font-weight: 900;
-  padding: 1px 7px; border-radius: 4px; font-size: 10.5px;
+  padding: 1px 7px; border-radius: 4px; font-size: 11px;
 }
 .bwf-live-pill {
   display: inline-flex; align-items: center; gap: 4px;
@@ -1014,17 +1014,17 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 /* Scorebug 2-Row Table */
 .bwf-bug-table { display: flex; flex-direction: column; }
 .bwf-row {
-  display: flex; align-items: center; min-height: 52px;
-  background: linear-gradient(90deg, #0b1530 0%, #0f1e42 100%);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  display: flex; align-items: center; min-height: 54px;
+  background: linear-gradient(90deg, #060d20 0%, #0b1633 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
   transition: background 0.25s;
 }
 .bwf-row:last-child { border-bottom: none; }
 .bwf-row.is-serving.serve-1 {
-  background: linear-gradient(90deg, #132554 0%, #1d336e 75%, #172554 100%);
+  background: linear-gradient(90deg, #0f1f48 0%, #172d66 75%, #11204a 100%);
 }
 .bwf-row.is-serving.serve-2 {
-  background: linear-gradient(90deg, #2b1610 0%, #431d10 75%, #2b1610 100%);
+  background: linear-gradient(90deg, #27130d 0%, #3d1a0f 75%, #27130d 100%);
 }
 
 .bwf-accent { width: 6px; align-self: stretch; flex-shrink: 0; }
@@ -1035,39 +1035,41 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 
 .bwf-identity {
   flex: 1; display: flex; flex-direction: column; justify-content: center;
-  padding: 6px 14px; min-width: 260px; overflow: hidden;
+  padding: 6px 12px; min-width: 195px; overflow: hidden;
 }
 .bwf-players {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 5px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .bwf-club-sub {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-  color: #94a3b8; margin-top: 1px;
+  font-size: 11.5px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  color: #cbd5e1; margin-top: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .bwf-row.team-a .bwf-club-sub { color: #93c5fd; }
 .bwf-row.team-b .bwf-club-sub { color: #fca5a5; }
 .bwf-pname {
-  font-size: 16.5px; font-weight: 800; letter-spacing: 0.01em; line-height: 1.15;
+  font-size: 18px; font-weight: 900; letter-spacing: 0.01em; line-height: 1.15;
+  color: #ffffff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
   transition: color 0.2s, text-shadow 0.2s;
 }
-.bwf-pname.neutral { color: #cbd5e1; opacity: 0.85; }
-.bwf-pname.partner { color: #f1f5f9; opacity: 0.92; }
+.bwf-pname.neutral { color: #ffffff; opacity: 1; }
+.bwf-pname.partner { color: #ffffff; opacity: 1; }
 .bwf-pname.srv.serve-1 {
-  color: var(--gold); font-weight: 900;
-  text-shadow: 0 0 12px rgba(250, 204, 21, 0.55);
+  color: #fde047; font-weight: 900;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95), 0 0 12px rgba(250, 204, 21, 0.65);
 }
 .bwf-pname.srv.serve-2 {
-  color: #fb923c; font-weight: 900;
-  text-shadow: 0 0 12px rgba(249, 115, 22, 0.65);
+  color: #fdba74; font-weight: 900;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95), 0 0 12px rgba(249, 115, 22, 0.75);
 }
-.bwf-slash { color: #64748b; font-weight: 700; font-size: 14px; }
+.bwf-slash { color: #94a3b8; font-weight: 900; font-size: 15px; }
 
 /* Service Shuttlecock Slot inside Scorebug */
 .bwf-serve-slot {
-  width: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
-  padding: 0 4px;
+  width: 38px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  padding: 0 3px;
 }
 .bwf-shuttles {
   display: inline-flex; align-items: center; justify-content: center; gap: 2px;
@@ -1083,34 +1085,34 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 
 /* Previous Sets & Sets Won Columns */
 .bwf-prev-set {
-  width: 38px; align-self: stretch; flex-shrink: 0;
+  width: 34px; align-self: stretch; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  background: #070e20; border-left: 1px solid rgba(148, 163, 184, 0.14);
-  font-size: 15px; font-weight: 800; color: #64748b;
+  background: #060c1b; border-left: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 15px; font-weight: 800; color: #94a3b8;
   font-variant-numeric: tabular-nums;
 }
-.bwf-prev-set.won { color: #f8fafc; font-weight: 900; }
+.bwf-prev-set.won { color: #ffffff; font-weight: 900; }
 
 .bwf-sets-won {
-  width: 42px; align-self: stretch; flex-shrink: 0;
+  width: 38px; align-self: stretch; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  background: #172554; border-left: 1px solid rgba(148, 163, 184, 0.2);
-  font-size: 18px; font-weight: 900; color: #93c5fd;
+  background: #172554; border-left: 1px solid rgba(255, 255, 255, 0.22);
+  font-size: 18px; font-weight: 900; color: #bfdbfe;
   font-variant-numeric: tabular-nums;
 }
 
 /* Current Game Score Box (Rightmost High-Contrast Box) */
 .bwf-points {
-  width: 62px; align-self: stretch; flex-shrink: 0;
+  width: 58px; align-self: stretch; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  background: #e2e8f0; color: #0f172a;
+  background: #ffffff; color: #090d16;
   border-left: 2px solid #020617;
-  font-size: 24px; font-weight: 900; font-variant-numeric: tabular-nums;
+  font-size: 26px; font-weight: 900; font-variant-numeric: tabular-nums;
   transition: background 0.2s, color 0.2s;
 }
 .bwf-points.serving.serve-1 {
   background: linear-gradient(180deg, #fde047 0%, #eab308 100%);
-  color: #0f172a;
+  color: #090d16;
 }
 .bwf-points.serving.serve-2 {
   background: linear-gradient(180deg, #fb923c 0%, #ea580c 100%);
@@ -1119,18 +1121,27 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 
 /* Bottom Sub-bar of Scorebug */
 .bwf-bug-footer {
-  display: flex; align-items: center; gap: 10px;
-  padding: 4px 12px;
-  background: #050a18; border-top: 1px solid rgba(148, 163, 184, 0.14);
-  font-size: 10.5px; font-weight: 800; color: #94a3b8; letter-spacing: 0.05em;
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 11px;
+  background: #040814; border-top: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 11px; font-weight: 800; color: #cbd5e1; letter-spacing: 0.04em;
 }
-.bwf-match-id { color: #e2e8f0; font-weight: 900; }
+.bwf-match-id { color: #ffffff; font-weight: 900; font-size: 11.5px; }
 .bwf-duration {
-  color: var(--cyan); font-weight: 900; font-variant-numeric: tabular-nums;
-  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(34, 211, 238, 0.35);
-  padding: 1px 6px; border-radius: 4px;
+  display: inline-flex; align-items: center; gap: 4px;
+  color: #04202a; font-weight: 900; font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(90deg, #22d3ee 0%, #38bdf8 100%);
+  border: 1px solid #67e8f9;
+  padding: 1.5px 8px; border-radius: 5px;
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.35);
 }
-.bwf-rule-tag { color: #94a3b8; }
+.bwf-duration strong {
+  font-size: 12.5px;
+  font-weight: 900;
+  color: #02131a;
+}
+.bwf-rule-tag { color: #cbd5e1; font-weight: 800; }
 .bwf-serve-pill {
   margin-left: auto; padding: 1px 7px; border-radius: 4px;
   font-size: 10px; font-weight: 900; letter-spacing: 0.05em;

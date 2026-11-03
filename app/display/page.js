@@ -142,9 +142,13 @@ function BroadcastScorebug({ match, now, compact = false }) {
       {/* Bottom Dynamic Status / Point Alert Sub-bar */}
       <div className="bwf-bug-footer">
         <span className="bwf-match-id">{match.match_number}</span>
-        {duration && <span className="bwf-duration">⏱ {duration}</span>}
+        {duration && (
+          <span className="bwf-duration">
+            ⏱ DURASI: <strong>{duration}</strong>
+          </span>
+        )}
         <span className="bwf-rule-tag">
-          {isSets ? `GAME ${st.current_set} OF 3` : `RACE TO ${match.rules.win_point}`} · {sideOut ? 'SIDE-OUT' : 'RALLY POINT'}
+          {isSets ? `SET ${st.current_set}` : `TARGET ${match.rules.win_point}`} · {sideOut ? 'SIDE-OUT' : 'RALLY'}
         </span>
         {servingSideBadge(match)}
         {alert && (
