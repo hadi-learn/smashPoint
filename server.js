@@ -16,6 +16,22 @@ import { ingest, toCsv, COLUMNS, OPTIONAL_COLUMNS } from './lib/server/ingest.js
 
 const prod = process.argv.includes('--prod') || process.env.NODE_ENV === 'production';
 nextEnv.loadEnvConfig(process.cwd(), !prod);
+// Also fallback to .env.example if user edited .env.example directly without copying to .env
+if (!fs.existsSync(path.join(process.cwd(), '.env')) && fs.existsSync(path.join(process.cwd(), '.env.example'))) {
+  try {
+    const raw = fs.readFileSync(path.join(process.cwd(), '.env.example'), 'utf8');
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq > 0) {
+        const k = trimmed.slice(0, eq).trim();
+        const v = trimmed.slice(eq + 1).trim();
+        if (process.env[k] === undefined && v !== '') process.env[k] = v;
+      }
+    }
+  } catch { /* ignore */ }
+}
 if (prod) process.env.NODE_ENV = 'production';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -76,31 +92,58 @@ const isAdmin = (req) => String(req.headers['x-admin-pin'] || '') === ADMIN_PIN;
 const validDevice = (id) => typeof id === 'string' && id.length >= 8 && id.length <= 100;
 
 /**
- * Convert a Google Sheets link into a live, non-cached CSV endpoint.
- * Note: "Publish to the web" (/pub?output=csv) is cached by Google CDN for ~5 minutes,
- * whereas /gviz/tq?tqx=out:csv or /export?format=csv reads live sheet state immediately (<1s)
- * as long as the sheet is shared as "Anyone with the link can view".
+ * Build candidate URLs to read a Google Sheets schedule tab (default: "Jadwal")
+ * or a Google Apps Script Web App / custom CSV URL with zero CDN cache.
+ *
+ * IMPORTANT: In Google's /gviz/tq endpoint, passing both `gid=0` and `sheet=Jadwal`
+ * causes `gid=0` to OVERRIDE `sheet=Jadwal`! Therefore:
+ *  1. Candidate 1 queries by sheet name (`sheet=Jadwal`) WITHOUT `gid`.
+ *  2. Candidate 2 falls back to `/export?format=csv&gid=<gid>` (raw CSV export, no gviz header merging).
+ *  3. Candidate 3 falls back to `/gviz/tq?tqx=out:csv&gid=<gid>`.
  */
-function toSheetsCsvUrl(url) {
+function buildSheetsCandidateUrls(url, sheetName = 'Jadwal') {
   const u = String(url || '').trim();
   const cb = `_t=${Date.now()}`;
-  // Standard Google Sheets URL: /spreadsheets/d/<ID>/edit#gid=<GID>
+  const cleanSheet = String(sheetName || 'Jadwal').trim();
+
+  // Case 1: Google Apps Script Web App URL (https://script.google.com/macros/s/.../exec)
+  if (/script\.google\.com\/macros\/s\//i.test(u)) {
+    const sep = u.includes('?') ? '&' : '?';
+    return [
+      `${u}${sep}${cleanSheet ? `sheet=${encodeURIComponent(cleanSheet)}&` : ''}${cb}`,
+    ];
+  }
+
+  // Case 2: Standard Google Sheets URL (/spreadsheets/d/<ID>/edit...)
   const m = u.match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   if (m && !/\/d\/e\//.test(u)) {
     const id = m[1];
     const gid = (u.match(/[#&?]gid=(\d+)/) || [])[1] || '0';
-    const sheet = (u.match(/[?&]sheet=([^&#]+)/) || [])[1];
-    // Use gviz live endpoint + cache-buster for instant (<1s) updates
-    return `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}${sheet ? `&sheet=${sheet}` : ''}&${cb}`;
+    const urlSheet = (u.match(/[?&]sheet=([^&#]+)/) || [])[1];
+    const targetSheet = urlSheet ? decodeURIComponent(urlSheet) : cleanSheet;
+    const candidates = [];
+    if (targetSheet) {
+      // Primary: read directly from sheet named "Jadwal" (do NOT include gid so sheet name is respected!)
+      candidates.push(
+        `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(targetSheet)}&${cb}`
+      );
+    }
+    // Fallback 1: direct CSV export by gid (preserves exact cell values & headers without gviz type stripping)
+    candidates.push(`https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}&${cb}`);
+    // Fallback 2: gviz by gid
+    candidates.push(`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}&${cb}`);
+    return candidates;
   }
-  // If user pasted a /d/e/<PUB_ID>/pub link or custom URL, append cache-buster
-  return u.includes('?') ? `${u}&${cb}` : `${u}?${cb}`;
+
+  // Case 3: Published (/d/e/.../pub) or arbitrary CSV URL
+  return [u.includes('?') ? `${u}&${cb}` : `${u}?${cb}`];
 }
 
-// ------------------------------------------------------------------ Auto-Sync Poller for Google Sheets
+// ------------------------------------------------------------------ Auto-Sync Poller & Persisted Config
 const syncConfigFile = path.join(ROOT, 'data', 'sheets-sync.json');
 const sheetSync = {
   url: process.env.GOOGLE_SHEETS_SCHEDULE_URL || '',
+  sheetName: process.env.GOOGLE_SHEETS_TAB_NAME || 'Jadwal',
   intervalSec: 0, // 0 = off, >= 5 = poll every N seconds
   lastSync: null,
   lastResult: null,
@@ -112,43 +155,108 @@ try {
   if (fs.existsSync(syncConfigFile)) {
     const saved = JSON.parse(fs.readFileSync(syncConfigFile, 'utf8'));
     if (saved.url) sheetSync.url = saved.url;
+    if (saved.sheetName) sheetSync.sheetName = saved.sheetName;
     if (Number.isInteger(saved.intervalSec)) sheetSync.intervalSec = saved.intervalSec;
+    if (saved.webhookUrl && !process.env.GOOGLE_SHEETS_WEBHOOK_URL) {
+      sheetsExporter.setConfig({ webhookUrl: saved.webhookUrl, webhookSecret: saved.webhookSecret || '' });
+    }
   }
 } catch { /* ignore */ }
 
 function saveSyncConfig() {
   try {
-    fs.writeFileSync(syncConfigFile, JSON.stringify({ url: sheetSync.url, intervalSec: sheetSync.intervalSec }));
+    fs.writeFileSync(
+      syncConfigFile,
+      JSON.stringify({
+        url: sheetSync.url,
+        sheetName: sheetSync.sheetName || 'Jadwal',
+        intervalSec: sheetSync.intervalSec,
+        webhookUrl: sheetsExporter.webhookUrl || '',
+        webhookSecret: sheetsExporter.webhookSecret || '',
+      })
+    );
   } catch { /* ignore */ }
 }
 
-async function fetchAndIngestUrl(rawUrl, { dryRun = false } = {}) {
-  const target = toSheetsCsvUrl(rawUrl);
-  const r = await fetch(target, {
-    redirect: 'follow',
-    headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
-  }).catch((e) => {
-    throw new StoreError(`Gagal mengambil URL: ${e.message}`);
-  });
-  if (!r.ok) {
-    throw new StoreError(`Gagal mengambil URL (HTTP ${r.status}). Pastikan Sheet diatur Bagikan -> "Siapa saja yang memiliki link (Pelihat)".`);
-  }
-  const text = await r.text();
-  if (/^\s*<(!doctype|html)/i.test(text)) {
-    throw new StoreError('Sheet belum dibuka aksesnya. Klik tombol "Bagikan (Share)" di kanan atas Google Sheets -> ubah ke "Siapa saja yang memiliki link (Anyone with the link)".');
-  }
-  // Support both JSON (from Apps Script Web App doGet) and CSV/TSV
-  let input = text;
-  if (/^\s*[\[{]/.test(text)) {
+async function fetchAndIngestUrl(rawUrl, { dryRun = false, sheetName } = {}) {
+  const targetSheet = String(sheetName || sheetSync.sheetName || 'Jadwal').trim();
+  const candidates = buildSheetsCandidateUrls(rawUrl, targetSheet);
+  let lastParsed = null;
+  let lastFetchError = null;
+  let usedSheetSource = targetSheet;
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    const target = candidates[i];
+    let r;
     try {
-      const j = JSON.parse(text);
-      input = Array.isArray(j) ? j : j.rows || j.matches || text;
-    } catch { /* fallback to CSV */ }
+      r = await fetch(target, {
+        redirect: 'follow',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
+      });
+    } catch (e) {
+      lastFetchError = `Gagal mengambil URL: ${e.message}`;
+      continue;
+    }
+    if (!r.ok) {
+      lastFetchError = `Gagal mengambil URL (HTTP ${r.status}). Pastikan Sheet diatur Bagikan -> "Siapa saja yang memiliki link (Pelihat)".`;
+      continue;
+    }
+    const text = await r.text();
+    if (/^\s*<(!doctype|html)/i.test(text)) {
+      if (/accounts\.google\.com|ServiceLogin/i.test(text)) {
+        throw new StoreError('Sheet belum dibuka aksesnya. Klik tombol "Bagikan (Share)" di kanan atas Google Sheets -> ubah ke "Siapa saja yang memiliki link (Anyone with the link)".');
+      }
+      lastFetchError = 'Google mengembalikan halaman HTML, bukan data tabel.';
+      continue;
+    }
+
+    // Support both JSON (from Apps Script Web App doGet) and CSV/TSV
+    let input = text;
+    if (/^\s*[\[{]/.test(text)) {
+      try {
+        const j = JSON.parse(text);
+        input = Array.isArray(j) ? j : j.rows || j.matches || text;
+        if (j.sheet) usedSheetSource = j.sheet;
+      } catch { /* fallback to CSV */ }
+    }
+
+    const parsed = ingest(input, { courtCount: COURT_COUNT });
+    lastParsed = parsed;
+    // If we found valid matches (or rows on the primary named sheet), stop trying fallbacks
+    if (parsed.matches.length > 0) {
+      break;
+    }
   }
-  const parsed = ingest(input, { courtCount: COURT_COUNT });
-  if (dryRun) return { ok: true, dry_run: true, valid: parsed.matches.length, total: parsed.total, errors: parsed.errors };
-  const result = store.upsertMatches(parsed.matches);
-  return { ok: true, total: parsed.total, ...result, errors: parsed.errors };
+
+  if (!lastParsed) {
+    throw new StoreError(lastFetchError || 'Tidak dapat membaca data dari URL Google Sheets.');
+  }
+
+  // If 0 rows or 0 valid matches, provide a clear diagnostic warning
+  if (lastParsed.total === 0) {
+    throw new StoreError(
+      `Berhasil terhubung ke Google Sheets, tetapi tidak ditemukan baris jadwal pada sheet "${targetSheet}". Pastikan: (1) Nama tab sheet di bawah adalah "${targetSheet}", (2) Baris pertama berisi header kolom sesuai template (match_number, tournament_name, dst.), dan (3) Sheet sudah di-Share "Siapa saja yang memiliki link".`
+    );
+  }
+
+  if (dryRun) {
+    return {
+      ok: true,
+      dry_run: true,
+      sheet_name: usedSheetSource,
+      valid: lastParsed.matches.length,
+      total: lastParsed.total,
+      errors: lastParsed.errors,
+    };
+  }
+  const result = store.upsertMatches(lastParsed.matches);
+  return {
+    ok: true,
+    sheet_name: usedSheetSource,
+    total: lastParsed.total,
+    ...result,
+    errors: lastParsed.errors,
+  };
 }
 
 async function runAutoSync() {
@@ -185,6 +293,7 @@ restartAutoSyncTimer();
 function syncStatus() {
   return {
     url: sheetSync.url,
+    sheet_name: sheetSync.sheetName || 'Jadwal',
     interval_sec: sheetSync.intervalSec,
     last_sync: sheetSync.lastSync,
     last_result: sheetSync.lastResult,
@@ -257,10 +366,36 @@ async function handleApi(req, res, url) {
     await sheetsExporter.flush();
     return send(res, 200, { ok: true, exporter: sheetsExporter.status() });
   }
+  if (pathname === '/api/admin/export/config' && method === 'POST') {
+    const b = await readBody(req);
+    sheetsExporter.setConfig({
+      webhookUrl: b.webhook_url,
+      webhookSecret: b.webhook_secret,
+    });
+    saveSyncConfig();
+    if (b.test && sheetsExporter.webhookUrl) {
+      try {
+        const testRes = await sheetsExporter.testConnection();
+        await sheetsExporter.flush();
+        emitAdmin();
+        return send(res, 200, { ok: true, exporter: sheetsExporter.status(), test: testRes });
+      } catch (e) {
+        sheetsExporter.lastError = e.message;
+        emitAdmin();
+        return send(res, 400, { ok: false, error: e.message, exporter: sheetsExporter.status() });
+      }
+    }
+    if (sheetsExporter.webhookUrl && sheetsExporter.queue.length) {
+      await sheetsExporter.flush();
+    }
+    emitAdmin();
+    return send(res, 200, { ok: true, exporter: sheetsExporter.status() });
+  }
 
   if (pathname === '/api/admin/sync' && method === 'POST') {
     const b = await readBody(req);
     if (b.url !== undefined) sheetSync.url = String(b.url || '').trim();
+    if (b.sheet_name !== undefined) sheetSync.sheetName = String(b.sheet_name || 'Jadwal').trim() || 'Jadwal';
     if (b.interval_sec !== undefined) {
       const iv = parseInt(b.interval_sec, 10);
       sheetSync.intervalSec = Number.isInteger(iv) && iv >= 5 ? iv : 0;
@@ -278,9 +413,12 @@ async function handleApi(req, res, url) {
     const b = await readBody(req);
     if (b.url) {
       sheetSync.url = String(b.url).trim();
+      if (b.sheet_name !== undefined) {
+        sheetSync.sheetName = String(b.sheet_name || 'Jadwal').trim() || 'Jadwal';
+      }
       saveSyncConfig();
       restartAutoSyncTimer();
-      const resData = await fetchAndIngestUrl(b.url, { dryRun: Boolean(b.dry_run) });
+      const resData = await fetchAndIngestUrl(b.url, { dryRun: Boolean(b.dry_run), sheetName: sheetSync.sheetName });
       if (!b.dry_run) {
         sheetSync.lastSync = new Date().toISOString();
         sheetSync.lastResult = { total: resData.total, created: resData.created, updated: resData.updated, errors: resData.errors?.length || 0 };

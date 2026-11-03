@@ -43,6 +43,7 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
   const [tab, setTab] = useState('url');
   const [csv, setCsv] = useState('');
   const [url, setUrl] = useState('');
+  const [sheetName, setSheetName] = useState('Jadwal');
   const [intervalSec, setIntervalSec] = useState(0);
   const [fileName, setFileName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -50,13 +51,14 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
 
   useEffect(() => {
     if (sync?.url && !url) setUrl(sync.url);
+    if (sync?.sheet_name) setSheetName(sync.sheet_name);
     if (sync?.interval_sec !== undefined) setIntervalSec(sync.interval_sec);
-  }, [sync?.url, sync?.interval_sec]);
+  }, [sync?.url, sync?.sheet_name, sync?.interval_sec]);
 
   const run = async (dry) => {
     setBusy(true);
     setResult(null);
-    const body = tab === 'url' ? { url } : { csv };
+    const body = tab === 'url' ? { url, sheet_name: sheetName } : { csv };
     const r = await api('/api/import', { method: 'POST', pin, body: { ...body, dry_run: dry } });
     setBusy(false);
     setResult(r);
@@ -69,7 +71,7 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
     const r = await api('/api/admin/sync', {
       method: 'POST',
       pin,
-      body: { url: url.trim(), interval_sec: newInterval, run_now: newInterval > 0 },
+      body: { url: url.trim(), sheet_name: sheetName.trim() || 'Jadwal', interval_sec: newInterval, run_now: newInterval > 0 },
     });
     if (r.sync) onSyncChange?.(r.sync);
     if (r.result) setResult(r.result);
@@ -116,22 +118,33 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
       {tab === 'paste' && <textarea className="input mono" rows={7} placeholder="Tempel tabel termasuk baris header (tab / koma / titik koma)" value={csv} onChange={(e) => setCsv(e.target.value)} />}
       {tab === 'url' && (
         <div className="col">
-          <label className="field">
-            Link Edit Google Sheets (Bagikan → &quot;Siapa saja yang memiliki link&quot; untuk update instan &lt; 1 detik!)
-            <input
-              className="input"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://docs.google.com/spreadsheets/d/1abc.../edit#gid=0"
-            />
-          </label>
+          <div className="row" style={{ alignItems: 'flex-end' }}>
+            <label className="field" style={{ flex: 1 }}>
+              Link Google Sheets (Bagikan → &quot;Siapa saja yang memiliki link&quot;) atau URL Web App Apps Script
+              <input
+                className="input"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://docs.google.com/spreadsheets/d/1abc.../edit"
+              />
+            </label>
+            <label className="field" style={{ width: 160 }}>
+              Nama Sheet / Tab
+              <input
+                className="input"
+                value={sheetName}
+                onChange={(e) => setSheetName(e.target.value)}
+                placeholder="Jadwal"
+              />
+            </label>
+          </div>
           {isPubLink && (
             <div className="notice warn small">
-              ⚠️ Anda menggunakan link <b>/pub (Publikasikan ke web)</b> yang memiliki <b>delay cache 5 menit dari Google</b>. Agar update instan (&lt; 1 detik), salin langsung <b>URL dari address bar Google Sheets</b> (<span className="mono">.../spreadsheets/d/.../edit#gid=0</span>) dan pastikan tombol <b>Bagikan (Share)</b> disetel ke <b>&quot;Siapa saja yang memiliki link&quot;</b>.
+              ⚠️ Anda menggunakan link <b>/pub (Publikasikan ke web)</b> yang memiliki <b>delay cache 5 menit dari Google</b>. Agar update instan (&lt; 1 detik), salin langsung <b>URL dari address bar Google Sheets</b> (<span className="mono">.../spreadsheets/d/.../edit</span>) dan pastikan tombol <b>Bagikan (Share)</b> disetel ke <b>&quot;Siapa saja yang memiliki link&quot;</b>.
             </div>
           )}
           <div className="row" style={{ background: '#0a1328', padding: '.6rem .8rem', borderRadius: 10, border: '1px solid var(--line)' }}>
-            <span className="small" style={{ fontWeight: 700 }}>🔄 Auto-Sync Berkala:</span>
+            <span className="small" style={{ fontWeight: 700 }}>🔄 Auto-Sync Sheet &quot;{sheetName || 'Jadwal'}&quot;:</span>
             <select
               className="input"
               style={{ width: 170, padding: '.35rem .6rem' }}
@@ -170,7 +183,9 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
           {!result.ok && <div className="notice error">{result.error}</div>}
           {result.ok && (
             <div className={`notice ${result.errors?.length ? 'warn' : 'ok'}`}>
-              {result.dry_run ? `Validasi: ${result.valid}/${result.total} baris valid.` : `Sinkron selesai: ${result.created} baru, ${result.updated} diperbarui dari ${result.total} baris.`}
+              {result.dry_run
+                ? `Validasi${result.sheet_name ? ` (Sheet "${result.sheet_name}")` : ''}: ${result.valid}/${result.total} baris valid.`
+                : `Sinkron selesai${result.sheet_name ? ` dari Sheet "${result.sheet_name}"` : ''}: ${result.created} baru, ${result.updated} diperbarui dari ${result.total} baris.`}
               {result.errors?.length ? ` ${result.errors.length} baris ditolak.` : ''}
             </div>
           )}
@@ -899,6 +914,137 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
   );
 }
 
+function ExportCard({ pin, exporter, setExporter, notify }) {
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [webhookSecret, setWebhookSecret] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [testMsg, setTestMsg] = useState(null);
+
+  useEffect(() => {
+    if (exporter?.webhook_url !== undefined) {
+      setWebhookUrl((prev) => (prev === '' ? exporter.webhook_url : prev));
+    }
+  }, [exporter?.webhook_url]);
+
+  const saveWebhook = async (withTest = false) => {
+    setBusy(true);
+    setTestMsg(null);
+    const r = await api('/api/admin/export/config', {
+      method: 'POST',
+      pin,
+      body: {
+        webhook_url: webhookUrl.trim(),
+        webhook_secret: webhookSecret.trim() || undefined,
+        test: withTest,
+      },
+    });
+    setBusy(false);
+    if (r.exporter) setExporter(r.exporter);
+    if (r.ok) {
+      const msg = withTest
+        ? `✅ Koneksi Webhook Berhasil! ${r.test?.message || 'Siap mengunggah hasil & log ke Google Sheets.'}`
+        : '✅ Konfigurasi Webhook Google Sheets disimpan.';
+      setTestMsg({ type: 'ok', text: msg });
+      notify({ type: 'ok', text: msg });
+    } else {
+      setTestMsg({ type: 'error', text: r.error || 'Gagal menghubungi Webhook Google Sheets' });
+    }
+  };
+
+  return (
+    <div className="card col">
+      <h3 style={{ margin: 0 }}>📤 Ekspor & Sinkronisasi Hasil</h3>
+      <div className="row">
+        <a className="btn" href="/api/export/results.csv">
+          ⬇ Hasil (CSV)
+        </a>
+        <a className="btn" href="/api/export/logs.csv">
+          ⬇ Semua Log (CSV)
+        </a>
+      </div>
+
+      {/* Konfigurasi Langsung Webhook Google Apps Script */}
+      <div className="col" style={{ background: '#0a1328', padding: '.7rem .85rem', borderRadius: 10, border: '1px solid var(--line)' }}>
+        <label className="field">
+          URL Web App Google Apps Script (otomatis mengisi tab &quot;Results&quot; &amp; &quot;Logs&quot; di Google Sheets)
+          <input
+            className="input"
+            value={webhookUrl}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+            placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+          />
+        </label>
+        <div className="row">
+          <button
+            className="btn btn-sm btn-primary"
+            disabled={busy}
+            onClick={() => saveWebhook(true)}
+          >
+            {busy ? 'Menguji…' : '💾 Simpan & 🧪 Tes Koneksi Webhook'}
+          </button>
+          <button
+            className="btn btn-sm"
+            disabled={busy}
+            onClick={() => saveWebhook(false)}
+          >
+            Simpan Saja
+          </button>
+          <input
+            className="input"
+            style={{ width: 170, padding: '.3rem .55rem', fontSize: '.8rem' }}
+            placeholder="Secret (opsional)"
+            value={webhookSecret}
+            onChange={(e) => setWebhookSecret(e.target.value)}
+          />
+        </div>
+        {testMsg && <div className={`notice ${testMsg.type} small`}>{testMsg.text}</div>}
+      </div>
+
+      <div className="info-grid">
+        <div>
+          <div className="k">Google Sheets Webhook</div>
+          <div className="v">{exporter?.webhook_configured ? '✅ Aktif' : '— Lokal saja'}</div>
+        </div>
+        <div>
+          <div className="k">Antrian Sinkron</div>
+          <div className="v">{exporter?.queue_length ?? 0}</div>
+        </div>
+        <div>
+          <div className="k">Sukses Terakhir</div>
+          <div className="v small">{tm(exporter?.last_success)}</div>
+        </div>
+      </div>
+      {exporter?.last_error && <div className="notice warn small">Error terakhir: {exporter.last_error}</div>}
+      <div className="row">
+        <button
+          className="btn btn-sm btn-blue"
+          disabled={!exporter?.webhook_configured || !exporter?.queue_length}
+          onClick={async () => {
+            const r = await api('/api/admin/export/retry', { method: 'POST', pin });
+            if (r.exporter) setExporter(r.exporter);
+          }}
+        >
+          ⟳ Coba Kirim Ulang ({exporter?.queue_length ?? 0})
+        </button>
+        <div className="spacer" />
+        <button
+          className="btn btn-sm btn-grey"
+          onClick={async () => {
+            if (!window.confirm('Hapus SEMUA data match dari server? (Log audit tetap tersimpan)')) return;
+            const r = await api('/api/matches', { method: 'DELETE', pin });
+            notify(r.ok ? { type: 'ok', text: 'Semua match dihapus' } : { type: 'error', text: r.error });
+          }}
+        >
+          🗑 Hapus Semua Match
+        </button>
+      </div>
+      <p className="small muted" style={{ margin: 0 }}>
+        Hasil match berstatus <b>finished</b> otomatis ditulis ke <span className="mono">exports/</span> dan dikirim ke Google Sheets tab <b>Results</b> &amp; <b>Logs</b>.
+      </p>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [pin, setPin] = useState(null);
   const [matches, setMatches] = useState([]);
@@ -1004,58 +1150,7 @@ export default function AdminPage() {
 
       <div className="setup-grid">
         <ImportPanel pin={pin} sync={sync} onSyncChange={setSync} onDone={() => notify({ type: 'ok', text: 'Import selesai' })} />
-        <div className="card col">
-          <h3 style={{ margin: 0 }}>📤 Ekspor & Sinkronisasi</h3>
-          <div className="row">
-            <a className="btn" href="/api/export/results.csv">
-              ⬇ Hasil (CSV)
-            </a>
-            <a className="btn" href="/api/export/logs.csv">
-              ⬇ Semua Log (CSV)
-            </a>
-          </div>
-          <div className="info-grid">
-            <div>
-              <div className="k">Google Sheets Webhook</div>
-              <div className="v">{exporter?.webhook_configured ? '✅ Terkonfigurasi' : '— Lokal saja'}</div>
-            </div>
-            <div>
-              <div className="k">Antrian Sinkron</div>
-              <div className="v">{exporter?.queue_length ?? 0}</div>
-            </div>
-            <div>
-              <div className="k">Sukses Terakhir</div>
-              <div className="v small">{tm(exporter?.last_success)}</div>
-            </div>
-          </div>
-          {exporter?.last_error && <div className="notice warn small">Error terakhir: {exporter.last_error}</div>}
-          <div className="row">
-            <button
-              className="btn btn-sm btn-blue"
-              disabled={!exporter?.webhook_configured || !exporter?.queue_length}
-              onClick={async () => {
-                const r = await api('/api/admin/export/retry', { method: 'POST', pin });
-                if (r.exporter) setExporter(r.exporter);
-              }}
-            >
-              ⟳ Coba Kirim Ulang
-            </button>
-            <div className="spacer" />
-            <button
-              className="btn btn-sm btn-grey"
-              onClick={async () => {
-                if (!window.confirm('Hapus SEMUA data match dari server? (Log audit tetap tersimpan)')) return;
-                const r = await api('/api/matches', { method: 'DELETE', pin });
-                notify(r.ok ? { type: 'ok', text: 'Semua match dihapus' } : { type: 'error', text: r.error });
-              }}
-            >
-              🗑 Hapus Semua Match
-            </button>
-          </div>
-          <p className="small muted" style={{ margin: 0 }}>
-            Hasil match berstatus <b>finished</b> otomatis ditulis ke <span className="mono">exports/</span> dan dikirim ke Google Sheets (jika <span className="mono">GOOGLE_SHEETS_WEBHOOK_URL</span> diset). Saat offline, antrian dicoba ulang tiap 60 detik.
-          </p>
-        </div>
+        <ExportCard pin={pin} exporter={exporter} setExporter={setExporter} notify={notify} />
       </div>
 
       <MatchTable matches={matches} pin={pin} courtCount={courtCount} now={now} onEdit={setEditMatch} onLogs={setLogsFor} notify={notify} />
