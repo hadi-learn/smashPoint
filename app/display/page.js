@@ -10,7 +10,14 @@ import { Shuttle } from '@/components/Icons';
 function getTeamPointAlert(match, t) {
   const st = match.live_state;
   if (st.phase !== 'live') return null;
-  const { win_point, scoring_type, max_point } = match.rules;
+  const { win_point, scoring_type, scoring_method, max_point } = match.rules;
+
+  // In Side-Out (pindah bola) scoring, a team can only score a point when they hold the serve (1st or 2nd serve).
+  // If serve moves to the opponent, this team cannot win the game/match on the next rally.
+  if (scoring_method === 'side_out' && st.service_status?.side !== t) {
+    return null;
+  }
+
   const cap = max_point && max_point >= win_point ? max_point : win_point + 9;
   const my = st.score[t];
   const opp = st.score[t === 'a' ? 'b' : 'a'];
