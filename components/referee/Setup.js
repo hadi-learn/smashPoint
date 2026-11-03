@@ -69,10 +69,9 @@ function NamesEditor({ match, send, pending }) {
   );
 }
 
-export default function SetupScreen({ match, send, pending, connected, orientation = 'landscape' }) {
+export default function SetupScreen({ match, send, pending, connected }) {
   const st = match.live_state;
   const dbl = isDoubles(match);
-  const isPortrait = orientation === 'portrait';
   const [left, setLeft] = useState(st.sides.left);
   const [pos, setPos] = useState(dbl ? st.positions : { a: { even: 'a1', odd: null }, b: { even: 'b1', odd: null } });
   const [server, setServer] = useState(null);
@@ -133,7 +132,7 @@ export default function SetupScreen({ match, send, pending, connected, orientati
           </button>
         </div>
       )}
-      <div className="setup-grid" style={{ gridTemplateColumns: isPortrait ? '1fr' : 'minmax(300px, 420px) 1fr' }}>
+      <div className="setup-grid" style={{ gridTemplateColumns: 'minmax(300px, 420px) 1fr' }}>
         <div className="card col">
           <h3>1. Verifikasi Data Pertandingan</h3>
           <p className="muted small" style={{ margin: 0 }}>
@@ -156,40 +155,39 @@ export default function SetupScreen({ match, send, pending, connected, orientati
           </div>
           <div className="row">
             <button className="btn btn-blue" onClick={() => setLeft(other(left))}>
-              {isPortrait ? '⇅ Tukar Sisi Tim (Atas ↔ Bawah)' : '⇄ Tukar Sisi Tim (Kiri ↔ Kanan)'}
+              ⇄ Tukar Sisi Tim (Kiri ↔ Kanan)
             </button>
             {dbl && (
               <>
                 <button className="btn" onClick={() => swapTeam(left)}>
-                  ⇅ Tukar Posisi Tim {isPortrait ? 'Atas' : 'Kiri'}
+                  ⇅ Tukar Posisi Tim Kiri
                 </button>
                 <button className="btn" onClick={() => swapTeam(other(left))}>
-                  ⇅ Tukar Posisi Tim {isPortrait ? 'Bawah' : 'Kanan'}
+                  ⇅ Tukar Posisi Tim Kanan
                 </button>
               </>
             )}
           </div>
           <div className="scoreline">
             <div className="team">
-              <span className="muted small">{isPortrait ? 'LAPANGAN ATAS' : 'LAPANGAN KIRI'}</span>
+              <span className="muted small">LAPANGAN KIRI</span>
               <span className="tname">{teamLabel(match, left)}</span>
               <span className="tclub">{match.teams[`team_${left}`].club}</span>
             </div>
             <div className="mid">VS</div>
             <div className="team right">
-              <span className="muted small">{isPortrait ? 'LAPANGAN BAWAH' : 'LAPANGAN KANAN'}</span>
+              <span className="muted small">LAPANGAN KANAN</span>
               <span className="tname">{teamLabel(match, other(left))}</span>
               <span className="tclub">{match.teams[`team_${other(left)}`].club}</span>
             </div>
           </div>
-          <div style={{ minHeight: isPortrait ? 390 : 330, display: 'flex' }}>
+          <div style={{ minHeight: 330, display: 'flex' }}>
             <CourtMap
               match={match}
               positions={positions}
               serverId={server}
               receiverId={receiver}
               spinKey={left}
-              orientation={orientation}
               renderActions={(pid) => (
                 <>
                   <button className={`icon-btn shuttle ${server === pid ? 'on' : ''}`} onClick={() => pickServer(pid)} title="Pemenang undian servis">

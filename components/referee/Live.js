@@ -208,19 +208,20 @@ export function TakeoverModal({ match, onClose, onSubmit }) {
   );
 }
 
-export default function LiveScreen({ match, now, readOnly, pending, connected, send, spectator, orientation = 'landscape' }) {
+export default function LiveScreen({ match, now, readOnly, pending, connected, send, spectator, layout = 'landscape-sides' }) {
   const [showOverride, setShowOverride] = useState(false);
   const st = match.live_state;
   const ss = st.service_status;
   const L = st.sides.left;
   const R = st.sides.right;
-  const isPortrait = orientation === 'portrait';
   const sideOutDbl = match.rules.scoring_method === 'side_out' && isDoubles(match);
   const finished = match.session_management.status === 'finished';
   const canAct = !readOnly && !pending && connected && !finished;
   const canScore = canAct && st.phase === 'live';
   const isSets = match.rules.scoring_type === 'sets';
   const duration = matchDurationText(match, now);
+  const isSplitBelow = layout === 'portrait-split';
+  const isStack = layout === 'portrait-stack';
 
   const teamHeader = (t, align, sideTag) => (
     <div className={`team ${align}`}>
@@ -319,18 +320,12 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
     const t = screen === 'left' ? L : R;
     const club = match.teams[`team_${t}`].club;
     const isServeHere = ss.side === t && st.phase !== 'setup';
-    const sideLabel = isPortrait
-      ? screen === 'left'
-        ? 'LAPANGAN ATAS'
-        : 'LAPANGAN BAWAH'
-      : screen === 'left'
-        ? 'LAPANGAN KIRI'
-        : 'LAPANGAN KANAN';
-    const arrow = isPortrait ? (screen === 'left' ? '▲' : '▼') : screen === 'left' ? '◀' : '▶';
+    const sideLabel = screen === 'left' ? 'LAPANGAN KIRI' : 'LAPANGAN KANAN';
+    const arrow = screen === 'left' ? '◀' : '▶';
 
     return (
       <button
-        className={`rally-btn ${screen} ${isPortrait ? 'portrait-btn' : 'landscape-btn'} ${isServeHere ? 'is-serving' : ''}`}
+        className={`rally-btn ${screen} ${isStack ? 'stack-btn' : isSplitBelow ? 'split-btn' : 'landscape-btn'} ${isServeHere ? 'is-serving' : ''}`}
         disabled={!canScore}
         onClick={() => send('WIN_RALLY', { side: screen })}
       >
@@ -358,11 +353,11 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
 
   return (
     <>
-      <div className={`ref-live ${isPortrait ? 'portrait' : 'landscape'}`}>
-        {rallyBtn('left')}
+      <div className={`ref-live ${layout}`}>
+        {!isSplitBelow && rallyBtn('left')}
         <div className="ref-center">
-          <div className={`scoreline ${isPortrait ? 'portrait-bar' : ''}`}>
-            {!isPortrait && teamHeader(L, '', 'KIRI')}
+          <div className={`scoreline ${isStack ? 'portrait-bar' : ''}`}>
+            {!isStack && teamHeader(L, '', 'KIRI')}
             <div className="mid">
               <div className="mid-top-row">
                 <span>{isSets ? `SET ${st.current_set}` : 'GAME'}</span>
@@ -385,7 +380,7 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
                 </div>
               )}
             </div>
-            {!isPortrait && teamHeader(R, 'right', 'KANAN')}
+            {!isStack && teamHeader(R, 'right', 'KANAN')}
           </div>
           <CourtMap
             match={match}
@@ -395,8 +390,14 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
             serveTurn={ss.turn}
             spinKey={L}
             overlay={overlay}
-            orientation={orientation}
           />
+          {/* Mode Portrait Kiri-Kanan: Tombol Pemenang Reli Kiri & Kanan berdampingan persis di bawah belahan lapangan masing-masing */}
+          {isSplitBelow && (
+            <div className="rally-split-row">
+              {rallyBtn('left')}
+              {rallyBtn('right')}
+            </div>
+          )}
           {st.set_history.length > 0 && (
             <div className="row small muted" style={{ justifyContent: 'center' }}>
               {st.set_history.map((s) => (
@@ -407,7 +408,7 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
             </div>
           )}
         </div>
-        {rallyBtn('right')}
+        {!isSplitBelow && rallyBtn('right')}
       </div>
       <div className="ref-footer">
         {!readOnly && (
@@ -419,10 +420,10 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
               className="btn btn-blue"
               disabled={!canAct || st.phase !== 'live'}
               onClick={() => {
-                if (window.confirm('Tukar sisi tim secara manual?')) send('SWITCH_SIDE');
+                if (window.confirm('Tukar sisi tim secara manual (Kiri ↔ Kanan)?')) send('SWITCH_SIDE');
               }}
             >
-              {isPortrait ? '⇅ TUKAR SISI (ATAS ↔ BAWAH)' : '⇄ TUKAR SISI (KIRI ↔ KANAN)'}
+              ⇄ TUKAR SISI (KIRI ↔ KANAN)
             </button>
             <button className="btn btn-red" disabled={!canAct} onClick={() => setShowOverride(true)}>
               ⚠ OVERRIDE

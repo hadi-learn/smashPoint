@@ -21,8 +21,13 @@ export default function RefereePage() {
   const [pending, setPending] = useState(false);
   const [showTakeover, setShowTakeover] = useState(false);
   const [ready, setReady] = useState(false);
-  const [layoutMode, setLayoutMode] = useState('auto'); // auto | landscape | portrait
-  const [fontScale, setFontScale] = useState(115); // 85 .. 170 (%)
+  // Layout modes:
+  // - 'auto': landscape-sides on wide screen, portrait-split (Left vs Right below court) on portrait phone
+  // - 'landscape-sides': buttons at Left & Right of the court (tablet / horizontal phone)
+  // - 'portrait-split': court on top, Left & Right rally buttons side-by-side directly below each court half
+  // - 'portrait-stack': Top button = Left court team, Bottom button = Right court team
+  const [layoutMode, setLayoutMode] = useState('auto');
+  const [fontScale, setFontScale] = useState(115); // 85 .. 175 (%)
   const [isPortraitViewport, setIsPortraitViewport] = useState(false);
   const now = useNow(1000);
 
@@ -35,7 +40,10 @@ export default function RefereePage() {
     setDeviceId(getDeviceId());
     setLabelState(lsGet('sp_device_label', ''));
     const savedLayout = lsGet('sp_ref_layout', 'auto');
-    if (['auto', 'landscape', 'portrait'].includes(savedLayout)) setLayoutMode(savedLayout);
+    const validLayouts = ['auto', 'landscape-sides', 'portrait-split', 'portrait-stack'];
+    if (validLayouts.includes(savedLayout)) setLayoutMode(savedLayout);
+    else if (savedLayout === 'landscape') setLayoutMode('landscape-sides');
+    else if (savedLayout === 'portrait') setLayoutMode('portrait-split');
     const savedScale = Number(lsGet('sp_ref_font_scale', 115));
     if (Number.isFinite(savedScale) && savedScale >= 85 && savedScale <= 175) setFontScale(savedScale);
     const sess = lsGet('sp_ref_session');
@@ -51,7 +59,7 @@ export default function RefereePage() {
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const checkViewport = () => {
-      setIsPortraitViewport(window.innerHeight > window.innerWidth && window.innerWidth < 920);
+      setIsPortraitViewport(window.innerHeight > window.innerWidth || window.innerWidth < 820);
     };
     checkViewport();
     window.addEventListener('resize', checkViewport);
@@ -69,7 +77,7 @@ export default function RefereePage() {
     lsSet('sp_ref_font_scale', clamped);
   };
 
-  const effectiveOrientation = layoutMode === 'auto' ? (isPortraitViewport ? 'portrait' : 'landscape') : layoutMode;
+  const effectiveLayout = layoutMode === 'auto' ? (isPortraitViewport ? 'portrait-split' : 'landscape-sides') : layoutMode;
 
   useEffect(() => {
     if (ready) lsSet('sp_ref_session', matchNo ? { match_number: matchNo, mode } : null);
@@ -261,7 +269,7 @@ export default function RefereePage() {
       </div>
     );
   } else if (mode === 'controller' && match.live_state.phase === 'setup' && sm.status !== 'finished') {
-    body = <SetupScreen key={`${match.match_number}-${match.live_state.current_set}`} match={match} send={send} pending={pending} connected={connected} orientation={effectiveOrientation} />;
+    body = <SetupScreen key={`${match.match_number}-${match.live_state.current_set}`} match={match} send={send} pending={pending} connected={connected} />;
   } else {
     const spectator = mode === 'spectator';
     body = (
@@ -272,7 +280,7 @@ export default function RefereePage() {
         pending={pending}
         connected={connected}
         send={send}
-        orientation={effectiveOrientation}
+        layout={effectiveLayout}
         spectator={
           <>
             {spectator && sm.status !== 'finished' && (sm.locked ? (
@@ -311,30 +319,41 @@ export default function RefereePage() {
         {pending && <span className="badge gold">mengirim…</span>}
         <div className="spacer" />
 
-        {/* Pengaturan Ergonomi Wasit: Mode Orientasi (Portrait/Landscape) & Slider Ukuran Huruf */}
+        {/* Pengaturan Ergonomi Wasit: Pilihan Layout Tombol & Slider Ukuran Huruf */}
         {match && mode !== 'none' && (
           <div className="ref-display-controls">
-            <div className="ref-orient-group" title="Pilih Orientasi Tampilan">
+            <div className="ref-orient-group" title="Pilih Tata Letak Tombol Pemenang Reli">
               <button
                 type="button"
                 className={`ref-orient-btn ${layoutMode === 'auto' ? 'active' : ''}`}
                 onClick={() => changeLayoutMode('auto')}
+                title="Otomatis mengikuti layar"
               >
                 🔄 Auto
               </button>
               <button
                 type="button"
-                className={`ref-orient-btn ${layoutMode === 'landscape' ? 'active' : ''}`}
-                onClick={() => changeLayoutMode('landscape')}
+                className={`ref-orient-btn ${layoutMode === 'landscape-sides' ? 'active' : ''}`}
+                onClick={() => changeLayoutMode('landscape-sides')}
+                title="Landscape: Tombol di Kiri & Kanan mengapit lapangan"
               >
-                ↔ Landscape
+                ◀▣▶ Samping
               </button>
               <button
                 type="button"
-                className={`ref-orient-btn ${layoutMode === 'portrait' ? 'active' : ''}`}
-                onClick={() => changeLayoutMode('portrait')}
+                className={`ref-orient-btn ${layoutMode === 'portrait-split' ? 'active' : ''}`}
+                onClick={() => changeLayoutMode('portrait-split')}
+                title="Portrait: Tombol Kiri & Kanan berdampingan persis di bawah sisi lapangan masing-masing"
               >
-                ↕ Portrait
+                📱 Kiri-Kanan
+              </button>
+              <button
+                type="button"
+                className={`ref-orient-btn ${layoutMode === 'portrait-stack' ? 'active' : ''}`}
+                onClick={() => changeLayoutMode('portrait-stack')}
+                title="Portrait: Tombol Atas untuk Tim Kiri, Tombol Bawah untuk Tim Kanan"
+              >
+                ↕ Atas-Bawah
               </button>
             </div>
             <div className="ref-font-slider" title="Ukuran Huruf Informasi Penting (Skor, Nama, Klub, Serve)">

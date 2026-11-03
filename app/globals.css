@@ -178,7 +178,11 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   text-align: right;
 }
 
-/* Referee Live Layout: Landscape (Side-by-Side) vs Portrait (Top-Bottom) */
+/* Referee Live Layout Modes:
+ * 1. landscape-sides: Left Rally Btn | Court | Right Rally Btn
+ * 2. portrait-split:  Court on top, [Left Rally Btn | Right Rally Btn] side-by-side directly below each court half
+ * 3. portrait-stack:  Left Rally Btn on top, Court in middle, Right Rally Btn on bottom
+ */
 .ref-live {
   flex: 1;
   display: grid;
@@ -186,16 +190,27 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   padding: .65rem;
   min-height: 0;
 }
-.ref-live.landscape {
+.ref-live.landscape-sides {
   grid-template-columns: minmax(145px, 21vw) 1fr minmax(145px, 21vw);
   align-items: stretch;
 }
-.ref-live.portrait {
+.ref-live.portrait-split {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+.ref-live.portrait-stack {
   grid-template-columns: 1fr;
   grid-template-rows: auto 1fr auto;
 }
 
-/* Rally Winner Buttons (Always adjacent to the corresponding court half) */
+.rally-split-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .65rem;
+  margin-top: .15rem;
+}
+
+/* Rally Winner Buttons */
 .rally-btn {
   border-radius: 18px;
   border: 2.5px solid;
@@ -263,15 +278,20 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   width: 100%;
   flex: 1;
 }
-.rally-btn.landscape-btn .rally-btn-main {
+.rally-btn.landscape-btn .rally-btn-main,
+.rally-btn.split-btn .rally-btn-main {
   flex-direction: column;
   justify-content: center;
   text-align: center;
 }
-.rally-btn.portrait-btn {
+.rally-btn.split-btn {
+  min-height: 145px;
+  padding: .75rem .65rem;
+}
+.rally-btn.stack-btn {
   padding: .65rem 1rem;
 }
-.rally-btn.portrait-btn .rally-btn-main {
+.rally-btn.stack-btn .rally-btn-main {
   flex-direction: row;
   text-align: left;
 }
@@ -537,7 +557,7 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 .setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 @media (max-width: 900px) { .setup-grid { grid-template-columns: 1fr !important; } }
 @media (max-width: 720px) {
-  .ref-live.landscape { grid-template-columns: minmax(115px, 24vw) 1fr minmax(115px, 24vw); gap: .4rem; padding: .4rem; }
+  .ref-live.landscape-sides { grid-template-columns: minmax(115px, 24vw) 1fr minmax(115px, 24vw); gap: .4rem; padding: .4rem; }
   .rally-btn.landscape-btn { padding: .45rem .35rem; }
 }
 .steps { display: flex; gap: .4rem; flex-wrap: wrap; }
