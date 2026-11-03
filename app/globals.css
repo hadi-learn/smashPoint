@@ -972,18 +972,20 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 
 .bwf-bug {
   display: inline-flex; flex-direction: column;
-  min-width: 430px; max-width: 580px;
-  border-radius: 10px; overflow: hidden;
+  width: 495px; min-width: 495px; max-width: 520px;
+  border-radius: 10px; overflow: visible;
   background: #040917;
   border: 1.5px solid rgba(255, 255, 255, 0.28);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.82), 0 2px 6px rgba(0, 0, 0, 0.6);
   font-family: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  position: relative;
 }
 
 /* Top Metadata Header Ribbon of Scorebug */
 .bwf-bug-meta {
   display: flex; align-items: center; gap: 7px;
   padding: 5px 11px;
+  border-radius: 8.5px 8.5px 0 0;
   background: linear-gradient(90deg, #091124 0%, #16223f 60%, #091124 100%);
   border-bottom: 2px solid var(--gold);
   font-size: 11.5px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
@@ -1014,6 +1016,7 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 /* Scorebug 2-Row Table */
 .bwf-bug-table { display: flex; flex-direction: column; }
 .bwf-row {
+  position: relative;
   display: flex; align-items: center; min-height: 54px;
   background: linear-gradient(90deg, #060d20 0%, #0b1633 100%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.18);
@@ -1119,10 +1122,48 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   color: #ffffff;
 }
 
+/* External Right-Side Match Point / Game Point Callout (aligned to winning player row) */
+.bwf-point-callout {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 7px;
+  font-size: 13.5px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  z-index: 30;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85), 0 0 14px rgba(0, 0, 0, 0.5);
+  animation: pulse 1s infinite;
+}
+.bwf-point-callout.gold {
+  background: linear-gradient(135deg, #fde047 0%, #eab308 100%);
+  color: #090d16;
+  border: 2px solid #fef08a;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85), 0 0 18px rgba(250, 204, 21, 0.65);
+}
+.bwf-point-callout.red {
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  color: #ffffff;
+  border: 2px solid #fca5a5;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85), 0 0 18px rgba(239, 68, 68, 0.65);
+}
+.bwf-callout-arrow {
+  font-size: 11px;
+  line-height: 1;
+}
+
 /* Bottom Sub-bar of Scorebug */
 .bwf-bug-footer {
   display: flex; align-items: center; gap: 8px;
   padding: 5px 11px;
+  border-radius: 0 0 8.5px 8.5px;
   background: #040814; border-top: 1px solid rgba(255, 255, 255, 0.18);
   font-size: 11px; font-weight: 800; color: #cbd5e1; letter-spacing: 0.04em;
 }

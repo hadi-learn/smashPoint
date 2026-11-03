@@ -7,32 +7,37 @@ import { api, emitAck, getSocket, useNow } from '@/lib/client';
 import { Shuttle } from '@/components/Icons';
 
 /** DetectSpecialPoint: Game Point, Match Point, Set Point, Deuce */
-function detectPointAlert(match) {
+function getTeamPointAlert(match, t) {
   const st = match.live_state;
   if (st.phase !== 'live') return null;
   const { win_point, scoring_type, max_point } = match.rules;
   const cap = max_point && max_point >= win_point ? max_point : win_point + 9;
-  const a = st.score.a;
-  const b = st.score.b;
+  const my = st.score[t];
+  const opp = st.score[t === 'a' ? 'b' : 'a'];
 
-  const isWinningPointFor = (t) => {
-    const my = st.score[t];
-    const opp = st.score[t === 'a' ? 'b' : 'a'];
-    if (scoring_type === 'continuous') return my === win_point - 1 && opp < win_point;
-    return (my >= win_point - 1 && my - opp >= 1) || my === cap - 1;
+  const isWinningPoint =
+    scoring_type === 'continuous'
+      ? my === win_point - 1 && opp < win_point
+      : (my >= win_point - 1 && my - opp >= 1) || my === cap - 1;
+
+  if (!isWinningPoint) return null;
+  const isMatchPt = scoring_type === 'continuous' || st.sets[t] >= 1;
+  return {
+    team: t,
+    type: isMatchPt ? 'MATCH POINT' : `GAME ${st.current_set} POINT`,
+    tone: isMatchPt ? 'gold' : 'red',
   };
+}
 
+function detectPointAlert(match) {
+  const st = match.live_state;
+  if (st.phase !== 'live') return null;
   for (const t of ['a', 'b']) {
-    if (isWinningPointFor(t)) {
-      const isMatchPt = scoring_type === 'continuous' || st.sets[t] >= 1;
-      return {
-        team: t,
-        type: isMatchPt ? 'MATCH POINT' : `GAME ${st.current_set} POINT`,
-        tone: isMatchPt ? 'gold' : 'red',
-      };
-    }
+    const teamAlert = getTeamPointAlert(match, t);
+    if (teamAlert) return teamAlert;
   }
-  if (scoring_type === 'sets' && a >= win_point - 1 && a === b) {
+  const { win_point, scoring_type } = match.rules;
+  if (scoring_type === 'sets' && st.score.a >= win_point - 1 && st.score.a === st.score.b) {
     return { team: null, type: 'DEUCE', tone: 'cyan' };
   }
   return null;
@@ -50,6 +55,7 @@ function BroadcastScorebug({ match, now, compact = false }) {
   const isSets = match.rules.scoring_type === 'sets';
   const finished = match.session_management.status === 'finished' || st.phase === 'finished';
   const alert = detectPointAlert(match);
+  const footerAlert = alert && !alert.team ? alert : null;
   const duration = matchDurationText(match, now);
 
   // Order rows consistently: top = Team A (or left side), bottom = Team B (or right side)
@@ -77,6 +83,7 @@ function BroadcastScorebug({ match, now, compact = false }) {
           const isWinner = finished && st.winner === t;
           const p1Serving = serving && ss.player_id === `${t}1`;
           const p2Serving = serving && ss.player_id === `${t}2`;
+          const teamPointAlert = getTeamPointAlert(match, t);
 
           return (
             <div key={t} className={`bwf-row team-${t} ${serving ? `is-serving ${serveCls}` : ''} ${isWinner ? 'is-winner' : ''}`}>
@@ -134,6 +141,14 @@ function BroadcastScorebug({ match, now, compact = false }) {
               <div className={`bwf-points ${serving ? `serving ${serveCls}` : ''}`}>
                 {st.score[t]}
               </div>
+
+              {/* External Right-Side Match Point / Game Point Callout (aligned to this player's row) */}
+              {teamPointAlert && (
+                <div className={`bwf-point-callout ${teamPointAlert.tone}`}>
+                  <span className="bwf-callout-arrow">◀</span>
+                  <span>{teamPointAlert.type}</span>
+                </div>
+              )}
             </div>
           );
         })}
@@ -151,9 +166,9 @@ function BroadcastScorebug({ match, now, compact = false }) {
           {isSets ? `SET ${st.current_set}` : `TARGET ${match.rules.win_point}`} · {sideOut ? 'SIDE-OUT' : 'RALLY'}
         </span>
         {servingSideBadge(match)}
-        {alert && (
-          <span className={`bwf-alert-badge ${alert.tone}`}>
-            {alert.type}
+        {footerAlert && (
+          <span className={`bwf-alert-badge ${footerAlert.tone}`}>
+            {footerAlert.type}
           </span>
         )}
         {st.phase === 'interval' && <span className="bwf-alert-badge gold">INTERVAL</span>}
