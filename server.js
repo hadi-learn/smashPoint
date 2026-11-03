@@ -524,7 +524,9 @@ io.on('connection', (socket) => {
     const m = store.mustGet(match_number);
     for (const r of socket.rooms) if (r !== socket.id && !r.startsWith('device:') && !r.startsWith('court:') && r !== 'admin') socket.leave(r);
     socket.join(m.match_number);
-    return { ok: true, match: store.toPublic(m) };
+    socket.join(`court:${m.court_number}`);
+    const snap = store.courtSnapshot(m.court_number);
+    return { ok: true, match: store.toPublic(m), previous: snap.previous, upcoming: snap.upcoming };
   }));
   socket.on('match:unwatch', wrap(({ match_number }) => {
     socket.leave(String(match_number || '').toUpperCase());

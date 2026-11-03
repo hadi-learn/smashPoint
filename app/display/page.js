@@ -196,7 +196,7 @@ function servingSideBadge(match) {
  * Full-Screen Arena LED Scoreboard (for Courtside Smart TV / Big Monitor).
  * Redesigned with broadcast-grade horizontal rows + massive court-side split panels.
  */
-function ArenaBoard({ match, now }) {
+function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
   const st = match.live_state;
   const ss = st.service_status;
   const L = st.sides.left;
@@ -229,47 +229,139 @@ function ArenaBoard({ match, now }) {
     const lastSet = st.set_history[st.set_history.length - 1];
     const winScore = isSets ? st.sets[winSide] : (lastSet ? lastSet[winSide] : st.score[winSide]);
     const loseScore = isSets ? st.sets[loseSide] : (lastSet ? lastSet[loseSide] : st.score[loseSide]);
+    const prevList = (previous || []).filter((p) => p.match_number !== match.match_number).slice(-4);
+    const nextList = (upcoming || []).filter((u) => u.match_number !== match.match_number).slice(0, 5);
 
     overlay = (
-      <div className="tv-overlay">
-        <div className="tv-overlay-badge">
-          OFFICIAL RESULT · HASIL AKHIR PERTANDINGAN{duration ? ` · ⏱ ${duration}` : ''}
-        </div>
-
-        {/* Full Matchup Result Card: Winner vs Opponent + Scores */}
-        <div className="tv-result-grid">
-          <div className="tv-result-card winner">
-            <div className="tv-result-role">🏆 PEMENANG (WINNER)</div>
-            <div className="tv-result-names">{teamLabel(match, winSide)}</div>
-            {winTeam?.club && <div className="tv-result-club">{winTeam.club}</div>}
-            <div className="tv-result-main-score">{winScore}</div>
-            {isSets && <div className="tv-result-score-label">SET MENANG</div>}
-          </div>
-
-          <div className="tv-result-vs">VS</div>
-
-          <div className="tv-result-card opponent">
-            <div className="tv-result-role">LAWAN (RUNNER-UP)</div>
-            <div className="tv-result-names">{teamLabel(match, loseSide)}</div>
-            {loseTeam?.club && <div className="tv-result-club">{loseTeam.club}</div>}
-            <div className="tv-result-main-score">{loseScore}</div>
-            {isSets && <div className="tv-result-score-label">SET MENANG</div>}
-          </div>
-        </div>
-
-        {/* Detailed Set-by-Set Score Breakdown */}
-        {st.set_history.length > 0 && (
-          <div className="tv-overlay-scores">
-            {st.set_history.map((s) => (
-              <span key={s.set} className="tv-overlay-set">
-                {isSets ? `SET ${s.set}` : 'SKOR AKHIR'}:{' '}
-                <strong style={{ color: 'var(--gold)' }}>{s[winSide]}</strong>
-                {' - '}
-                <strong>{s[loseSide]}</strong>
-              </span>
-            ))}
+      <div className="tv-overlay tv-finished-overlay">
+        {/* 1. TOP SECTION: Up to 4 Previous Matches on this Court (smaller) */}
+        {prevList.length > 0 && (
+          <div className="tv-sched-section prev-section">
+            <div className="tv-sched-header">
+              <span>⏮ RIWAYAT PERTANDINGAN SEBELUMNYA (LAPANGAN {match.court_number})</span>
+              <span className="tv-sched-count">{prevList.length} SELESAI</span>
+            </div>
+            <div className="tv-prev-list">
+              {prevList.map((p) => {
+                const aWon = p.winner === 'a';
+                const bWon = p.winner === 'b';
+                return (
+                  <div key={p.match_number} className="tv-prev-row">
+                    <span className="tv-prev-id">{p.match_number}</span>
+                    <span className="tv-prev-cat">{p.category_name} · {p.discipline}</span>
+                    <span className="tv-prev-teams">
+                      <span className={aWon ? 'won' : 'lost'}>
+                        {aWon && '🏆 '}
+                        {p.team_a}
+                        {p.team_a_club ? <small> ({p.team_a_club})</small> : ''}
+                      </span>
+                      <span className="tv-prev-vs">vs</span>
+                      <span className={bWon ? 'won' : 'lost'}>
+                        {bWon && '🏆 '}
+                        {p.team_b}
+                        {p.team_b_club ? <small> ({p.team_b_club})</small> : ''}
+                      </span>
+                    </span>
+                    <span className="tv-prev-score">{p.score_text}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
+
+        {/* 2. CENTER SECTION: Just Finished Match Result (Winner + Opponent + Scores) */}
+        <div className="tv-just-finished-box">
+          <div className="tv-just-finished-header">
+            <span className="tv-overlay-badge">
+              ✅ BARU SAJA SELESAI · {match.match_number} · {match.category_name} ({match.discipline}){duration ? ` · ⏱ ${duration}` : ''}
+            </span>
+            {st.set_history.length > 0 && (
+              <div className="tv-overlay-scores">
+                {st.set_history.map((s) => (
+                  <span key={s.set} className="tv-overlay-set">
+                    {isSets ? `SET ${s.set}` : 'SKOR'}:{' '}
+                    <strong style={{ color: 'var(--gold)' }}>{s[winSide]}</strong>
+                    {' - '}
+                    <strong>{s[loseSide]}</strong>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="tv-result-grid">
+            <div className="tv-result-card winner">
+              <div className="tv-result-card-left">
+                <div className="tv-result-role">🏆 PEMENANG (WINNER)</div>
+                <div className="tv-result-names">{teamLabel(match, winSide)}</div>
+                {winTeam?.club && <div className="tv-result-club">{winTeam.club}</div>}
+              </div>
+              <div className="tv-result-card-right">
+                <div className="tv-result-main-score">{winScore}</div>
+                {isSets && <div className="tv-result-score-label">SET</div>}
+              </div>
+            </div>
+
+            <div className="tv-result-vs">VS</div>
+
+            <div className="tv-result-card opponent">
+              <div className="tv-result-card-left">
+                <div className="tv-result-role">LAWAN (RUNNER-UP)</div>
+                <div className="tv-result-names">{teamLabel(match, loseSide)}</div>
+                {loseTeam?.club && <div className="tv-result-club">{loseTeam.club}</div>}
+              </div>
+              <div className="tv-result-card-right">
+                <div className="tv-result-main-score">{loseScore}</div>
+                {isSets && <div className="tv-result-score-label">SET</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. BOTTOM SECTION: Up to 5 Upcoming Matches on this Court (1st match highlighted) */}
+        <div className="tv-sched-section next-section">
+          <div className="tv-sched-header next">
+            <span>⏭ JADWAL PERTANDINGAN BERIKUTNYA DI LAPANGAN {match.court_number}</span>
+            <span className="tv-sched-count">{nextList.length ? `${nextList.length} ANTREAN` : 'SELESAI'}</span>
+          </div>
+          {nextList.length > 0 ? (
+            <div className="tv-next-list">
+              {nextList.map((u, idx) => {
+                const isNextUp = idx === 0;
+                return (
+                  <div key={u.match_number} className={`tv-next-row ${isNextUp ? 'highlight-next' : ''}`}>
+                    <div className="tv-next-left">
+                      {isNextUp ? (
+                        <span className="tv-next-badge">🔥 SELANJUTNYA · HARAP BERSIAP</span>
+                      ) : (
+                        <span className="tv-next-queue">ANTREAN #{idx + 1}</span>
+                      )}
+                      <span className="tv-next-id">{u.match_number}</span>
+                      <span className="tv-next-cat">{u.category_name} · {u.discipline}</span>
+                    </div>
+                    <div className="tv-next-teams">
+                      <span className="tv-next-team-a">
+                        {u.team_a}
+                        {u.team_a_club ? <small> ({u.team_a_club})</small> : ''}
+                      </span>
+                      <span className="tv-next-vs">VS</span>
+                      <span className="tv-next-team-b">
+                        {u.team_b}
+                        {u.team_b_club ? <small> ({u.team_b_club})</small> : ''}
+                      </span>
+                    </div>
+                    <div className="tv-next-time">
+                      {[u.scheduled_date, u.scheduled_time].filter(Boolean).join(' · ') || 'Segera'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="tv-next-empty">Tidak ada jadwal pertandingan berikutnya di lapangan ini.</div>
+          )}
+        </div>
       </div>
     );
   } else if (st.phase === 'interval') {
@@ -485,7 +577,7 @@ function ObsOverlayView({ match, now, bgMode }) {
   );
 }
 
-function Idle({ court, upcoming, isObs, bgMode }) {
+function Idle({ court, previous = [], upcoming = [], isObs, bgMode }) {
   if (isObs) {
     return (
       <div className={`obs-canvas bg-${bgMode}`}>
@@ -505,27 +597,83 @@ function Idle({ court, upcoming, isObs, bgMode }) {
       </div>
     );
   }
+  const prevList = (previous || []).slice(-4);
+  const nextList = (upcoming || []).slice(0, 5);
+
   return (
     <div className="tv-idle">
       <div className="big">COURT {court}</div>
-      {upcoming?.length ? (
-        <>
-          <div style={{ fontSize: '2.2vw', color: '#cbd5e1', fontWeight: 700 }}>JADWAL PERTANDINGAN BERIKUTNYA</div>
-          <table>
-            <tbody>
-              {upcoming.map((u) => (
-                <tr key={u.match_number}>
-                  <td style={{ color: 'var(--gold)', fontWeight: 900 }}>{u.match_number}</td>
-                  <td>{[u.scheduled_date, u.scheduled_time].filter(Boolean).join(' · ')}</td>
-                  <td>
-                    {u.team_a} <span style={{ color: '#64748b' }}>vs</span> {u.team_b}
-                  </td>
-                  <td style={{ color: '#94a3b8' }}>{u.category_name}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
+      {prevList.length > 0 && (
+        <div className="tv-sched-section prev-section" style={{ width: '92vw', maxWidth: '92vw' }}>
+          <div className="tv-sched-header">
+            <span>⏮ RIWAYAT PERTANDINGAN SEBELUMNYA</span>
+            <span className="tv-sched-count">{prevList.length} SELESAI</span>
+          </div>
+          <div className="tv-prev-list">
+            {prevList.map((p) => {
+              const aWon = p.winner === 'a';
+              const bWon = p.winner === 'b';
+              return (
+                <div key={p.match_number} className="tv-prev-row">
+                  <span className="tv-prev-id">{p.match_number}</span>
+                  <span className="tv-prev-cat">{p.category_name} · {p.discipline}</span>
+                  <span className="tv-prev-teams">
+                    <span className={aWon ? 'won' : 'lost'}>
+                      {aWon && '🏆 '}
+                      {p.team_a}
+                    </span>
+                    <span className="tv-prev-vs">vs</span>
+                    <span className={bWon ? 'won' : 'lost'}>
+                      {bWon && '🏆 '}
+                      {p.team_b}
+                    </span>
+                  </span>
+                  <span className="tv-prev-score">{p.score_text}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {nextList.length ? (
+        <div className="tv-sched-section next-section" style={{ width: '92vw', maxWidth: '92vw' }}>
+          <div className="tv-sched-header next">
+            <span>⏭ JADWAL PERTANDINGAN BERIKUTNYA DI LAPANGAN {court}</span>
+            <span className="tv-sched-count">{nextList.length} ANTREAN</span>
+          </div>
+          <div className="tv-next-list">
+            {nextList.map((u, idx) => {
+              const isNextUp = idx === 0;
+              return (
+                <div key={u.match_number} className={`tv-next-row ${isNextUp ? 'highlight-next' : ''}`}>
+                  <div className="tv-next-left">
+                    {isNextUp ? (
+                      <span className="tv-next-badge">🔥 SELANJUTNYA · HARAP BERSIAP</span>
+                    ) : (
+                      <span className="tv-next-queue">ANTREAN #{idx + 1}</span>
+                    )}
+                    <span className="tv-next-id">{u.match_number}</span>
+                    <span className="tv-next-cat">{u.category_name} · {u.discipline}</span>
+                  </div>
+                  <div className="tv-next-teams">
+                    <span className="tv-next-team-a">
+                      {u.team_a}
+                      {u.team_a_club ? <small> ({u.team_a_club})</small> : ''}
+                    </span>
+                    <span className="tv-next-vs">VS</span>
+                    <span className="tv-next-team-b">
+                      {u.team_b}
+                      {u.team_b_club ? <small> ({u.team_b_club})</small> : ''}
+                    </span>
+                  </div>
+                  <div className="tv-next-time">
+                    {[u.scheduled_date, u.scheduled_time].filter(Boolean).join(' · ') || 'Segera'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       ) : (
         <div style={{ fontSize: '2.2vw', color: '#64748b' }}>Menunggu pertandingan aktif di lapangan ini…</div>
       )}
@@ -620,6 +768,7 @@ function Display() {
   const [mode, setMode] = useState(initialMode);
   const [bgMode, setBgMode] = useState(initialBg);
   const [match, setMatch] = useState(null);
+  const [previous, setPrevious] = useState([]);
   const [upcoming, setUpcoming] = useState([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState(null);
@@ -654,21 +803,27 @@ function Display() {
         const r = await emitAck('court:watch', { court });
         if (r.ok) {
           setMatch(r.snapshot.match);
-          setUpcoming(r.snapshot.upcoming);
+          setPrevious(r.snapshot.previous || []);
+          setUpcoming(r.snapshot.upcoming || []);
           setError(null);
         } else setError(r.error);
       } else {
         const r = await emitAck('match:watch', { match_number: matchId });
         if (r.ok) {
           setMatch(r.match);
+          setPrevious(r.previous || []);
+          setUpcoming(r.upcoming || []);
           setError(null);
         } else setError(r.error);
       }
     };
     const onCourt = (snap) => {
-      if (String(snap.court) !== String(court)) return;
-      setMatch(snap.match);
-      setUpcoming(snap.upcoming);
+      if (court && String(snap.court) !== String(court)) return;
+      if (court) {
+        setMatch(snap.match);
+      }
+      setPrevious(snap.previous || []);
+      setUpcoming(snap.upcoming || []);
     };
     const onMatch = (m) => {
       if (matchId && m.match_number === matchId.toUpperCase()) setMatch(m);
@@ -759,10 +914,10 @@ function Display() {
           isObs ? (
             <ObsOverlayView match={match} now={now} bgMode={bgMode} />
           ) : (
-            <ArenaBoard match={match} now={now} />
+            <ArenaBoard match={match} now={now} previous={previous} upcoming={upcoming} />
           )
         ) : (
-          <Idle court={court || '-'} upcoming={upcoming} isObs={isObs} bgMode={bgMode} />
+          <Idle court={court || '-'} previous={previous} upcoming={upcoming} isObs={isObs} bgMode={bgMode} />
         ))}
 
       {!isObs && (

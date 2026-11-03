@@ -829,64 +829,216 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 .tv-overlay {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  background: rgba(2, 6, 23, 0.92); backdrop-filter: blur(10px);
-  z-index: 20; text-align: center; gap: 1.4vw; padding: 2vw 3vw;
+  background: rgba(2, 6, 23, 0.94); backdrop-filter: blur(12px);
+  z-index: 20; text-align: center; gap: 1.2vw; padding: 1.4vw 2.4vw;
+  overflow-y: auto;
+}
+.tv-overlay.tv-finished-overlay {
+  justify-content: space-between;
+  gap: 0.9vw;
+  padding: 1.1vw 2.2vw;
 }
 .tv-overlay.setup-banner {
   background: rgba(2, 6, 23, 0.55); backdrop-filter: none;
   justify-content: flex-end; padding-bottom: 2.2vw; pointer-events: none;
 }
 .tv-overlay-badge {
-  background: var(--gold); color: #0f172a; font-size: 1.35vw; font-weight: 900;
-  padding: 0.35vw 1.5vw; border-radius: 999px; letter-spacing: 0.08em;
+  background: var(--gold); color: #0f172a; font-size: 1.15vw; font-weight: 900;
+  padding: 0.3vw 1.2vw; border-radius: 999px; letter-spacing: 0.06em;
 }
 .tv-overlay h1 { font-size: 5.5vw; color: #ffffff; margin: 0; line-height: 1.08; text-shadow: 0 0 2.5vw rgba(250, 204, 21, 0.45); }
 .tv-overlay h2 { font-size: 2.8vw; color: var(--gold); margin: 0; }
 .tv-overlay p { font-size: 1.8vw; color: #cbd5e1; margin: 0; }
+
+/* 1. Top & Bottom Schedule Sections (Previous 4 & Next 5 Matches) */
+.tv-sched-section {
+  width: 100%;
+  max-width: 95vw;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35vw;
+  background: rgba(9, 16, 36, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 0.75vw;
+  padding: 0.55vw 1vw;
+}
+.tv-sched-section.prev-section {
+  opacity: 0.92;
+  background: rgba(6, 11, 25, 0.78);
+}
+.tv-sched-section.next-section {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: linear-gradient(180deg, rgba(10, 20, 44, 0.92), rgba(6, 12, 28, 0.95));
+}
+.tv-sched-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.92vw;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  color: #94a3b8;
+  text-transform: uppercase;
+  padding-bottom: 0.2vw;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+.tv-sched-header.next {
+  color: #38bdf8;
+  border-bottom-color: rgba(56, 189, 248, 0.25);
+}
+.tv-sched-count {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  padding: 0.1vw 0.6vw;
+  border-radius: 999px;
+  font-size: 0.82vw;
+}
+
+/* Previous Matches List (Compact 2x2 or 1-column rows) */
+.tv-prev-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35vw 0.9vw;
+}
+.tv-prev-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55vw;
+  padding: 0.28vw 0.65vw;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.45vw;
+  font-size: 0.92vw;
+  text-align: left;
+  min-width: 0;
+}
+.tv-prev-id {
+  color: #94a3b8;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+.tv-prev-cat {
+  color: #64748b;
+  font-size: 0.8vw;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.tv-prev-teams {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
+}
+.tv-prev-teams .won {
+  color: #fef08a;
+  font-weight: 900;
+}
+.tv-prev-teams .lost {
+  color: #94a3b8;
+}
+.tv-prev-teams small {
+  font-weight: 700;
+  opacity: 0.8;
+}
+.tv-prev-vs {
+  color: #475569;
+  margin: 0 0.35vw;
+  font-size: 0.8vw;
+}
+.tv-prev-score {
+  color: #ffffff;
+  background: #1e293b;
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  padding: 0.1vw 0.5vw;
+  border-radius: 0.35vw;
+  font-weight: 900;
+  font-size: 0.88vw;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* 2. Center Section: Just Finished Match Box */
+.tv-just-finished-box {
+  width: 100%;
+  max-width: 95vw;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6vw;
+  padding: 0.8vw 1.2vw;
+  border-radius: 0.95vw;
+  background: linear-gradient(180deg, rgba(17, 28, 56, 0.72), rgba(7, 13, 31, 0.88));
+  border: 0.16vw solid rgba(250, 204, 21, 0.45);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
+}
+.tv-just-finished-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.8vw;
+}
 
 /* Final Match Result Comparison Grid (Winner vs Opponent) on Arena TV */
 .tv-result-grid {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: stretch;
-  gap: 1.8vw;
+  gap: 1.2vw;
   width: 100%;
-  max-width: 92vw;
 }
 .tv-result-card {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2vw;
+  padding: 0.9vw 1.5vw;
+  border-radius: 0.9vw;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(7, 13, 31, 0.96));
+  border: 0.18vw solid rgba(148, 163, 184, 0.28);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  min-width: 0;
+  text-align: left;
+}
+.tv-result-card.winner {
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.22) 0%, rgba(18, 34, 74, 0.95) 55%, rgba(7, 13, 31, 0.98) 100%);
+  border-color: var(--gold);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65), 0 0 2vw rgba(250, 204, 21, 0.28);
+}
+.tv-result-card.opponent {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.65) 0%, rgba(10, 18, 38, 0.95) 100%);
+  border-color: rgba(148, 163, 184, 0.25);
+}
+.tv-result-card-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25vw;
+  min-width: 0;
+  flex: 1;
+}
+.tv-result-card-right {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.5vw;
-  padding: 1.6vw 2vw;
-  border-radius: 1.2vw;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(7, 13, 31, 0.96));
-  border: 0.2vw solid rgba(148, 163, 184, 0.28);
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.65);
-  min-width: 0;
-}
-.tv-result-card.winner {
-  background: linear-gradient(165deg, rgba(250, 204, 21, 0.2) 0%, rgba(18, 34, 74, 0.95) 55%, rgba(7, 13, 31, 0.98) 100%);
-  border-color: var(--gold);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.7), 0 0 2.8vw rgba(250, 204, 21, 0.32);
-}
-.tv-result-card.opponent {
-  background: linear-gradient(165deg, rgba(30, 41, 59, 0.65) 0%, rgba(10, 18, 38, 0.95) 100%);
-  border-color: rgba(148, 163, 184, 0.25);
+  flex-shrink: 0;
+  padding-left: 0.8vw;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
 }
 .tv-result-role {
-  font-size: 1.15vw;
+  font-size: 0.9vw;
   font-weight: 900;
-  letter-spacing: 0.08em;
-  padding: 0.25vw 1vw;
+  letter-spacing: 0.07em;
+  padding: 0.18vw 0.75vw;
   border-radius: 999px;
   text-transform: uppercase;
 }
 .tv-result-card.winner .tv-result-role {
   background: var(--gold);
   color: #0f172a;
-  box-shadow: 0 0 1.2vw rgba(250, 204, 21, 0.5);
+  box-shadow: 0 0 1vw rgba(250, 204, 21, 0.5);
 }
 .tv-result-card.opponent .tv-result-role {
   background: rgba(148, 163, 184, 0.16);
@@ -894,22 +1046,21 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   border: 1px solid rgba(148, 163, 184, 0.3);
 }
 .tv-result-names {
-  font-size: 3.1vw;
+  font-size: 2.15vw;
   font-weight: 900;
   line-height: 1.12;
   color: #ffffff;
   word-break: break-word;
-  margin-top: 0.2vw;
 }
 .tv-result-card.winner .tv-result-names {
   color: var(--gold);
-  text-shadow: 0 0 1.8vw rgba(250, 204, 21, 0.45);
+  text-shadow: 0 0 1.4vw rgba(250, 204, 21, 0.45);
 }
 .tv-result-card.opponent .tv-result-names {
   color: #e2e8f0;
 }
 .tv-result-club {
-  font-size: 1.4vw;
+  font-size: 1.05vw;
   font-weight: 800;
   color: #93c5fd;
   text-transform: uppercase;
@@ -919,45 +1070,146 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   color: #94a3b8;
 }
 .tv-result-main-score {
-  font-size: 8.5vw;
+  font-size: 4.8vw;
   font-weight: 900;
   line-height: 0.95;
   font-variant-numeric: tabular-nums;
-  margin-top: 0.3vw;
 }
 .tv-result-card.winner .tv-result-main-score {
   color: #ffffff;
-  text-shadow: 0 0 2.2vw rgba(250, 204, 21, 0.5);
+  text-shadow: 0 0 1.8vw rgba(250, 204, 21, 0.5);
 }
 .tv-result-card.opponent .tv-result-main-score {
   color: #94a3b8;
 }
 .tv-result-score-label {
-  font-size: 0.95vw;
+  font-size: 0.78vw;
   font-weight: 800;
   color: #94a3b8;
   letter-spacing: 0.1em;
 }
 .tv-result-vs {
-   align-self: center;
-  width: 4.2vw;
-  height: 4.2vw;
+  align-self: center;
+  width: 3.1vw;
+  height: 3.1vw;
   border-radius: 50%;
   background: #0f172a;
-  border: 0.2vw solid var(--gold);
+  border: 0.16vw solid var(--gold);
   color: var(--gold);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.4vw;
+  font-size: 1.1vw;
   font-weight: 900;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
 }
 
-.tv-overlay-scores { display: flex; gap: 1.2vw; margin-top: 0.3vw; flex-wrap: wrap; justify-content: center; }
+.tv-overlay-scores { display: flex; gap: 0.7vw; flex-wrap: wrap; justify-content: center; }
 .tv-overlay-set {
-  background: #111c38; border: 2px solid var(--gold); border-radius: 0.7vw;
-  padding: 0.45vw 1.4vw; font-size: 1.85vw; font-weight: 800;
+  background: #111c38; border: 1.5px solid var(--gold); border-radius: 0.5vw;
+  padding: 0.25vw 0.9vw; font-size: 1.25vw; font-weight: 800;
+}
+
+/* 3. Upcoming Matches List (Bottom Section, with Highlight on #1 Next Up) */
+.tv-next-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35vw;
+}
+.tv-next-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1vw;
+  padding: 0.38vw 0.85vw;
+  border-radius: 0.5vw;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  font-size: 1.05vw;
+  text-align: left;
+}
+.tv-next-row.highlight-next {
+  background: linear-gradient(90deg, rgba(250, 204, 21, 0.22) 0%, rgba(14, 116, 144, 0.35) 55%, rgba(15, 23, 42, 0.95) 100%);
+  border: 0.15vw solid var(--gold);
+  padding: 0.55vw 1vw;
+  font-size: 1.28vw;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55), 0 0 1.4vw rgba(250, 204, 21, 0.25);
+}
+.tv-next-left {
+  display: flex;
+  align-items: center;
+  gap: 0.6vw;
+  flex-shrink: 0;
+}
+.tv-next-badge {
+  background: linear-gradient(90deg, #fde047 0%, #f59e0b 100%);
+  color: #090d16;
+  font-size: 0.88vw;
+  font-weight: 900;
+  padding: 0.18vw 0.65vw;
+  border-radius: 0.35vw;
+  letter-spacing: 0.05em;
+  animation: pulse 1.3s infinite;
+}
+.tv-next-queue {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #7dd3fc;
+  font-size: 0.8vw;
+  font-weight: 800;
+  padding: 0.12vw 0.5vw;
+  border-radius: 0.3vw;
+}
+.tv-next-id {
+  color: var(--gold);
+  font-weight: 900;
+}
+.tv-next-cat {
+  color: #cbd5e1;
+  font-size: 0.92vw;
+  font-weight: 800;
+}
+.tv-next-teams {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6vw;
+  font-weight: 900;
+  color: #ffffff;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tv-next-row.highlight-next .tv-next-teams {
+  color: #fef9c3;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+.tv-next-teams small {
+  color: #93c5fd;
+  font-weight: 800;
+  font-size: 0.85em;
+}
+.tv-next-vs {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--gold);
+  padding: 0.08vw 0.45vw;
+  border-radius: 0.3vw;
+  font-size: 0.82vw;
+  font-weight: 900;
+}
+.tv-next-time {
+  color: #7dd3fc;
+  font-weight: 800;
+  font-size: 0.95vw;
+  flex-shrink: 0;
+}
+.tv-next-empty {
+  color: #64748b;
+  font-size: 1.05vw;
+  font-weight: 700;
+  padding: 0.4vw 0;
 }
 
 /* ---------------- 2. YOUTUBE / OBS SCOREBUG OVERLAY (TOP-LEFT CORNER) ---------------- */
