@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api, emitAck, getSocket, useNow } from '@/lib/client';
-import { DISCIPLINES, DISCIPLINE_LABEL, DOUBLES, detailsToInput, matchDurationText, teamLabel, teamSeedBadge } from '@/lib/engine';
+import { DISCIPLINES, DISCIPLINE_LABEL, DOUBLES, detailsToInput, matchDurationSec, matchDurationText, teamLabel, teamSeedBadge } from '@/lib/engine';
 import { StatusBadge } from '@/components/referee/Entry';
 
 const ACTIVE = ['locked', 'in_progress'];
@@ -766,19 +766,140 @@ function CourtGrid({ matches, courtCount, now, onUnlock }) {
   );
 }
 
+const naturalCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const cmpStr = (a, b) => naturalCollator.compare(String(a || ''), String(b || ''));
+
+function parseScheduleMins(s) {
+  const m = String(s || '').match(/(\d{1,2})[:.](\d{2})/);
+  return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : 99999;
+}
+
+const STATUS_SORT_ORDER = {
+  in_progress: 1,
+  locked: 2,
+  scheduled: 3,
+  finished: 4,
+};
+
+const SORT_OPTIONS = [
+  ['default', 'Default (Lap. → Jam → Match)'],
+  ['match', 'Nomor Match (A-Z / #1-#99)'],
+  ['category', 'Kategori & Disiplin'],
+  ['teams', 'Nama Pemain / Tim'],
+  ['rules', 'Aturan Skor'],
+  ['date', 'Tanggal Pertandingan'],
+  ['court', 'Nomor Lapangan'],
+  ['time', 'Jam Pertandingan'],
+  ['status', 'Status Pertandingan'],
+  ['score', 'Skor Pertandingan'],
+  ['duration', 'Durasi Pertandingan'],
+  ['controller', 'Pengontrol / Wasit'],
+];
+
 function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [court, setCourt] = useState('');
-  const filtered = matches.filter((m) => {
-    if (status && m.session_management.status !== status) return false;
-    if (court && m.court_number !== Number(court)) return false;
-    if (q) {
-      const hay = `${m.match_number} ${m.category_name} ${teamLabel(m, 'a')} ${teamLabel(m, 'b')} ${m.teams.team_a.club} ${m.teams.team_b.club}`.toLowerCase();
-      if (!hay.includes(q.toLowerCase())) return false;
+  const [category, setCategory] = useState('');
+  const [sortBy, setSortBy] = useState('default');
+  const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
+
+  const categories = useMemo(() => {
+    const set = new Set();
+    for (const m of matches) {
+      if (m.category_name) set.add(m.category_name);
     }
-    return true;
-  });
+    return Array.from(set).sort(cmpStr);
+  }, [matches]);
+
+  const toggleSort = (col) => {
+    if (sortBy === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(col);
+      setSortDir('asc');
+    }
+  };
+
+  const sortIndicator = (col) => {
+    if (sortBy !== col) return <span className="sort-ind idle">⇅</span>;
+    return <span className="sort-ind active">{sortDir === 'asc' ? '▲' : '▼'}</span>;
+  };
+
+  const filtered = useMemo(() => {
+    const list = matches.filter((m) => {
+      if (status && m.session_management.status !== status) return false;
+      if (court && m.court_number !== Number(court)) return false;
+      if (category && m.category_name !== category) return false;
+      if (q) {
+        const hay = `${m.match_number} ${m.category_name} ${m.discipline} ${teamLabel(m, 'a')} ${teamLabel(m, 'b')} ${m.teams.team_a.club} ${m.teams.team_b.club} ${teamSeedBadge(m, 'a') || ''} ${teamSeedBadge(m, 'b') || ''}`.toLowerCase();
+        if (!hay.includes(q.toLowerCase())) return false;
+      }
+      return true;
+    });
+
+    const dir = sortDir === 'desc' ? -1 : 1;
+    return [...list].sort((x, y) => {
+      let res = 0;
+      switch (sortBy) {
+        case 'match':
+          res = cmpStr(x.match_number, y.match_number);
+          break;
+        case 'category':
+          res = cmpStr(x.category_name, y.category_name) || cmpStr(x.discipline, y.discipline);
+          break;
+        case 'teams':
+          res = cmpStr(teamLabel(x, 'a'), teamLabel(y, 'a')) || cmpStr(teamLabel(x, 'b'), teamLabel(y, 'b'));
+          break;
+        case 'rules':
+          res =
+            cmpStr(x.rules.scoring_method, y.rules.scoring_method) ||
+            cmpStr(x.rules.scoring_type, y.rules.scoring_type) ||
+            x.rules.win_point - y.rules.win_point;
+          break;
+        case 'date':
+          res = cmpStr(x.scheduled_date || '9999-99-99', y.scheduled_date || '9999-99-99') || parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time);
+          break;
+        case 'court':
+          res = x.court_number - y.court_number || parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time);
+          break;
+        case 'time':
+          res = parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time) || x.court_number - y.court_number;
+          break;
+        case 'status':
+          res =
+            (STATUS_SORT_ORDER[x.session_management.status] || 99) -
+            (STATUS_SORT_ORDER[y.session_management.status] || 99);
+          break;
+        case 'score': {
+          const sx = x.live_state.sets.a + x.live_state.sets.b + (x.live_state.score.a + x.live_state.score.b) / 1000;
+          const sy = y.live_state.sets.a + y.live_state.sets.b + (y.live_state.score.a + y.live_state.score.b) / 1000;
+          res = sx - sy;
+          break;
+        }
+        case 'duration': {
+          const dx = matchDurationSec(x, now) ?? -1;
+          const dy = matchDurationSec(y, now) ?? -1;
+          res = dx - dy;
+          break;
+        }
+        case 'controller': {
+          const cx = x.session_management.locked ? x.session_management.controller_label || x.session_management.controller_tag || '1' : 'zzzz';
+          const cy = y.session_management.locked ? y.session_management.controller_label || y.session_management.controller_tag || '1' : 'zzzz';
+          res = cmpStr(cx, cy);
+          break;
+        }
+        default:
+          res =
+            x.court_number - y.court_number ||
+            parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time) ||
+            cmpStr(x.match_number, y.match_number);
+          break;
+      }
+      if (res === 0) res = cmpStr(x.match_number, y.match_number);
+      return res * dir;
+    });
+  }, [matches, status, court, category, q, sortBy, sortDir, now]);
 
   const call = async (path, method = 'POST', body, confirmText) => {
     if (confirmText && !window.confirm(confirmText)) return;
@@ -792,15 +913,25 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
       <div className="row">
         <h3 style={{ margin: 0 }}>📋 Daftar & Laporan Pertandingan ({filtered.length}/{matches.length})</h3>
         <div className="spacer" />
-        <input className="input" style={{ width: 220 }} placeholder="Cari match / pemain / club" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="input" style={{ width: 150 }} value={status} onChange={(e) => setStatus(e.target.value)}>
+        <input className="input" style={{ width: 200 }} placeholder="Cari match / pemain / club" value={q} onChange={(e) => setQ(e.target.value)} />
+        {categories.length > 0 && (
+          <select className="input" style={{ width: 150 }} value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="">Semua kategori</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+        )}
+        <select className="input" style={{ width: 140 }} value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">Semua status</option>
           <option value="scheduled">Terjadwal</option>
           <option value="locked">Setup</option>
           <option value="in_progress">Berlangsung</option>
           <option value="finished">Selesai</option>
         </select>
-        <select className="input" style={{ width: 130 }} value={court} onChange={(e) => setCourt(e.target.value)}>
+        <select className="input" style={{ width: 125 }} value={court} onChange={(e) => setCourt(e.target.value)}>
           <option value="">Semua lap.</option>
           {Array.from({ length: courtCount }, (_, i) => (
             <option key={i} value={i + 1}>
@@ -808,22 +939,67 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
             </option>
           ))}
         </select>
+        <div className="row" style={{ gap: '.3rem' }}>
+          <select
+            className="input"
+            style={{ width: 185 }}
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            title="Urutkan berdasarkan kolom"
+          >
+            {SORT_OPTIONS.map(([val, lbl]) => (
+              <option key={val} value={val}>
+                Urut: {lbl}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+            title={sortDir === 'asc' ? 'Urutan Naik (Ascending) — Klik untuk Turun' : 'Urutan Turun (Descending) — Klik untuk Naik'}
+          >
+            {sortDir === 'asc' ? '▲ Asc' : '▼ Desc'}
+          </button>
+        </div>
       </div>
       <div className="tbl-wrap">
         <table className="tbl">
           <thead>
             <tr>
-              <th>Match</th>
-              <th>Kategori</th>
-              <th>Tim A vs Tim B</th>
-              <th>Aturan</th>
-              <th>Tanggal</th>
-              <th>Lap.</th>
-              <th>Jam</th>
-              <th>Status</th>
-              <th>Skor</th>
-              <th>Durasi</th>
-              <th>Pengontrol</th>
+              <th className="sortable-th" onClick={() => toggleSort('match')} title="Klik untuk mengurutkan berdasarkan Nomor Match">
+                Match {sortIndicator('match')}
+              </th>
+              <th className="sortable-th" onClick={() => toggleSort('category')} title="Klik untuk mengurutkan berdasarkan Kategori & Disiplin">
+                Kategori {sortIndicator('category')}
+              </th>
+              <th className="sortable-th" onClick={() => toggleSort('teams')} title="Klik untuk mengurutkan berdasarkan Nama Pemain">
+                Tim A vs Tim B {sortIndicator('teams')}
+              </th>
+              <th className="sortable-th" onClick={() => toggleSort('rules')} title="Klik untuk mengurutkan berdasarkan Aturan Skor">
+                Aturan {sortIndicator('rules')}
+              </th>
+              <th className="sortable-th" onClick={() => toggleSort('date')} title="Klik untuk mengurutkan berdasarkan Tanggal">
+                Tanggal {sortIndicator('date')}
+              </th>
+              <th className="sortable-th" onClick={() => toggleSort('court')} title="Klik untuk mengurutkan berdasarkan Nomor Lapangan">
+                Lap. {sortIndicator('court')}
+              </th>
+              <th className="sortable-th" onClick={() => toggleSort('time')} title="Klik untuk mengurutkan berdasarkan Jam Pertandingan">
+                Jam {sortIndicator('time')}
+              </th>
+              <th className="sortable-th" onClick={() => toggleSort('status')} title="Klik untuk mengurutkan berdasarkan Status Pertandingan">
+                Status {sortIndicator('status')}
+              </th>
+              <th className="sortable-th" onClick={() => toggleSort('score')} title="Klik untuk mengurutkan berdasarkan Skor">
+                Skor {sortIndicator('score')}
+              </th>
+              <th className="sortable-th" onClick={() => toggleSort('duration')} title="Klik untuk mengurutkan berdasarkan Durasi">
+                Durasi {sortIndicator('duration')}
+              </th>
+              <th className="sortable-th" onClick={() => toggleSort('controller')} title="Klik untuk mengurutkan berdasarkan Pengontrol / Wasit">
+                Pengontrol {sortIndicator('controller')}
+              </th>
               <th>Aksi</th>
             </tr>
           </thead>

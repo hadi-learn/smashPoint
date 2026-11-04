@@ -117,3 +117,44 @@ M-101,Pak Pele Cup 3,Veteran U-110,MD,side_out,continuous,30,15,Budi,Agus,Djarum
   store.flush();
   fs.rmSync(testDir, { recursive: true, force: true });
 });
+
+test('Special Character Match Numbers (A-B#1, C-D#11, E-F#7) & Natural Sorting', () => {
+  if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+  fs.mkdirSync(testDir, { recursive: true });
+
+  const store = new Store({
+    dataDir: testDir,
+    courtCount: 15,
+    lockTimeoutMs: 1000,
+    masterPin: '1234',
+  });
+
+  const sampleCsv = `match_number,tournament_name,category_name,discipline,scoring_method,scoring_type,win_point,interval_point,team_a_p1_name,team_a_p2_name,team_a_club,team_a_details,team_b_p1_name,team_b_p2_name,team_b_club,team_b_details,scheduled_date,court_number,scheduled_time
+C-D#11,Pak Pele Cup 3,Veteran U-110,MD,side_out,continuous,30,15,Budi,Agus,Djarum,Seed 1,Hendro,Rudy,Jaya Raya,Seed 2,2026-10-20,1,14:00 WIB
+A-B#1,Pak Pele Cup 3,Veteran U-110,MD,side_out,continuous,30,15,Taufik,Alan,Mutiara,[3/4],Sigit,Candra,Exist,,2026-10-20,1,14:00 WIB
+A-B#2,Pak Pele Cup 3,Veteran U-110,MD,side_out,continuous,30,15,Liem,Icuk,Djarum,,Rexy,Ricky,Jaya Raya,,2026-10-20,1,14:00 WIB
+A-B#10,Pak Pele Cup 3,Veteran U-110,MD,side_out,continuous,30,15,Hendra,Ahsan,Djarum,,Fajar,Rian,SGS,,2026-10-20,1,14:00 WIB
+E-F#7,Pak Pele Cup 3,Dewasa,MS,rally_point,sets,21,11,Ginting,,SGS,1,Jonatan,,Tangkas,2,2026-10-20,1,14:00 WIB`;
+
+  const parsed = ingest(sampleCsv, { courtCount: 15 });
+  assert.equal(parsed.errors.length, 0);
+  assert.equal(parsed.matches.length, 5);
+
+  const upRes = store.upsertMatches(parsed.matches);
+  assert.equal(upRes.created, 5);
+
+  // Verify natural sorting on same court & time: A-B#1, A-B#2, A-B#10, C-D#11, E-F#7
+  const list = store.list({ court: 1 });
+  assert.deepEqual(
+    list.map((m) => m.match_number),
+    ['A-B#1', 'A-B#2', 'A-B#10', 'C-D#11', 'E-F#7']
+  );
+
+  // Verify lookup and lock with # character
+  const locked = store.lock('a-b#1', 'uuid-device-tablet-X', 'Tablet 1');
+  assert.equal(locked.mode, 'controller');
+  assert.equal(locked.match.match_number, 'A-B#1');
+
+  store.flush();
+  fs.rmSync(testDir, { recursive: true, force: true });
+});
