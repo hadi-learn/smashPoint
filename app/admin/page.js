@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api, emitAck, getSocket, useNow } from '@/lib/client';
-import { DISCIPLINES, DISCIPLINE_LABEL, DOUBLES, detailsToInput, matchDurationSec, matchDurationText, teamLabel, teamSeedBadge } from '@/lib/engine';
+import { DISCIPLINES, DISCIPLINE_LABEL, DOUBLES, detailsToInput, matchDurationSec, matchDurationText, parseScheduleDateValue, teamLabel, teamSeedBadge } from '@/lib/engine';
 import { StatusBadge } from '@/components/referee/Entry';
 
 const ACTIVE = ['locked', 'in_progress'];
@@ -811,8 +811,11 @@ function compareByCol(col, x, y, now) {
         cmpStr(x.rules.scoring_type, y.rules.scoring_type) ||
         x.rules.win_point - y.rules.win_point
       );
-    case 'date':
-      return cmpStr(x.scheduled_date || '9999-99-99', y.scheduled_date || '9999-99-99');
+    case 'date': {
+      const dx = parseScheduleDateValue(x.scheduled_date);
+      const dy = parseScheduleDateValue(y.scheduled_date);
+      return dx - dy || cmpStr(x.scheduled_date || '', y.scheduled_date || '');
+    }
     case 'court':
       return x.court_number - y.court_number;
     case 'time':
@@ -924,9 +927,10 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
         const res = compareByCol(col, x, y, now);
         if (res !== 0) return dir === 'desc' ? -res : res;
       }
-      // Fallback tie-breaker (Default: Court -> Time -> Match Number)
+      // Fallback tie-breaker (Default: Court -> Date -> Time -> Match Number)
       return (
         x.court_number - y.court_number ||
+        parseScheduleDateValue(x.scheduled_date) - parseScheduleDateValue(y.scheduled_date) ||
         parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time) ||
         cmpStr(x.match_number, y.match_number)
       );

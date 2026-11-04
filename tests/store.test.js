@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Store, StoreError } from '../lib/server/store.js';
 import { ingest } from '../lib/server/ingest.js';
+import { parseScheduleDateValue } from '../lib/engine.js';
 
 const testDir = path.join(process.cwd(), 'tests', 'temp_store_test');
 
@@ -154,6 +155,15 @@ E-F#7,Pak Pele Cup 3,Dewasa,MS,rally_point,sets,21,11,Ginting,,SGS,1,Jonatan,,Ta
   const locked = store.lock('a-b#1', 'uuid-device-tablet-X', 'Tablet 1');
   assert.equal(locked.mode, 'controller');
   assert.equal(locked.match.match_number, 'A-B#1');
+
+  // Verify Indonesian text date parsing ("Sabtu / 7 November 2026" < "Minggu / 8 November 2026" < "Kamis / 12 November 2026")
+  const d1 = parseScheduleDateValue('Sabtu / 7 November 2026');
+  const d2 = parseScheduleDateValue('Minggu / 8 November 2026');
+  const d3 = parseScheduleDateValue('Kamis / 12 November 2026');
+  assert.equal(d1, 20261107);
+  assert.equal(d2, 20261108);
+  assert.equal(d3, 20261112);
+  assert.ok(d1 < d2 && d2 < d3);
 
   store.flush();
   fs.rmSync(testDir, { recursive: true, force: true });
