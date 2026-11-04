@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api, emitAck, getSocket, useNow } from '@/lib/client';
 import { DISCIPLINES, DISCIPLINE_LABEL, DOUBLES, detailsToInput, matchDurationSec, matchDurationText, teamLabel, teamSeedBadge } from '@/lib/engine';
@@ -782,27 +782,74 @@ const STATUS_SORT_ORDER = {
 };
 
 const SORT_OPTIONS = [
-  ['default', 'Default (Lap. → Jam → Match)'],
-  ['match', 'Nomor Match (A-Z / #1-#99)'],
   ['category', 'Kategori & Disiplin'],
+  ['time', 'Jam Pertandingan'],
+  ['court', 'Nomor Lapangan'],
+  ['match', 'Nomor Match'],
+  ['status', 'Status Pertandingan'],
+  ['date', 'Tanggal Pertandingan'],
   ['teams', 'Nama Pemain / Tim'],
   ['rules', 'Aturan Skor'],
-  ['date', 'Tanggal Pertandingan'],
-  ['court', 'Nomor Lapangan'],
-  ['time', 'Jam Pertandingan'],
-  ['status', 'Status Pertandingan'],
   ['score', 'Skor Pertandingan'],
   ['duration', 'Durasi Pertandingan'],
   ['controller', 'Pengontrol / Wasit'],
 ];
+
+const SORT_LABELS = Object.fromEntries(SORT_OPTIONS);
+
+function compareByCol(col, x, y, now) {
+  switch (col) {
+    case 'match':
+      return cmpStr(x.match_number, y.match_number);
+    case 'category':
+      return cmpStr(x.category_name, y.category_name) || cmpStr(x.discipline, y.discipline);
+    case 'teams':
+      return cmpStr(teamLabel(x, 'a'), teamLabel(y, 'a')) || cmpStr(teamLabel(x, 'b'), teamLabel(y, 'b'));
+    case 'rules':
+      return (
+        cmpStr(x.rules.scoring_method, y.rules.scoring_method) ||
+        cmpStr(x.rules.scoring_type, y.rules.scoring_type) ||
+        x.rules.win_point - y.rules.win_point
+      );
+    case 'date':
+      return cmpStr(x.scheduled_date || '9999-99-99', y.scheduled_date || '9999-99-99');
+    case 'court':
+      return x.court_number - y.court_number;
+    case 'time':
+      return parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time);
+    case 'status':
+      return (
+        (STATUS_SORT_ORDER[x.session_management.status] || 99) -
+        (STATUS_SORT_ORDER[y.session_management.status] || 99)
+      );
+    case 'score': {
+      const sx = x.live_state.sets.a + x.live_state.sets.b + (x.live_state.score.a + x.live_state.score.b) / 1000;
+      const sy = y.live_state.sets.a + y.live_state.sets.b + (y.live_state.score.a + y.live_state.score.b) / 1000;
+      return sx - sy;
+    }
+    case 'duration': {
+      const dx = matchDurationSec(x, now) ?? -1;
+      const dy = matchDurationSec(y, now) ?? -1;
+      return dx - dy;
+    }
+    case 'controller': {
+      const cx = x.session_management.locked ? x.session_management.controller_label || x.session_management.controller_tag || '1' : 'zzzz';
+      const cy = y.session_management.locked ? y.session_management.controller_label || y.session_management.controller_tag || '1' : 'zzzz';
+      return cmpStr(cx, cy);
+    }
+    default:
+      return 0;
+  }
+}
 
 function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [court, setCourt] = useState('');
   const [category, setCategory] = useState('');
-  const [sortBy, setSortBy] = useState('default');
-  const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
+  // Multi-sort criteria: array of { col, dir: 'asc' | 'desc' }
+  const [sorts, setSorts] = useState([]);
+  const [addSortCol, setAddSortCol] = useState('');
 
   const categories = useMemo(() => {
     const set = new Set();
@@ -812,18 +859,52 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
     return Array.from(set).sort(cmpStr);
   }, [matches]);
 
+  // Clicking a column header adds it to the multi-sort chain, or cycles asc -> desc -> remove if already in chain
   const toggleSort = (col) => {
-    if (sortBy === col) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortBy(col);
-      setSortDir('asc');
-    }
+    setSorts((prev) => {
+      const idx = prev.findIndex((s) => s.col === col);
+      if (idx === -1) {
+        return [...prev, { col, dir: 'asc' }];
+      }
+      const cur = prev[idx];
+      if (cur.dir === 'asc') {
+        const next = [...prev];
+        next[idx] = { ...cur, dir: 'desc' };
+        return next;
+      }
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const addSortCriterion = (col) => {
+    if (!col) return;
+    setSorts((prev) => {
+      if (prev.some((s) => s.col === col)) return prev;
+      return [...prev, { col, dir: 'asc' }];
+    });
+    setAddSortCol('');
+  };
+
+  const flipSortAt = (idx) => {
+    setSorts((prev) =>
+      prev.map((s, i) => (i === idx ? { ...s, dir: s.dir === 'asc' ? 'desc' : 'asc' } : s))
+    );
+  };
+
+  const removeSortAt = (idx) => {
+    setSorts((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const sortIndicator = (col) => {
-    if (sortBy !== col) return <span className="sort-ind idle">⇅</span>;
-    return <span className="sort-ind active">{sortDir === 'asc' ? '▲' : '▼'}</span>;
+    const idx = sorts.findIndex((s) => s.col === col);
+    if (idx === -1) return <span className="sort-ind idle">⇅</span>;
+    const item = sorts[idx];
+    return (
+      <span className="sort-ind active">
+        {sorts.length > 1 ? `${idx + 1}` : ''}
+        {item.dir === 'asc' ? '▲' : '▼'}
+      </span>
+    );
   };
 
   const filtered = useMemo(() => {
@@ -838,68 +919,19 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
       return true;
     });
 
-    const dir = sortDir === 'desc' ? -1 : 1;
     return [...list].sort((x, y) => {
-      let res = 0;
-      switch (sortBy) {
-        case 'match':
-          res = cmpStr(x.match_number, y.match_number);
-          break;
-        case 'category':
-          res = cmpStr(x.category_name, y.category_name) || cmpStr(x.discipline, y.discipline);
-          break;
-        case 'teams':
-          res = cmpStr(teamLabel(x, 'a'), teamLabel(y, 'a')) || cmpStr(teamLabel(x, 'b'), teamLabel(y, 'b'));
-          break;
-        case 'rules':
-          res =
-            cmpStr(x.rules.scoring_method, y.rules.scoring_method) ||
-            cmpStr(x.rules.scoring_type, y.rules.scoring_type) ||
-            x.rules.win_point - y.rules.win_point;
-          break;
-        case 'date':
-          res = cmpStr(x.scheduled_date || '9999-99-99', y.scheduled_date || '9999-99-99') || parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time);
-          break;
-        case 'court':
-          res = x.court_number - y.court_number || parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time);
-          break;
-        case 'time':
-          res = parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time) || x.court_number - y.court_number;
-          break;
-        case 'status':
-          res =
-            (STATUS_SORT_ORDER[x.session_management.status] || 99) -
-            (STATUS_SORT_ORDER[y.session_management.status] || 99);
-          break;
-        case 'score': {
-          const sx = x.live_state.sets.a + x.live_state.sets.b + (x.live_state.score.a + x.live_state.score.b) / 1000;
-          const sy = y.live_state.sets.a + y.live_state.sets.b + (y.live_state.score.a + y.live_state.score.b) / 1000;
-          res = sx - sy;
-          break;
-        }
-        case 'duration': {
-          const dx = matchDurationSec(x, now) ?? -1;
-          const dy = matchDurationSec(y, now) ?? -1;
-          res = dx - dy;
-          break;
-        }
-        case 'controller': {
-          const cx = x.session_management.locked ? x.session_management.controller_label || x.session_management.controller_tag || '1' : 'zzzz';
-          const cy = y.session_management.locked ? y.session_management.controller_label || y.session_management.controller_tag || '1' : 'zzzz';
-          res = cmpStr(cx, cy);
-          break;
-        }
-        default:
-          res =
-            x.court_number - y.court_number ||
-            parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time) ||
-            cmpStr(x.match_number, y.match_number);
-          break;
+      for (const { col, dir } of sorts) {
+        const res = compareByCol(col, x, y, now);
+        if (res !== 0) return dir === 'desc' ? -res : res;
       }
-      if (res === 0) res = cmpStr(x.match_number, y.match_number);
-      return res * dir;
+      // Fallback tie-breaker (Default: Court -> Time -> Match Number)
+      return (
+        x.court_number - y.court_number ||
+        parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time) ||
+        cmpStr(x.match_number, y.match_number)
+      );
     });
-  }, [matches, status, court, category, q, sortBy, sortDir, now]);
+  }, [matches, status, court, category, q, sorts, now]);
 
   const call = async (path, method = 'POST', body, confirmText) => {
     if (confirmText && !window.confirm(confirmText)) return;
@@ -907,6 +939,7 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
     notify(r.ok ? { type: 'ok', text: 'Berhasil' } : { type: 'error', text: r.error });
   };
   const enc = encodeURIComponent;
+  const availableSortOptions = SORT_OPTIONS.filter(([val]) => !sorts.some((s) => s.col === val));
 
   return (
     <div className="card col">
@@ -915,7 +948,7 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
         <div className="spacer" />
         <input className="input" style={{ width: 200 }} placeholder="Cari match / pemain / club" value={q} onChange={(e) => setQ(e.target.value)} />
         {categories.length > 0 && (
-          <select className="input" style={{ width: 150 }} value={category} onChange={(e) => setCategory(e.target.value)}>
+          <select className="input" style={{ width: 155 }} value={category} onChange={(e) => setCategory(e.target.value)}>
             <option value="">Semua kategori</option>
             {categories.map((cat) => (
               <option key={cat} value={cat}>
@@ -931,7 +964,7 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
           <option value="in_progress">Berlangsung</option>
           <option value="finished">Selesai</option>
         </select>
-        <select className="input" style={{ width: 125 }} value={court} onChange={(e) => setCourt(e.target.value)}>
+        <select className="input" style={{ width: 130 }} value={court} onChange={(e) => setCourt(e.target.value)}>
           <option value="">Semua lap.</option>
           {Array.from({ length: courtCount }, (_, i) => (
             <option key={i} value={i + 1}>
@@ -939,65 +972,105 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
             </option>
           ))}
         </select>
-        <div className="row" style={{ gap: '.3rem' }}>
+      </div>
+
+      {/* Multi-Sort Builder Bar */}
+      <div className="multi-sort-bar">
+        <span className="multi-sort-label">⇅ Urutan Multi-Sort:</span>
+        {sorts.length === 0 ? (
+          <span className="muted small">Default (Lapangan → Jam → Nomor Match) — Klik judul kolom tabel atau pilih di samping untuk menyusun urutan bertingkat</span>
+        ) : (
+          <div className="multi-sort-chips">
+            {sorts.map((s, idx) => (
+              <React.Fragment key={s.col}>
+                {idx > 0 && <span className="multi-sort-arrow">→</span>}
+                <div className="multi-sort-chip">
+                  <span className="multi-sort-num">{idx + 1}</span>
+                  <span className="multi-sort-name">{SORT_LABELS[s.col] || s.col}</span>
+                  <button
+                    type="button"
+                    className="multi-sort-dir"
+                    onClick={() => flipSortAt(idx)}
+                    title={s.dir === 'asc' ? 'Ascending (A-Z / Kecil ke Besar) — Klik untuk balik' : 'Descending (Z-A / Besar ke Kecil) — Klik untuk balik'}
+                  >
+                    {s.dir === 'asc' ? '▲ Asc' : '▼ Desc'}
+                  </button>
+                  <button
+                    type="button"
+                    className="multi-sort-del"
+                    onClick={() => removeSortAt(idx)}
+                    title="Hapus urutan ini"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+        )}
+        <div className="spacer" />
+        {availableSortOptions.length > 0 && (
           <select
             className="input"
-            style={{ width: 185 }}
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            title="Urutkan berdasarkan kolom"
+            style={{ width: 195, padding: '.38rem .6rem', fontSize: '.85rem' }}
+            value={addSortCol}
+            onChange={(e) => addSortCriterion(e.target.value)}
           >
-            {SORT_OPTIONS.map(([val, lbl]) => (
+            <option value="">+ Tambah Urutan Kolom...</option>
+            {availableSortOptions.map(([val, lbl]) => (
               <option key={val} value={val}>
-                Urut: {lbl}
+                + {lbl}
               </option>
             ))}
           </select>
+        )}
+        {sorts.length > 0 && (
           <button
             type="button"
-            className="btn btn-sm"
-            onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-            title={sortDir === 'asc' ? 'Urutan Naik (Ascending) — Klik untuk Turun' : 'Urutan Turun (Descending) — Klik untuk Naik'}
+            className="btn btn-sm btn-ghost"
+            onClick={() => setSorts([])}
+            title="Kembalikan ke urutan Default"
           >
-            {sortDir === 'asc' ? '▲ Asc' : '▼ Desc'}
+            ↺ Reset Urutan
           </button>
-        </div>
+        )}
       </div>
+
       <div className="tbl-wrap">
         <table className="tbl">
           <thead>
             <tr>
-              <th className="sortable-th" onClick={() => toggleSort('match')} title="Klik untuk mengurutkan berdasarkan Nomor Match">
+              <th className="sortable-th" onClick={() => toggleSort('match')} title="Klik untuk menambah/mengubah urutan Nomor Match">
                 Match {sortIndicator('match')}
               </th>
-              <th className="sortable-th" onClick={() => toggleSort('category')} title="Klik untuk mengurutkan berdasarkan Kategori & Disiplin">
+              <th className="sortable-th" onClick={() => toggleSort('category')} title="Klik untuk menambah/mengubah urutan Kategori & Disiplin">
                 Kategori {sortIndicator('category')}
               </th>
-              <th className="sortable-th" onClick={() => toggleSort('teams')} title="Klik untuk mengurutkan berdasarkan Nama Pemain">
+              <th className="sortable-th" onClick={() => toggleSort('teams')} title="Klik untuk menambah/mengubah urutan Nama Pemain">
                 Tim A vs Tim B {sortIndicator('teams')}
               </th>
-              <th className="sortable-th" onClick={() => toggleSort('rules')} title="Klik untuk mengurutkan berdasarkan Aturan Skor">
+              <th className="sortable-th" onClick={() => toggleSort('rules')} title="Klik untuk menambah/mengubah urutan Aturan Skor">
                 Aturan {sortIndicator('rules')}
               </th>
-              <th className="sortable-th" onClick={() => toggleSort('date')} title="Klik untuk mengurutkan berdasarkan Tanggal">
+              <th className="sortable-th" onClick={() => toggleSort('date')} title="Klik untuk menambah/mengubah urutan Tanggal">
                 Tanggal {sortIndicator('date')}
               </th>
-              <th className="sortable-th" onClick={() => toggleSort('court')} title="Klik untuk mengurutkan berdasarkan Nomor Lapangan">
+              <th className="sortable-th" onClick={() => toggleSort('court')} title="Klik untuk menambah/mengubah urutan Nomor Lapangan">
                 Lap. {sortIndicator('court')}
               </th>
-              <th className="sortable-th" onClick={() => toggleSort('time')} title="Klik untuk mengurutkan berdasarkan Jam Pertandingan">
+              <th className="sortable-th" onClick={() => toggleSort('time')} title="Klik untuk menambah/mengubah urutan Jam Pertandingan">
                 Jam {sortIndicator('time')}
               </th>
-              <th className="sortable-th" onClick={() => toggleSort('status')} title="Klik untuk mengurutkan berdasarkan Status Pertandingan">
+              <th className="sortable-th" onClick={() => toggleSort('status')} title="Klik untuk menambah/mengubah urutan Status Pertandingan">
                 Status {sortIndicator('status')}
               </th>
-              <th className="sortable-th" onClick={() => toggleSort('score')} title="Klik untuk mengurutkan berdasarkan Skor">
+              <th className="sortable-th" onClick={() => toggleSort('score')} title="Klik untuk menambah/mengubah urutan Skor">
                 Skor {sortIndicator('score')}
               </th>
-              <th className="sortable-th" onClick={() => toggleSort('duration')} title="Klik untuk mengurutkan berdasarkan Durasi">
+              <th className="sortable-th" onClick={() => toggleSort('duration')} title="Klik untuk menambah/mengubah urutan Durasi">
                 Durasi {sortIndicator('duration')}
               </th>
-              <th className="sortable-th" onClick={() => toggleSort('controller')} title="Klik untuk mengurutkan berdasarkan Pengontrol / Wasit">
+              <th className="sortable-th" onClick={() => toggleSort('controller')} title="Klik untuk menambah/mengubah urutan Pengontrol / Wasit">
                 Pengontrol {sortIndicator('controller')}
               </th>
               <th>Aksi</th>
