@@ -610,15 +610,129 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
     repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px);
 }
 
-/* Auto-hidden mode switcher bar at top-right */
-.tv-toolbar {
-  position: fixed; top: 12px; right: 14px; z-index: 60;
-  display: flex; gap: 6px; padding: 6px 8px;
-  background: rgba(7, 13, 31, 0.9); border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 10px; backdrop-filter: blur(8px);
-  opacity: 0; transition: opacity 0.2s ease; pointer-events: none;
+/* Bottom-right docked control trigger & drawer (safe from OBS top-left scorebug crop area; never pops up on accidental canvas hover) */
+.tv-dock {
+  position: fixed;
+  bottom: 12px;
+  right: 28px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
 }
-.tv:hover .tv-toolbar { opacity: 1; pointer-events: auto; }
+
+.tv-dock-trigger {
+  appearance: none;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(7, 13, 31, 0.88);
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.65);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+/* In Arena TV mode, hovering anywhere reveals the subtle bottom-right gear pill */
+.tv.arena-mode:hover .tv-dock-trigger,
+.tv-dock:hover .tv-dock-trigger,
+.tv-dock.open .tv-dock-trigger {
+  opacity: 0.85;
+}
+
+/* In OBS mode, hovering over the top-left scorebug or canvas NEVER reveals the button!
+   It only appears when the operator deliberately moves the cursor to the bottom-right corner (.tv-dock) or when open. */
+.tv.obs-mode .tv-dock-trigger.obs-stealth {
+  opacity: 0;
+}
+.tv.obs-mode .tv-dock:hover .tv-dock-trigger.obs-stealth,
+.tv.obs-mode .tv-dock.open .tv-dock-trigger.obs-stealth {
+  opacity: 0.95;
+}
+
+.tv-dock-trigger:hover,
+.tv-dock-trigger.active {
+  opacity: 1 !important;
+  background: #1e293b;
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.tv-toolbar-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(7, 13, 31, 0.96);
+  border: 1.5px solid rgba(250, 204, 21, 0.45);
+  border-radius: 14px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
+  max-width: min(92vw, 680px);
+}
+
+.tv-toolbar-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tv-toolbar-lbl {
+  font-size: 0.75rem;
+  font-weight: 900;
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.tv-court-select {
+  background: #0f172a;
+  color: #f8fafc;
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.tv-court-Matrix {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tv-court-chip {
+  appearance: none;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: #0f172a;
+  color: #cbd5e1;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.tv-court-chip:hover {
+  border-color: #60a5fa;
+  color: #ffffff;
+}
+.tv-court-chip.active {
+  background: var(--gold);
+  color: #090d16;
+  border-color: #fef08a;
+  font-weight: 900;
+}
 
 /* ---------------- 1. ARENA TV MONITOR (FULLSCREEN COURTSIDE DISPLAY) ---------------- */
 .arena-tv {

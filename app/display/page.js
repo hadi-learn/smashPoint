@@ -1,6 +1,6 @@
 'use client';
 import { Suspense, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { DISCIPLINE_LABEL, isDoubles, matchDurationText, teamLabel, teamSeedBadge, teamSeedText } from '@/lib/engine';
 import { api, emitAck, getSocket, useNow } from '@/lib/client';
@@ -843,6 +843,7 @@ function Picker() {
 }
 
 function Display() {
+  const router = useRouter();
   const params = useSearchParams();
   const court = params.get('court');
   const matchId = params.get('match');
@@ -851,6 +852,8 @@ function Display() {
 
   const [mode, setMode] = useState(initialMode);
   const [bgMode, setBgMode] = useState(initialBg);
+  const [courtCount, setCourtCount] = useState(15);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [match, setMatch] = useState(null);
   const [previous, setPrevious] = useState([]);
   const [upcoming, setUpcoming] = useState([]);
@@ -859,9 +862,29 @@ function Display() {
   const now = useNow(1000);
 
   useEffect(() => {
+    api('/api/config').then((c) => c?.court_count && setCourtCount(c.court_count));
+  }, []);
+
+  useEffect(() => {
     setMode(params.get('mode') === 'obs' ? 'obs' : 'arena');
     if (params.get('bg')) setBgMode(params.get('bg'));
   }, [params]);
+
+  const switchCourt = (nextCourt) => {
+    if (!nextCourt) {
+      router.push('/display');
+      setMenuOpen(false);
+      return;
+    }
+    const q = new URLSearchParams();
+    q.set('court', String(nextCourt));
+    if (mode === 'obs') {
+      q.set('mode', 'obs');
+      if (bgMode && bgMode !== 'transparent') q.set('bg', bgMode);
+    }
+    router.push(`/display?${q.toString()}`);
+    setMenuOpen(false);
+  };
 
   // Make body background transparent when in OBS transparent mode so OBS Browser Source composites cleanly
   useEffect(() => {
@@ -929,61 +952,127 @@ function Display() {
   if (!court && !matchId) return <Picker />;
 
   const isObs = mode === 'obs';
+  const activeCourtNum = Number(court || match?.court_number || 0);
 
   return (
     <div className={`tv ${isObs ? `obs-mode bg-${bgMode}` : 'arena-mode'}`}>
-      {/* Hover Control Toolbar (Auto-hidden during broadcast / fullscreen unless hovered at top-right) */}
-      <div className="tv-toolbar">
+      {/* Bottom-Right Docked Control Trigger & Drawer (Out of OBS top-left scorebug crop area; only opens on click, never on accidental mouse hover) */}
+      <div className={`tv-dock ${menuOpen ? 'open' : ''}`}>
+        {menuOpen && (
+          <div className="tv-toolbar-panel">
+            {/* 1. Court Switcher Row */}
+            <div className="tv-toolbar-section">
+              <span className="tv-toolbar-lbl">🏟️ Pindah Lapangan:</span>
+              <select
+                className="tv-court-select"
+                value={activeCourtNum || ''}
+                onChange={(e) => switchCourt(e.target.value)}
+                title="Pindah langsung ke lapangan lain tanpa tombol Back"
+              >
+                {!activeCourtNum && <option value="">-- Pilih Court --</option>}
+                {Array.from({ length: courtCount }, (_, i) => (
+                  <option key={i + 1} value={i + 1}>
+                    Court {i + 1}
+                  </option>
+                ))}
+              </select>
+              <div className="tv-court-Matrix">
+                {Array.from({ length: courtCount }, (_, i) => {
+                  const cNum = i + 1;
+                  return (
+                    <button
+                      key={cNum}
+                      type="button"
+                      className={`tv-court-chip ${activeCourtNum === cNum ? 'active' : ''}`}
+                      onClick={() => switchCourt(cNum)}
+                    >
+                      C{cNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => switchCourt('')}
+                title="Kembali ke Menu Utama Pemilihan Display"
+              >
+                🏠 Menu Display
+              </button>
+            </div>
+
+            {/* 2. Display / OBS Mode Switcher Row */}
+            <div className="tv-toolbar-section">
+              <span className="tv-toolbar-lbl">🎛️ Mode Layar:</span>
+              <button
+                type="button"
+                className={`btn btn-sm ${!isObs ? 'btn-primary' : ''}`}
+                onClick={() => {
+                  setMode('arena');
+                  setMenuOpen(false);
+                }}
+                title="Mode Monitor TV Lapangan (Full Screen)"
+              >
+                📺 Arena TV
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${isObs && bgMode === 'transparent' ? 'btn-green' : ''}`}
+                onClick={() => {
+                  setMode('obs');
+                  setBgMode('transparent');
+                  setMenuOpen(false);
+                }}
+                title="Mode Overlay OBS Browser Source (Latar Transparan Pojok Kiri Atas)"
+              >
+                🎥 OBS Transparan
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${isObs && bgMode === 'green' ? 'btn-yellow' : ''}`}
+                onClick={() => {
+                  setMode('obs');
+                  setBgMode('green');
+                  setMenuOpen(false);
+                }}
+                title="Mode Tangkapan Layar OBS Chroma Key (Green Screen Pojok Kiri Atas)"
+              >
+                🟩 OBS Green Screen
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${isObs && bgMode === 'dark' ? 'btn-blue' : ''}`}
+                onClick={() => {
+                  setMode('obs');
+                  setBgMode('dark');
+                  setMenuOpen(false);
+                }}
+                title="Pratinjau Simulasi Kamera Livestream"
+              >
+                👁️ Preview Kamera
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => {
+                  if (document.fullscreenElement) document.exitFullscreen();
+                  else document.documentElement.requestFullscreen?.();
+                  setMenuOpen(false);
+                }}
+              >
+                ⛶ Fullscreen
+              </button>
+            </div>
+          </div>
+        )}
+
         <button
           type="button"
-          className={`btn btn-sm ${!isObs ? 'btn-primary' : ''}`}
-          onClick={() => setMode('arena')}
-          title="Mode Monitor TV Lapangan (Full Screen)"
+          className={`tv-dock-trigger ${isObs ? 'obs-stealth' : ''} ${menuOpen ? 'active' : ''}`}
+          onClick={() => setMenuOpen((v) => !v)}
+          title="Klik untuk membuka pengaturan Lapangan (Court) & Mode Layar"
         >
-          📺 Arena TV
-        </button>
-        <button
-          type="button"
-          className={`btn btn-sm ${isObs && bgMode === 'transparent' ? 'btn-green' : ''}`}
-          onClick={() => {
-            setMode('obs');
-            setBgMode('transparent');
-          }}
-          title="Mode Overlay OBS Browser Source (Latar Transparan Pojok Kiri Atas)"
-        >
-          🎥 OBS Transparan
-        </button>
-        <button
-          type="button"
-          className={`btn btn-sm ${isObs && bgMode === 'green' ? 'btn-yellow' : ''}`}
-          onClick={() => {
-            setMode('obs');
-            setBgMode('green');
-          }}
-          title="Mode Tangkapan Layar OBS Chroma Key (Green Screen Pojok Kiri Atas)"
-        >
-          🟩 OBS Green Screen
-        </button>
-        <button
-          type="button"
-          className={`btn btn-sm ${isObs && bgMode === 'dark' ? 'btn-blue' : ''}`}
-          onClick={() => {
-            setMode('obs');
-            setBgMode('dark');
-          }}
-          title="Pratinjau Simulasi Kamera Livestream"
-        >
-          👁️ Preview Kamera
-        </button>
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={() => {
-            if (document.fullscreenElement) document.exitFullscreen();
-            else document.documentElement.requestFullscreen?.();
-          }}
-        >
-          ⛶ Fullscreen
+          {menuOpen ? '✕ Tutup Panel' : `⚙️ Court ${activeCourtNum || '-'} · Pengaturan`}
         </button>
       </div>
 
