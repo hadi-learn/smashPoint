@@ -71,6 +71,24 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 .badge.blue { background: rgba(59, 130, 246, .15); color: #93c5fd; border-color: #1e3a8a; }
 .badge.cyan { background: rgba(34, 211, 238, .12); color: var(--cyan); border-color: #155e75; }
 
+/* Seeded / Team Details Pill (Admin & Referee) */
+.seed-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.48rem;
+  margin-left: 0.35rem;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.25) 0%, rgba(234, 179, 8, 0.16) 100%);
+  color: var(--gold);
+  border: 1px solid rgba(250, 204, 21, 0.55);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 .notice { padding: .75rem 1rem; border-radius: 10px; border: 1px solid; font-weight: 600; display: flex; gap: .75rem; align-items: center; }
 .notice.error { background: rgba(239, 68, 68, .12); border-color: #7f1d1d; color: #fecaca; }
 .notice.warn { background: rgba(250, 204, 21, .1); border-color: #a16207; color: #fde68a; }
@@ -702,8 +720,20 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 }
 
 .arena-half-top {
-  display: flex; align-items: center; justify-content: center;
-  padding-bottom: 0.5vw;
+  display: flex; align-items: center; justify-content: center; gap: 0.6vw;
+  padding-bottom: 0.5vw; flex-wrap: wrap;
+}
+.arena-seed-badge {
+  background: linear-gradient(135deg, #fde047 0%, #eab308 100%);
+  color: #090d16;
+  border: 1px solid #fef08a;
+  font-size: 1.25vw;
+  font-weight: 900;
+  padding: 0.22vw 0.85vw;
+  border-radius: 0.45vw;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  box-shadow: 0 0 1vw rgba(250, 204, 21, 0.45);
 }
 .arena-club-badge {
   background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);
@@ -1065,6 +1095,29 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   color: #cbd5e1;
   border: 1px solid rgba(148, 163, 184, 0.3);
 }
+.tv-seed-badge {
+  background: rgba(250, 204, 21, 0.2);
+  color: var(--gold);
+  border: 1px solid rgba(250, 204, 21, 0.55);
+  font-size: 0.85vw;
+  font-weight: 900;
+  padding: 0.16vw 0.65vw;
+  border-radius: 999px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.tv-inline-seed {
+  display: inline-block;
+  margin-left: 0.35vw;
+  padding: 0.05vw 0.4vw;
+  border-radius: 0.3vw;
+  font-size: 0.78em;
+  font-weight: 900;
+  background: rgba(250, 204, 21, 0.22);
+  color: var(--gold);
+  border: 1px solid rgba(250, 204, 21, 0.5);
+  vertical-align: middle;
+}
 .tv-result-names {
   font-size: 2.15vw;
   font-weight: 900;
@@ -1340,6 +1393,22 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95), 0 0 12px rgba(249, 115, 22, 0.75);
 }
 .bwf-slash { color: #94a3b8; font-weight: 900; font-size: 15px; }
+.bwf-seed-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #fde047 0%, #eab308 100%);
+  color: #090d16;
+  border: 1px solid #fef08a;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  flex-shrink: 0;
+}
 
 /* Service Shuttlecock Slot inside Scorebug */
 .bwf-serve-slot {

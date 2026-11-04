@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { DISCIPLINE_LABEL, isDoubles, matchDurationText } from '@/lib/engine';
+import { DISCIPLINE_LABEL, isDoubles, matchDurationText, teamSeedBadge, teamSeedText } from '@/lib/engine';
 import { api, useNow } from '@/lib/client';
 
 export const STATUS_BADGE = {
@@ -14,14 +14,6 @@ export function StatusBadge({ match }) {
   const s = match?.session_management?.status || 'scheduled';
   const [label, cls] = STATUS_BADGE[s] || [s, ''];
   return <span className={`badge ${cls}`}>{label}</span>;
-}
-
-function detailsText(d) {
-  if (!d) return null;
-  if (typeof d === 'string') return d;
-  return Object.entries(d)
-    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
-    .join(' · ');
 }
 
 export function MatchInfo({ match }) {
@@ -44,14 +36,16 @@ export function MatchInfo({ match }) {
   ];
   const team = (t) => {
     const tm = match.teams[`team_${t}`];
-    const det = detailsText(tm.details);
+    const seed = teamSeedText(tm.details);
     return (
       <div className="team-card">
-        <div className="muted small">TIM {t.toUpperCase()}</div>
+        <div className="row" style={{ gap: '.4rem' }}>
+          <span className="muted small">TIM {t.toUpperCase()}</span>
+          {seed && <span className="seed-pill">{seed}</span>}
+        </div>
         <div className="pl">{tm.p1}</div>
         {dbl && <div className="pl">{tm.p2}</div>}
         <div className="muted">{tm.club || '-'}</div>
-        {det && <div className="small muted">{det}</div>}
       </div>
     );
   };
@@ -146,7 +140,11 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700 }}>
-                    {[m.teams.team_a.p1, m.teams.team_a.p2].filter(Boolean).join(' / ')} <span className="muted">vs</span> {[m.teams.team_b.p1, m.teams.team_b.p2].filter(Boolean).join(' / ')}
+                    {[m.teams.team_a.p1, m.teams.team_a.p2].filter(Boolean).join(' / ')}
+                    {teamSeedBadge(m, 'a') && <span className="seed-pill">{teamSeedBadge(m, 'a')}</span>}{' '}
+                    <span className="muted">vs</span>{' '}
+                    {[m.teams.team_b.p1, m.teams.team_b.p2].filter(Boolean).join(' / ')}
+                    {teamSeedBadge(m, 'b') && <span className="seed-pill">{teamSeedBadge(m, 'b')}</span>}
                   </div>
                   <div className="small muted">
                     {m.category_name} · {m.discipline}

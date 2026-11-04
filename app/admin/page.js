@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api, emitAck, getSocket, useNow } from '@/lib/client';
-import { DISCIPLINES, DISCIPLINE_LABEL, DOUBLES, matchDurationText, teamLabel } from '@/lib/engine';
+import { DISCIPLINES, DISCIPLINE_LABEL, DOUBLES, detailsToInput, matchDurationText, teamLabel, teamSeedBadge } from '@/lib/engine';
 import { StatusBadge } from '@/components/referee/Entry';
 
 const ACTIVE = ['locked', 'in_progress'];
@@ -223,11 +223,13 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
     p1: match.teams?.team_a?.p1 || '',
     p2: match.teams?.team_a?.p2 || '',
     club: match.teams?.team_a?.club || '',
+    details: detailsToInput(match.teams?.team_a?.details),
   });
   const [teamB, setTeamB] = useState({
     p1: match.teams?.team_b?.p1 || '',
     p2: match.teams?.team_b?.p2 || '',
     club: match.teams?.team_b?.club || '',
+    details: detailsToInput(match.teams?.team_b?.details),
   });
 
   const [status, setStatus] = useState(sm.status || 'scheduled');
@@ -313,8 +315,8 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
         interval_point: parseInt(intervalPoint, 10),
       },
       teams: {
-        team_a: { p1: teamA.p1, p2: isDbl ? teamA.p2 : null, club: teamA.club },
-        team_b: { p1: teamB.p1, p2: isDbl ? teamB.p2 : null, club: teamB.club },
+        team_a: { p1: teamA.p1, p2: isDbl ? teamA.p2 : null, club: teamA.club, details: teamA.details },
+        team_b: { p1: teamB.p1, p2: isDbl ? teamB.p2 : null, club: teamB.club, details: teamB.details },
       },
       status,
       score: { a: parseInt(scoreA, 10) || 0, b: parseInt(scoreB, 10) || 0 },
@@ -441,10 +443,19 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
               Club / PB Tim A
               <input className="input" value={teamA.club} onChange={(e) => setTeamA({ ...teamA, club: e.target.value })} />
             </label>
+            <label className="field">
+              Seeded / Detail Tim A (team_a_detail)
+              <input
+                className="input"
+                value={teamA.details}
+                placeholder="Contoh: 1, [3/4], atau Seed 2"
+                onChange={(e) => setTeamA({ ...teamA, details: e.target.value })}
+              />
+            </label>
           </div>
 
           <div className="card col" style={{ padding: '.85rem' }}>
-            <div className="small" style={{ fontWeight: 800, color: '#fca5a5' }}>2B. TIM B (PEMAIN & CLUB)</div>
+            <div className="small" style={{ fontWeight: 800, color: '#fca5a5' }}>2B. TIM B (PEMAIN, CLUB & SEEDED)</div>
             <label className="field">
               Pemain 1 Tim B
               <input className="input" value={teamB.p1} onChange={(e) => setTeamB({ ...teamB, p1: e.target.value })} required />
@@ -458,6 +469,15 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
             <label className="field">
               Club / PB Tim B
               <input className="input" value={teamB.club} onChange={(e) => setTeamB({ ...teamB, club: e.target.value })} />
+            </label>
+            <label className="field">
+              Seeded / Detail Tim B (team_b_detail)
+              <input
+                className="input"
+                value={teamB.details}
+                placeholder="Contoh: 2, [3/4], atau Seed 1"
+                onChange={(e) => setTeamB({ ...teamB, details: e.target.value })}
+              />
             </label>
           </div>
         </div>
@@ -688,8 +708,14 @@ function CourtGrid({ matches, courtCount, now, onUnlock }) {
                     </span>
                   )}
                 </div>
-                <div className="cteam">{teamLabel(m, 'a')}</div>
-                <div className="cteam">{teamLabel(m, 'b')}</div>
+                <div className="cteam">
+                  {teamLabel(m, 'a')}
+                  {teamSeedBadge(m, 'a') && <span className="seed-pill">{teamSeedBadge(m, 'a')}</span>}
+                </div>
+                <div className="cteam">
+                  {teamLabel(m, 'b')}
+                  {teamSeedBadge(m, 'b') && <span className="seed-pill">{teamSeedBadge(m, 'b')}</span>}
+                </div>
                 <div className="cscore">
                   {st.score.a} - {st.score.b}
                   {m.rules.scoring_type === 'sets' && (
@@ -721,7 +747,9 @@ function CourtGrid({ matches, courtCount, now, onUnlock }) {
                   <>
                     Berikutnya: <b style={{ color: 'var(--text)' }}>{next.match_number}</b> {[next.scheduled_date, next.scheduled_time].filter(Boolean).join(' ')}
                     <br />
-                    {teamLabel(next, 'a')} vs {teamLabel(next, 'b')}
+                    {teamLabel(next, 'a')}
+                    {teamSeedBadge(next, 'a') && <span className="seed-pill">{teamSeedBadge(next, 'a')}</span>} vs {teamLabel(next, 'b')}
+                    {teamSeedBadge(next, 'b') && <span className="seed-pill">{teamSeedBadge(next, 'b')}</span>}
                   </>
                 ) : (
                   'Kosong'
@@ -815,9 +843,13 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
                     <span className="muted">{m.discipline}</span>
                   </td>
                   <td className="small">
-                    {teamLabel(m, 'a')} <span className="muted">({m.teams.team_a.club || '-'})</span>
+                    {teamLabel(m, 'a')}
+                    {teamSeedBadge(m, 'a') && <span className="seed-pill">{teamSeedBadge(m, 'a')}</span>}{' '}
+                    <span className="muted">({m.teams.team_a.club || '-'})</span>
                     <br />
-                    {teamLabel(m, 'b')} <span className="muted">({m.teams.team_b.club || '-'})</span>
+                    {teamLabel(m, 'b')}
+                    {teamSeedBadge(m, 'b') && <span className="seed-pill">{teamSeedBadge(m, 'b')}</span>}{' '}
+                    <span className="muted">({m.teams.team_b.club || '-'})</span>
                   </td>
                   <td className="small muted">
                     {m.rules.scoring_method === 'side_out' ? 'Side-out' : 'Rally'} · {m.rules.scoring_type} · {m.rules.win_point}/{m.rules.interval_point}

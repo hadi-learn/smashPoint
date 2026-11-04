@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { isDoubles, matchDurationText, playerName, teamLabel } from '@/lib/engine';
+import { detailsToInput, isDoubles, matchDurationText, playerName, teamLabel, teamSeedBadge } from '@/lib/engine';
 import CourtMap from '../CourtMap';
 import { Shuttle } from '../Icons';
 
@@ -12,8 +12,18 @@ function OverrideModal({ match, onClose, send, pending }) {
   const scoringEditable = ['live', 'interval'].includes(st.phase);
   const [tab, setTab] = useState(scoringEditable ? 'score' : 'names');
   const [names, setNames] = useState({
-    team_a: { p1: match.teams.team_a.p1, p2: match.teams.team_a.p2 || '', club: match.teams.team_a.club || '' },
-    team_b: { p1: match.teams.team_b.p1, p2: match.teams.team_b.p2 || '', club: match.teams.team_b.club || '' },
+    team_a: {
+      p1: match.teams.team_a.p1,
+      p2: match.teams.team_a.p2 || '',
+      club: match.teams.team_a.club || '',
+      details: detailsToInput(match.teams.team_a.details),
+    },
+    team_b: {
+      p1: match.teams.team_b.p1,
+      p2: match.teams.team_b.p2 || '',
+      club: match.teams.team_b.club || '',
+      details: detailsToInput(match.teams.team_b.details),
+    },
   });
   const [score, setScore] = useState({ ...st.score });
   const [side, setSide] = useState(st.service_status.side || 'a');
@@ -138,9 +148,10 @@ function OverrideModal({ match, onClose, send, pending }) {
             {['team_a', 'team_b'].map((t) => (
               <div key={t} className="team-card col">
                 <div className="muted small">TIM {t.slice(-1).toUpperCase()}</div>
-                <input className="input" value={names[t].p1} onChange={(e) => setName(t, 'p1', e.target.value)} />
-                {dbl && <input className="input" value={names[t].p2} onChange={(e) => setName(t, 'p2', e.target.value)} />}
-                <input className="input" value={names[t].club} placeholder="Club" onChange={(e) => setName(t, 'club', e.target.value)} />
+                <input className="input" value={names[t].p1} onChange={(e) => setName(t, 'p1', e.target.value)} placeholder="Pemain 1" />
+                {dbl && <input className="input" value={names[t].p2} onChange={(e) => setName(t, 'p2', e.target.value)} placeholder="Pemain 2" />}
+                <input className="input" value={names[t].club} placeholder="Club / PB" onChange={(e) => setName(t, 'club', e.target.value)} />
+                <input className="input" value={names[t].details} placeholder="Seeded / Detail (contoh: 1 atau [3/4])" onChange={(e) => setName(t, 'details', e.target.value)} />
               </div>
             ))}
             <button
@@ -148,11 +159,15 @@ function OverrideModal({ match, onClose, send, pending }) {
               disabled={pending}
               onClick={() => {
                 const n = {};
-                for (const t of ['team_a', 'team_b']) n[t] = dbl ? names[t] : { p1: names[t].p1, club: names[t].club };
+                for (const t of ['team_a', 'team_b']) {
+                  n[t] = dbl
+                    ? names[t]
+                    : { p1: names[t].p1, club: names[t].club, details: names[t].details };
+                }
                 submit({ names: n });
               }}
             >
-              Simpan Nama & Club
+              Simpan Nama, Club & Seeded
             </button>
           </div>
         )}
@@ -223,15 +238,21 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
   const isSplitBelow = layout === 'portrait-split';
   const isStack = layout === 'portrait-stack';
 
-  const teamHeader = (t, align, sideTag) => (
-    <div className={`team ${align}`}>
-      <span className="tname">{teamLabel(match, t)}</span>
-      <span className="tclub">
-        {sideTag ? `${sideTag} · ` : ''}Tim {T(t)} · {match.teams[`team_${t}`].club || '-'}
-      </span>
-      <span className={`num ${ss.side === t ? 'serving' : ''}`}>{st.score[t]}</span>
-    </div>
-  );
+  const teamHeader = (t, align, sideTag) => {
+    const seed = teamSeedBadge(match, t);
+    return (
+      <div className={`team ${align}`}>
+        <span className="tname">
+          {teamLabel(match, t)}
+          {seed && <span className="seed-pill">{seed}</span>}
+        </span>
+        <span className="tclub">
+          {sideTag ? `${sideTag} · ` : ''}Tim {T(t)} · {match.teams[`team_${t}`].club || '-'}
+        </span>
+        <span className={`num ${ss.side === t ? 'serving' : ''}`}>{st.score[t]}</span>
+      </div>
+    );
+  };
 
   let overlay = null;
   if (finished) {
@@ -319,6 +340,7 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
   const rallyBtn = (screen) => {
     const t = screen === 'left' ? L : R;
     const club = match.teams[`team_${t}`].club;
+    const seed = teamSeedBadge(match, t);
     const isServeHere = ss.side === t && st.phase !== 'setup';
     const sideLabel = screen === 'left' ? 'LAPANGAN KIRI' : 'LAPANGAN KANAN';
     const arrow = screen === 'left' ? '◀' : '▶';
@@ -333,6 +355,7 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
           <span className="rally-side-pill">
             {arrow} {sideLabel} · MENANG RELI
           </span>
+          {seed && <span className="seed-pill">{seed}</span>}
           {isServeHere && (
             <span className={`rally-serve-tag ${sideOutDbl && ss.turn === 2 ? 'serve-2' : 'serve-1'}`}>
               <Shuttle size={14} />
@@ -343,7 +366,12 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
         <div className="rally-btn-main">
           <div className="rally-team-info">
             <div className="rally-players">{teamLabel(match, t)}</div>
-            {club && <div className="rally-club">{club}</div>}
+            {(club || seed) && (
+              <div className="rally-club">
+                {club || '-'}
+                {seed ? ` · ${seed}` : ''}
+              </div>
+            )}
           </div>
           <div className={`rally-score ${isServeHere ? 'serving' : ''}`}>{st.score[t]}</div>
         </div>

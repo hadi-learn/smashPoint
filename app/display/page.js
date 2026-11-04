@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { DISCIPLINE_LABEL, isDoubles, matchDurationText, teamLabel } from '@/lib/engine';
+import { DISCIPLINE_LABEL, isDoubles, matchDurationText, teamLabel, teamSeedBadge, teamSeedText } from '@/lib/engine';
 import { api, emitAck, getSocket, useNow } from '@/lib/client';
 import { Shuttle } from '@/components/Icons';
 
@@ -91,13 +91,14 @@ function BroadcastScorebug({ match, now, compact = false }) {
           const p1Serving = serving && ss.player_id === `${t}1`;
           const p2Serving = serving && ss.player_id === `${t}2`;
           const teamPointAlert = getTeamPointAlert(match, t);
+          const seed = teamSeedText(tm.details);
 
           return (
             <div key={t} className={`bwf-row team-${t} ${serving ? `is-serving ${serveCls}` : ''} ${isWinner ? 'is-winner' : ''}`}>
               {/* Team color bar */}
               <div className={`bwf-accent team-${t}`} />
 
-              {/* Player Names + Club Name stacked underneath */}
+              {/* Player Names + Club Name + Seeded stacked underneath */}
               <div className="bwf-identity">
                 <div className="bwf-players">
                   <span className={`bwf-pname ${p1Serving ? `srv ${serveCls}` : serving ? 'partner' : 'neutral'}`}>
@@ -111,10 +112,11 @@ function BroadcastScorebug({ match, now, compact = false }) {
                       </span>
                     </>
                   )}
+                  {seed && <span className="bwf-seed-badge">{seed}</span>}
                 </div>
-                {tm.club && (
+                {(tm.club || seed) && (
                   <div className="bwf-club-sub">
-                    {tm.club}
+                    {tm.club || '-'}
                   </div>
                 )}
               </div>
@@ -295,6 +297,8 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
               {prevList.map((p) => {
                 const aWon = p.winner === 'a';
                 const bWon = p.winner === 'b';
+                const seedA = teamSeedText(p.team_a_details);
+                const seedB = teamSeedText(p.team_b_details);
                 return (
                   <div key={p.match_number} className="tv-prev-row">
                     <span className="tv-prev-id">{p.match_number}</span>
@@ -303,12 +307,14 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
                       <span className={aWon ? 'won' : 'lost'}>
                         {aWon && '🏆 '}
                         {p.team_a}
+                        {seedA ? <span className="tv-inline-seed">{seedA}</span> : null}
                         {p.team_a_club ? <small> ({p.team_a_club})</small> : ''}
                       </span>
                       <span className="tv-prev-vs">vs</span>
                       <span className={bWon ? 'won' : 'lost'}>
                         {bWon && '🏆 '}
                         {p.team_b}
+                        {seedB ? <span className="tv-inline-seed">{seedB}</span> : null}
                         {p.team_b_club ? <small> ({p.team_b_club})</small> : ''}
                       </span>
                     </span>
@@ -343,7 +349,12 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
           <div className="tv-result-grid">
             <div className="tv-result-card winner">
               <div className="tv-result-card-left">
-                <div className="tv-result-role">🏆 PEMENANG (WINNER)</div>
+                <div className="row" style={{ gap: '0.5vw' }}>
+                  <div className="tv-result-role">🏆 PEMENANG (WINNER)</div>
+                  {teamSeedBadge(match, winSide) && (
+                    <span className="tv-seed-badge">{teamSeedBadge(match, winSide)}</span>
+                  )}
+                </div>
                 <div className="tv-result-names">{teamLabel(match, winSide)}</div>
                 {winTeam?.club && <div className="tv-result-club">{winTeam.club}</div>}
               </div>
@@ -357,7 +368,12 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
 
             <div className="tv-result-card opponent">
               <div className="tv-result-card-left">
-                <div className="tv-result-role">LAWAN</div>
+                <div className="row" style={{ gap: '0.5vw' }}>
+                  <div className="tv-result-role">LAWAN</div>
+                  {teamSeedBadge(match, loseSide) && (
+                    <span className="tv-seed-badge">{teamSeedBadge(match, loseSide)}</span>
+                  )}
+                </div>
                 <div className="tv-result-names">{teamLabel(match, loseSide)}</div>
                 {loseTeam?.club && <div className="tv-result-club">{loseTeam.club}</div>}
               </div>
@@ -379,6 +395,8 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
             <div className="tv-next-list">
               {nextList.map((u, idx) => {
                 const isNextUp = idx === 0;
+                const seedA = teamSeedText(u.team_a_details);
+                const seedB = teamSeedText(u.team_b_details);
                 return (
                   <div key={u.match_number} className={`tv-next-row ${isNextUp ? 'highlight-next' : ''}`}>
                     <div className="tv-next-left">
@@ -393,11 +411,13 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
                     <div className="tv-next-teams">
                       <span className="tv-next-team-a">
                         {u.team_a}
+                        {seedA ? <span className="tv-inline-seed">{seedA}</span> : null}
                         {u.team_a_club ? <small> ({u.team_a_club})</small> : ''}
                       </span>
                       <span className="tv-next-vs">VS</span>
                       <span className="tv-next-team-b">
                         {u.team_b}
+                        {seedB ? <span className="tv-inline-seed">{seedB}</span> : null}
                         {u.team_b_club ? <small> ({u.team_b_club})</small> : ''}
                       </span>
                     </div>
@@ -502,13 +522,15 @@ function ArenaTeamCard({ match, t, screen }) {
   const serveClass = isSecondServe ? 'serve-2' : 'serve-1';
   const players = dbl ? [`${t}1`, `${t}2`] : [`${t}1`];
   const isSets = match.rules.scoring_type === 'sets';
+  const seed = teamSeedText(tm.details);
 
   return (
     <div className={`arena-half ${screen} team-${t} ${serving ? `serving-panel ${serveClass}` : ''}`}>
-      {/* Top Club Header */}
-      {tm.club && (
+      {/* Top Club + Seeded Header */}
+      {(tm.club || seed) && (
         <div className="arena-half-top">
-          <span className="arena-club-badge">{tm.club}</span>
+          {seed && <span className="arena-seed-badge">{seed}</span>}
+          {tm.club && <span className="arena-club-badge">{tm.club}</span>}
         </div>
       )}
 
@@ -595,18 +617,22 @@ function ObsOverlayView({ match, now, bgMode }) {
                 (() => {
                   const winSide = st.winner || (st.score.a >= st.score.b ? 'a' : 'b');
                   const loseSide = winSide === 'a' ? 'b' : 'a';
+                  const winSeed = teamSeedBadge(match, winSide);
+                  const loseSeed = teamSeedBadge(match, loseSide);
                   return (
                     <>
                       <span style={{ color: 'var(--gold)' }}>🏆 {teamLabel(match, winSide)}</span>
+                      {winSeed ? ` [${winSeed}]` : ''}
                       {match.teams[`team_${winSide}`]?.club ? ` (${match.teams[`team_${winSide}`].club})` : ''}
                       <span style={{ color: '#94a3b8', fontWeight: 700, margin: '0 10px' }}>def.</span>
                       <span style={{ color: '#cbd5e1' }}>{teamLabel(match, loseSide)}</span>
+                      {loseSeed ? ` [${loseSeed}]` : ''}
                       {match.teams[`team_${loseSide}`]?.club ? ` (${match.teams[`team_${loseSide}`].club})` : ''}
                     </>
                   );
                 })()
               ) : (
-                `${teamLabel(match, 'a')}  vs  ${teamLabel(match, 'b')}`
+                `${teamLabel(match, 'a')}${teamSeedBadge(match, 'a') ? ` [${teamSeedBadge(match, 'a')}]` : ''}  vs  ${teamLabel(match, 'b')}${teamSeedBadge(match, 'b') ? ` [${teamSeedBadge(match, 'b')}]` : ''}`
               )}
             </div>
           </div>
@@ -663,6 +689,8 @@ function Idle({ court, previous = [], upcoming = [], isObs, bgMode }) {
             {prevList.map((p) => {
               const aWon = p.winner === 'a';
               const bWon = p.winner === 'b';
+              const seedA = teamSeedText(p.team_a_details);
+              const seedB = teamSeedText(p.team_b_details);
               return (
                 <div key={p.match_number} className="tv-prev-row">
                   <span className="tv-prev-id">{p.match_number}</span>
@@ -671,11 +699,13 @@ function Idle({ court, previous = [], upcoming = [], isObs, bgMode }) {
                     <span className={aWon ? 'won' : 'lost'}>
                       {aWon && '🏆 '}
                       {p.team_a}
+                      {seedA ? <span className="tv-inline-seed">{seedA}</span> : null}
                     </span>
                     <span className="tv-prev-vs">vs</span>
                     <span className={bWon ? 'won' : 'lost'}>
                       {bWon && '🏆 '}
                       {p.team_b}
+                      {seedB ? <span className="tv-inline-seed">{seedB}</span> : null}
                     </span>
                   </span>
                   {renderPreviousScore(p)}
@@ -694,6 +724,8 @@ function Idle({ court, previous = [], upcoming = [], isObs, bgMode }) {
           <div className="tv-next-list">
             {nextList.map((u, idx) => {
               const isNextUp = idx === 0;
+              const seedA = teamSeedText(u.team_a_details);
+              const seedB = teamSeedText(u.team_b_details);
               return (
                 <div key={u.match_number} className={`tv-next-row ${isNextUp ? 'highlight-next' : ''}`}>
                   <div className="tv-next-left">
@@ -708,11 +740,13 @@ function Idle({ court, previous = [], upcoming = [], isObs, bgMode }) {
                   <div className="tv-next-teams">
                     <span className="tv-next-team-a">
                       {u.team_a}
+                      {seedA ? <span className="tv-inline-seed">{seedA}</span> : null}
                       {u.team_a_club ? <small> ({u.team_a_club})</small> : ''}
                     </span>
                     <span className="tv-next-vs">VS</span>
                     <span className="tv-next-team-b">
                       {u.team_b}
+                      {seedB ? <span className="tv-inline-seed">{seedB}</span> : null}
                       {u.team_b_club ? <small> ({u.team_b_club})</small> : ''}
                     </span>
                   </div>

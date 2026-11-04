@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { courtPositions, isDoubles, other, playerName, teamLabel } from '@/lib/engine';
+import { courtPositions, detailsToInput, isDoubles, other, playerName, teamLabel, teamSeedBadge } from '@/lib/engine';
 import CourtMap from '../CourtMap';
 import { Shuttle, Target } from '../Icons';
 import { MatchInfo } from './Entry';
@@ -8,8 +8,18 @@ import { MatchInfo } from './Entry';
 function NamesEditor({ match, send, pending }) {
   const dbl = isDoubles(match);
   const init = () => ({
-    team_a: { p1: match.teams.team_a.p1, p2: match.teams.team_a.p2 || '', club: match.teams.team_a.club || '' },
-    team_b: { p1: match.teams.team_b.p1, p2: match.teams.team_b.p2 || '', club: match.teams.team_b.club || '' },
+    team_a: {
+      p1: match.teams.team_a.p1,
+      p2: match.teams.team_a.p2 || '',
+      club: match.teams.team_a.club || '',
+      details: detailsToInput(match.teams.team_a.details),
+    },
+    team_b: {
+      p1: match.teams.team_b.p1,
+      p2: match.teams.team_b.p2 || '',
+      club: match.teams.team_b.club || '',
+      details: detailsToInput(match.teams.team_b.details),
+    },
     court: String(match.court_number),
   });
   const [f, setF] = useState(init);
@@ -27,7 +37,7 @@ function NamesEditor({ match, send, pending }) {
             setEditing(true);
           }}
         >
-          ✏️ Local Override (Koreksi Nama / Club / Lapangan)
+          ✏️ Local Override (Koreksi Nama / Club / Seeded / Lapangan)
         </button>
       </div>
     );
@@ -35,7 +45,7 @@ function NamesEditor({ match, send, pending }) {
   const save = async () => {
     const names = {};
     for (const t of ['team_a', 'team_b']) {
-      names[t] = { p1: f[t].p1, club: f[t].club };
+      names[t] = { p1: f[t].p1, club: f[t].club, details: f[t].details };
       if (dbl) names[t].p2 = f[t].p2;
     }
     const payload = { names };
@@ -51,6 +61,7 @@ function NamesEditor({ match, send, pending }) {
           <input className="input" value={f[t].p1} onChange={(e) => set(t, 'p1', e.target.value)} placeholder="Pemain 1" />
           {dbl && <input className="input" value={f[t].p2} onChange={(e) => set(t, 'p2', e.target.value)} placeholder="Pemain 2" />}
           <input className="input" value={f[t].club} onChange={(e) => set(t, 'club', e.target.value)} placeholder="Club / PB" />
+          <input className="input" value={f[t].details} onChange={(e) => set(t, 'details', e.target.value)} placeholder="Seeded / Detail (contoh: 1 atau [3/4])" />
         </div>
       ))}
       <label className="field">
@@ -171,13 +182,19 @@ export default function SetupScreen({ match, send, pending, connected }) {
           <div className="scoreline">
             <div className="team">
               <span className="muted small">LAPANGAN KIRI</span>
-              <span className="tname">{teamLabel(match, left)}</span>
+              <span className="tname">
+                {teamLabel(match, left)}
+                {teamSeedBadge(match, left) && <span className="seed-pill">{teamSeedBadge(match, left)}</span>}
+              </span>
               <span className="tclub">{match.teams[`team_${left}`].club}</span>
             </div>
             <div className="mid">VS</div>
             <div className="team right">
               <span className="muted small">LAPANGAN KANAN</span>
-              <span className="tname">{teamLabel(match, other(left))}</span>
+              <span className="tname">
+                {teamLabel(match, other(left))}
+                {teamSeedBadge(match, other(left)) && <span className="seed-pill">{teamSeedBadge(match, other(left))}</span>}
+              </span>
               <span className="tclub">{match.teams[`team_${other(left)}`].club}</span>
             </div>
           </div>
