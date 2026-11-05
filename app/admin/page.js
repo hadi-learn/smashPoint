@@ -2180,6 +2180,9 @@ export default function AdminPage() {
           </button>
         </div>
         <div className="spacer" />
+        <Link href="/livescore" className="btn btn-sm btn-blue" target="_blank" title="Buka Tampilan Multi-Court LiveScore Venue/GOR">
+          🏟️ Layar LiveScore Venue
+        </Link>
         <span className="badge">Total {stats.total}</span>
         <span className="badge blue">Setup {stats.setup}</span>
         <span className="badge green">Live {stats.live}</span>

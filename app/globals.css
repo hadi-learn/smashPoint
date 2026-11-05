@@ -2042,3 +2042,731 @@ table.tbl tr:hover td { background: rgba(59, 130, 246, .05); }
 .tbl-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 12px; }
 .inline-input { background: #0a1328; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: .25rem .4rem; width: 6.5rem; }
 .err-list { max-height: 220px; overflow: auto; font-size: .85rem; }
+
+/* ------------------------------------------------------------ /livescore (Multi-Court Venue LiveScore) */
+.ls-shell {
+  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(1400px 700px at 50% -10%, #13234b 0%, #050a18 65%);
+  overflow: hidden;
+}
+
+.ls-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .65rem;
+  padding: .45rem .9rem;
+  background: rgba(7, 13, 30, 0.94);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+  z-index: 20;
+}
+.ls-topbar-left,
+.ls-topbar-center,
+.ls-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+.ls-brand {
+  font-weight: 900;
+  font-size: 1.1rem;
+  color: var(--text);
+  letter-spacing: -.01em;
+}
+.ls-brand span { color: var(--gold); }
+.ls-brand small {
+  margin-left: .3rem;
+  font-size: .72rem;
+  font-weight: 800;
+  color: var(--cyan);
+  background: rgba(34, 211, 238, 0.14);
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  padding: .1rem .45rem;
+  border-radius: 6px;
+}
+
+.ls-layout-lbl {
+  font-size: .78rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+.ls-count-group {
+  display: inline-flex;
+  background: #060b19;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 2px;
+  gap: 2px;
+}
+.ls-count-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: .8rem;
+  font-weight: 900;
+  padding: .28rem .55rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.ls-count-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+.ls-count-btn.active {
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.45);
+}
+.ls-count-sub {
+  font-size: .68rem;
+  font-weight: 700;
+  opacity: 0.85;
+}
+@media (max-width: 1100px) {
+  .ls-count-sub { display: none; }
+}
+
+.ls-config-drawer {
+  background: rgba(10, 19, 40, 0.96);
+  border-bottom: 1px solid var(--line);
+  padding: .65rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .55rem;
+  z-index: 19;
+}
+.ls-slot-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+  gap: .5rem;
+}
+.ls-slot-config-item {
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+}
+.ls-slot-config-item select.input {
+  padding: .4rem .6rem;
+  font-size: .85rem;
+  font-weight: 700;
+}
+
+/* Adaptive Multi-Court Grid (1 to 8 Courts) */
+.ls-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: .65rem;
+  padding: .65rem;
+  overflow: auto;
+}
+.ls-grid.count-1 {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+.ls-grid.count-2 {
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: 1fr;
+}
+.ls-grid.count-3 {
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: 1fr;
+}
+.ls-grid.count-4 {
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+.ls-grid.count-5,
+.ls-grid.count-6 {
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+.ls-grid.count-7,
+.ls-grid.count-8 {
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: .45rem;
+  padding: .45rem;
+}
+
+/* Responsive fallback for smaller tablets/laptops */
+@media (max-width: 1200px) {
+  .ls-shell { height: auto; overflow: visible; }
+  .ls-grid.count-3,
+  .ls-grid.count-5,
+  .ls-grid.count-6,
+  .ls-grid.count-7,
+  .ls-grid.count-8 {
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: auto;
+  }
+}
+@media (max-width: 760px) {
+  .ls-grid.count-2,
+  .ls-grid.count-3,
+  .ls-grid.count-4,
+  .ls-grid.count-5,
+  .ls-grid.count-6,
+  .ls-grid.count-7,
+  .ls-grid.count-8 {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+}
+
+/* Individual Court Card */
+.ls-card {
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #101d3b 0%, #091226 100%);
+  border: 1.5px solid #243866;
+  border-radius: 14px;
+  overflow: hidden;
+  min-height: 0;
+  min-width: 0;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+.ls-card.active {
+  border-color: #2f4d8c;
+}
+.ls-card.large { --ref-scale: 1.08; }
+.ls-card.medium { --ref-scale: 0.85; }
+.ls-card.compact { --ref-scale: 0.68; border-radius: 11px; }
+
+/* Card Header with Per-Card Court Dropdown */
+.ls-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .4rem;
+  padding: .38rem .6rem;
+  background: rgba(6, 11, 26, 0.9);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-wrap: wrap;
+}
+.ls-card.compact .ls-card-header {
+  padding: .25rem .45rem;
+}
+.ls-card-header-left,
+.ls-card-header-right {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  min-width: 0;
+}
+.ls-court-picker-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  background: linear-gradient(135deg, #facc15 0%, #eab308 100%);
+  color: #090d16;
+  padding: .15rem .45rem;
+  border-radius: 7px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(250, 204, 21, 0.3);
+}
+.ls-court-icon { font-size: .82rem; line-height: 1; }
+.ls-court-select {
+  appearance: auto;
+  background: transparent;
+  border: none;
+  color: #090d16;
+  font-weight: 900;
+  font-size: .8rem;
+  letter-spacing: .03em;
+  cursor: pointer;
+  outline: none;
+}
+.ls-card.compact .ls-court-select { font-size: .72rem; }
+.ls-court-select option {
+  background: #0d1730;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.ls-match-meta {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  min-width: 0;
+  overflow: hidden;
+}
+.ls-match-no {
+  font-weight: 900;
+  font-size: .84rem;
+  color: #ffffff;
+  background: #1e3a8a;
+  border: 1px solid #3b82f6;
+  padding: .08rem .42rem;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.ls-card.compact .ls-match-no { font-size: .72rem; padding: .05rem .32rem; }
+.ls-match-cat {
+  font-size: .78rem;
+  font-weight: 700;
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ls-card.compact .ls-match-cat { font-size: .68rem; }
+.ls-idle-tag {
+  font-size: .72rem;
+  font-weight: 800;
+  color: var(--muted);
+  letter-spacing: .04em;
+}
+
+.ls-alert-pill {
+  padding: .1rem .45rem;
+  border-radius: 5px;
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .04em;
+  animation: pulse 1s infinite;
+  white-space: nowrap;
+}
+.ls-alert-pill.gold { background: var(--gold); color: #090d16; }
+.ls-alert-pill.red { background: var(--red); color: #ffffff; }
+.ls-alert-pill.cyan { background: var(--cyan); color: #04202a; }
+
+.ls-dur-pill {
+  font-size: .74rem;
+  font-weight: 800;
+  color: var(--cyan);
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  padding: .08rem .4rem;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.ls-card.compact .ls-dur-pill { font-size: .65rem; padding: .05rem .3rem; }
+
+.ls-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .28rem;
+  padding: .1rem .48rem;
+  border-radius: 999px;
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.ls-status-pill.live {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+  border: 1px solid #16a34a;
+}
+.ls-status-pill.break {
+  background: rgba(250, 204, 21, 0.18);
+  color: var(--gold);
+  border: 1px solid #ca8a04;
+}
+.ls-status-pill.setup {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+  border: 1px solid #2563eb;
+}
+.ls-status-pill.finished {
+  background: rgba(148, 163, 184, 0.18);
+  color: #e2e8f0;
+  border: 1px solid #475569;
+}
+.ls-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+  animation: pulse 1s infinite;
+}
+.ls-tv-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: .12rem .35rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: .78rem;
+  text-decoration: none;
+}
+.ls-tv-link:hover { background: rgba(255, 255, 255, 0.15); }
+
+/* Scoreboard Bar above CourtMap */
+.ls-scorebar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: stretch;
+  gap: .4rem;
+  padding: .4rem .6rem;
+  background: rgba(10, 19, 40, 0.78);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ls-card.compact .ls-scorebar {
+  padding: .25rem .4rem;
+  gap: .25rem;
+}
+
+.ls-team-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .45rem;
+  padding: .3rem .55rem;
+  border-radius: 9px;
+  background: rgba(15, 27, 56, 0.85);
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  min-width: 0;
+}
+.ls-card.compact .ls-team-box {
+  padding: .2rem .38rem;
+  gap: .28rem;
+}
+.ls-team-box.right {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+.ls-team-box.left {
+  border-left: 3.5px solid #3b82f6;
+}
+.ls-team-box.right {
+  border-right: 3.5px solid #ef4444;
+}
+.ls-team-box.serving {
+  border-color: rgba(250, 204, 21, 0.75);
+  box-shadow: 0 0 14px rgba(250, 204, 21, 0.22);
+  background: linear-gradient(90deg, rgba(250, 204, 21, 0.12), rgba(15, 27, 56, 0.9));
+}
+.ls-team-info {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  min-width: 0;
+  flex: 1;
+}
+.ls-team-box.right .ls-team-info {
+  align-items: flex-end;
+}
+.ls-team-top {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  flex-wrap: wrap;
+}
+.ls-team-box.right .ls-team-top {
+  justify-content: flex-end;
+}
+.ls-side-tag {
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .04em;
+  padding: .05rem .32rem;
+  border-radius: 4px;
+}
+.ls-side-tag.left { background: rgba(59, 130, 246, 0.22); color: #93c5fd; }
+.ls-side-tag.right { background: rgba(239, 68, 68, 0.22); color: #fca5a5; }
+.ls-club-tag {
+  font-size: .68rem;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+.ls-card.compact .ls-club-tag { font-size: .6rem; max-width: 95px; }
+
+.ls-team-names {
+  font-size: clamp(.82rem, 1.15vw, 1.25rem);
+  font-weight: 900;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  line-height: 1.15;
+}
+.ls-card.large .ls-team-names { font-size: clamp(1rem, 1.5vw, 1.55rem); }
+.ls-card.compact .ls-team-names { font-size: clamp(.72rem, .92vw, .95rem); }
+
+.ls-team-score {
+  font-size: clamp(1.5rem, 2.5vw, 2.8rem);
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  padding: .15rem .45rem;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #f8fafc;
+}
+.ls-card.large .ls-team-score { font-size: clamp(2.1rem, 3.6vw, 3.8rem); padding: .2rem .6rem; }
+.ls-card.compact .ls-team-score { font-size: clamp(1.15rem, 1.7vw, 1.65rem); padding: .1rem .32rem; }
+.ls-team-score.serve-1 {
+  color: var(--gold);
+  border-color: var(--gold);
+  text-shadow: 0 0 14px rgba(250, 204, 21, 0.55);
+}
+.ls-team-score.serve-2 {
+  color: #fb923c;
+  border-color: #f97316;
+  text-shadow: 0 0 14px rgba(249, 115, 22, 0.55);
+}
+
+.ls-scorebar-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .18rem;
+  padding: 0 .25rem;
+  text-align: center;
+}
+.ls-mid-rule {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+  font-size: .7rem;
+  font-weight: 800;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ls-card.compact .ls-mid-rule { font-size: .6rem; }
+.ls-mid-sets {
+  color: #ffffff;
+  font-weight: 900;
+}
+.ls-serve-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: .22rem;
+  padding: .1rem .48rem;
+  border-radius: 999px;
+  font-size: .7rem;
+  font-weight: 800;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.ls-card.compact .ls-serve-banner { font-size: .6rem; padding: .06rem .35rem; }
+.ls-serve-banner.serve-1 {
+  background: var(--gold-soft);
+  color: var(--gold);
+  border-color: #ca8a04;
+}
+.ls-serve-banner.serve-2 {
+  background: rgba(249, 115, 22, 0.22);
+  color: #fdba74;
+  border-color: #ea580c;
+}
+.ls-set-chips {
+  display: flex;
+  gap: .25rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.ls-set-chip {
+  font-size: .62rem;
+  font-weight: 800;
+  padding: .04rem .32rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+}
+
+/* CourtMap Container inside LiveScore Card */
+.ls-court-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: .45rem .55rem;
+}
+.ls-card.compact .ls-court-wrap {
+  padding: .25rem .35rem;
+}
+.ls-court-wrap .court {
+  min-height: 120px;
+  width: 100%;
+  height: 100%;
+  border-width: 4px;
+}
+.ls-card.large .ls-court-wrap .court {
+  min-height: 240px;
+  border-width: 6px;
+}
+.ls-card.compact .ls-court-wrap .court {
+  min-height: 95px;
+  border-width: 3px;
+}
+.ls-court-wrap .cbox {
+  min-height: 0;
+  padding: .25rem .35rem;
+}
+.ls-card.compact .ls-court-wrap .cbox .pname {
+  font-size: clamp(.68rem, .88vw, .9rem);
+}
+.ls-card.compact .ls-court-wrap .serve-pill,
+.ls-card.compact .ls-court-wrap .rcv-pill {
+  font-size: .52rem;
+  padding: .06rem .32rem;
+  top: .15rem;
+}
+
+/* Phase Overlays inside LiveScore CourtMap */
+.ls-phase-overlay {
+  gap: .35rem;
+  padding: .6rem;
+}
+.ls-overlay-badge {
+  padding: .15rem .6rem;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .05em;
+}
+.ls-overlay-badge.gold { background: var(--gold); color: #090d16; }
+.ls-overlay-badge.cyan { background: var(--cyan); color: #04202a; }
+.ls-overlay-badge.blue { background: #3b82f6; color: #ffffff; }
+.ls-overlay-title {
+  font-size: clamp(1rem, 1.8vw, 1.8rem);
+  font-weight: 900;
+  color: #ffffff;
+}
+.ls-overlay-club {
+  font-size: .82rem;
+  font-weight: 800;
+  color: var(--gold);
+}
+.ls-overlay-sub {
+  font-size: .78rem;
+  color: #cbd5e1;
+  font-weight: 700;
+}
+.ls-break-countdown {
+  font-size: clamp(1.2rem, 2.2vw, 2.2rem);
+  font-weight: 900;
+  color: var(--cyan);
+  background: rgba(15, 23, 42, 0.9);
+  border: 1.5px solid var(--cyan);
+  padding: .15rem .65rem;
+  border-radius: 8px;
+}
+.ls-break-countdown.warning { color: var(--gold); border-color: var(--gold); }
+.ls-break-countdown.overtime { color: #f87171; border-color: var(--red); animation: pulse 0.9s infinite; }
+
+/* Card Footer */
+.ls-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  padding: .28rem .6rem;
+  background: rgba(5, 10, 23, 0.9);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: .72rem;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.ls-card.compact .ls-card-footer {
+  padding: .18rem .45rem;
+  font-size: .64rem;
+}
+.ls-footer-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ls-footer-next {
+  margin-left: auto;
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 55%;
+}
+.ls-footer-next b { color: var(--gold); }
+
+/* Idle Court Card Body */
+.ls-idle-body {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .6rem;
+  padding: .85rem;
+  text-align: center;
+  background: radial-gradient(ellipse at center, rgba(15, 81, 50, 0.22) 0%, rgba(9, 18, 38, 0.85) 80%);
+}
+.ls-idle-court-watermark {
+  font-size: clamp(1.6rem, 3.2vw, 3.4rem);
+  font-weight: 900;
+  color: rgba(250, 204, 21, 0.16);
+  letter-spacing: .06em;
+  line-height: 1;
+  user-select: none;
+}
+.ls-idle-box {
+  width: min(520px, 96%);
+  padding: .55rem .8rem;
+  border-radius: 10px;
+  background: rgba(10, 19, 40, 0.88);
+  border: 1px solid var(--line);
+}
+.ls-idle-box.next {
+  border-color: rgba(250, 204, 21, 0.45);
+}
+.ls-idle-kicker {
+  font-size: .68rem;
+  font-weight: 900;
+  color: var(--gold);
+  letter-spacing: .05em;
+  margin-bottom: .25rem;
+}
+.ls-idle-versus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  flex-wrap: wrap;
+  font-weight: 900;
+  font-size: .92rem;
+  color: #ffffff;
+}
+.ls-card.compact .ls-idle-versus { font-size: .78rem; }
+.ls-idle-versus .vs {
+  font-size: .72rem;
+  color: var(--gold);
+  padding: .05rem .3rem;
+  border-radius: 4px;
+  background: rgba(250, 204, 21, 0.15);
+}
+.ls-idle-sub {
+  margin-top: .2rem;
+  font-size: .72rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+.ls-idle-empty {
+  font-size: .85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.ls-idle-box.prev {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  flex-wrap: wrap;
+  font-size: .74rem;
+}
+.ls-prev-label { color: var(--muted); font-weight: 700; }

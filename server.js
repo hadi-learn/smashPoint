@@ -705,6 +705,19 @@ io.on('connection', (socket) => {
     socket.join(`court:${c}`);
     return { ok: true, snapshot: store.courtSnapshot(c) };
   }));
+  socket.on('courts:watch_all', wrap(() => {
+    const snapshots = {};
+    for (let c = 1; c <= COURT_COUNT; c += 1) {
+      socket.join(`court:${c}`);
+      snapshots[c] = store.courtSnapshot(c);
+    }
+    return {
+      ok: true,
+      court_count: COURT_COUNT,
+      active_profile: profileManager.activeProfile(store),
+      snapshots,
+    };
+  }));
   socket.on('admin:watch', wrap(({ pin, token }) => {
     const user = adminAuth.verifyToken(token || pin);
     if (!user) throw new StoreError('Sesi Admin tidak valid atau sudah berakhir', 'bad_pin');

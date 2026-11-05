@@ -22,6 +22,24 @@ export default function Home() {
           </Link>
         </div>
         <div className="card home-card">
+          <div className="icon">🏟️</div>
+          <h2>Venue LiveScore (Multi-Court)</h2>
+          <p className="muted small">
+            Tampilan layar besar GOR/Venue dengan animasi lapangan bulutangkis live seperti layar wasit. Pilih 1 s/d 8 lapangan sekaligus dalam 1 monitor.
+          </p>
+          <div className="row" style={{ gap: '.35rem' }}>
+            {[1, 2, 3, 4, 6, 8].map((n) => (
+              <Link key={n} className="btn btn-sm" href={`/livescore?count=${n}`}>
+                {n} Lap
+              </Link>
+            ))}
+          </div>
+          <div className="spacer" />
+          <Link className="btn btn-blue" href="/livescore">
+            Buka Multi-Court LiveScore
+          </Link>
+        </div>
+        <div className="card home-card">
           <div className="icon">📺</div>
           <h2>Court Display &amp; OBS</h2>
           <p className="muted small">Papan skor TV Arena atau YouTube/OBS Scorebug Overlay (pojok kiri atas).</p>
