@@ -2770,3 +2770,74 @@ table.tbl tr:hover td { background: rgba(59, 130, 246, .05); }
   font-size: .74rem;
 }
 .ls-prev-label { color: var(--muted); font-weight: 700; }
+
+/* ------------------------------------------------------------ admin: Papan Jadwal & Progres (Grouped Match Board) */
+.gb-toolbar { display: flex; flex-wrap: wrap; gap: .6rem 1.2rem; align-items: center; padding: .7rem .9rem; }
+.gb-toolbar-group { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+.gb-toolbar-label { font-size: .78rem; font-weight: 800; color: var(--muted); white-space: nowrap; }
+.gb-pill-group { display: inline-flex; flex-wrap: wrap; background: #060b19; border: 1px solid var(--line); border-radius: 9px; padding: 2px; gap: 2px; }
+.gb-pill-btn { appearance: none; border: none; background: transparent; color: var(--muted); font-size: .8rem; font-weight: 800; padding: .3rem .6rem; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.gb-pill-btn:hover { color: var(--text); background: rgba(255, 255, 255, .06); }
+.gb-pill-btn.active { background: var(--blue); color: #fff; }
+
+.gb-cards-grid { display: grid; gap: .9rem; align-items: start; }
+.gb-cards-grid.cols-1 { grid-template-columns: 1fr; }
+.gb-cards-grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.gb-cards-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1300px) { .gb-cards-grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .gb-cards-grid.cols-2, .gb-cards-grid.cols-3 { grid-template-columns: 1fr; } }
+
+.gb-card { background: #0c1630; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.gb-card.has-live { border-color: #166534; }
+.gb-card-header { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .6rem .85rem; background: #0f1d3d; }
+.gb-card-title-wrap { display: flex; align-items: baseline; gap: .5rem; min-width: 0; }
+.gb-card-title { margin: 0; font-size: 1.05rem; font-weight: 900; color: #fff; }
+.gb-card-subtitle { font-size: .78rem; color: var(--muted); font-weight: 700; }
+.gb-card-badges { display: flex; gap: .3rem; flex-wrap: wrap; }
+.gb-progress-track { height: 3px; background: rgba(255, 255, 255, .06); }
+.gb-progress-fill { height: 100%; background: var(--gold); transition: width .3s; }
+
+/* Straight, fixed-column rows so every info lines up vertically */
+.gb-row {
+  display: grid;
+  grid-template-columns: 92px 150px minmax(0, 1fr) 110px 96px;
+  align-items: center;
+  gap: .6rem;
+  padding: .45rem .85rem;
+  border-bottom: 1px solid rgba(255, 255, 255, .05);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+.gb-row:hover { background: rgba(59, 130, 246, .07); }
+.gb-row-head { cursor: default; font-size: .64rem; font-weight: 800; letter-spacing: .05em; color: var(--muted); padding-top: .35rem; padding-bottom: .35rem; background: rgba(0, 0, 0, .18); }
+.gb-row-head:hover { background: rgba(0, 0, 0, .18); }
+.gb-rows-wrap { max-height: 560px; overflow: auto; }
+.gb-row.row-live { border-left-color: #22c55e; background: rgba(34, 197, 94, .06); }
+.gb-row.row-setup { border-left-color: #3b82f6; }
+.gb-row.row-scheduled { border-left-color: transparent; }
+.gb-row.row-finished { opacity: .72; }
+
+.gb-match-no { font-weight: 900; font-size: .85rem; font-family: ui-monospace, Consolas, monospace; color: #fff; }
+.gb-col-meta, .gb-col-teams { min-width: 0; }
+.gb-meta-top { font-size: .8rem; font-weight: 700; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gb-meta-sub { font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gb-team-line { display: flex; align-items: center; gap: .35rem; min-width: 0; line-height: 1.35; }
+.gb-team-name { font-size: .88rem; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gb-team-line .seed-pill { margin-left: 0; font-size: .62rem; }
+.gb-team-club { font-size: .7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gb-team-line.is-winner .gb-team-name { color: var(--gold); font-weight: 900; }
+.gb-team-line.is-loser .gb-team-name { color: #7c8bab; }
+.gb-col-score { text-align: center; }
+.gb-score-main { font-size: .95rem; font-weight: 900; font-variant-numeric: tabular-nums; }
+.gb-score-main.live { color: #4ade80; }
+.gb-score-main.done { color: #e2e8f0; }
+.gb-score-main.idle { color: #475569; }
+.gb-score-sub { font-size: .66rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gb-col-status { display: flex; flex-direction: column; align-items: flex-end; gap: .2rem; }
+.gb-row-actions { display: flex; gap: .2rem; }
+.gb-action-btn { appearance: none; border: 1px solid var(--line); background: transparent; border-radius: 5px; padding: .05rem .3rem; font-size: .72rem; cursor: pointer; }
+.gb-action-btn:hover { background: var(--panel2); }
+@media (max-width: 700px) {
+  .gb-row { grid-template-columns: 80px minmax(0, 1fr) 90px; }
+  .gb-row .gb-col-meta, .gb-row .gb-col-status, .gb-row-head > :nth-child(2), .gb-row-head > :nth-child(5) { display: none; }
+}

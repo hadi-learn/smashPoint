@@ -2053,6 +2053,364 @@ function TournamentProfileBar({ token, activeProfile, profiles = [], onSwitched,
   );
 }
 
+/**
+ * Grouped Match Board (`Papan Jadwal & Progres`) for quick visual scanning.
+ * Groups all matches (finished, live/setup, upcoming) into clean, straight-aligned
+ * cards based on the admin's chosen criterion:
+ *  - 'court': Per-Lapangan (Court 1, Court 2, ...)
+ *  - 'category': Per-Kategori & Disiplin
+ *  - 'date': Per-Tanggal Pertandingan (sorted chronologically)
+ *  - 'discipline': Per-Disiplin (MS, WS, MD, WD, XD)
+ *  - 'status': Per-Status Pertandingan (Live, Setup, Terjadwal, Selesai)
+ */
+function GroupedMatchBoard({ matches, now, onEdit, onLogs }) {
+  const [groupBy, setGroupBy] = useState('court'); // 'court' | 'category' | 'date' | 'discipline' | 'status'
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'active_upcoming' | 'in_progress' | 'scheduled' | 'finished'
+  const [cols, setCols] = useState(2); // 1 | 2 | 3 | 4 columns of cards
+  const [q, setQ] = useState('');
+
+  const filteredMatches = useMemo(() => {
+    return matches.filter((m) => {
+      const st = m.session_management?.status || 'scheduled';
+      if (statusFilter === 'active_upcoming' && st === 'finished') return false;
+      if (statusFilter === 'in_progress' && st !== 'in_progress' && st !== 'locked') return false;
+      if (statusFilter === 'scheduled' && st !== 'scheduled') return false;
+      if (statusFilter === 'finished' && st !== 'finished') return false;
+      if (q.trim()) {
+        const hay = `${m.match_number} ${m.category_name} ${m.discipline} ${m.scheduled_date || ''} ${m.scheduled_time || ''} ${teamLabel(m, 'a')} ${teamLabel(m, 'b')} ${m.teams.team_a.club || ''} ${m.teams.team_b.club || ''} ${teamSeedBadge(m, 'a') || ''} ${teamSeedBadge(m, 'b') || ''}`.toLowerCase();
+        if (!hay.includes(q.trim().toLowerCase())) return false;
+      }
+      return true;
+    });
+  }, [matches, statusFilter, q]);
+
+  const groups = useMemo(() => {
+    const map = new Map();
+
+    const add = (key, title, subtitle, sortOrder, m) => {
+      if (!map.has(key)) {
+        map.set(key, { key, title, subtitle, sortOrder, list: [] });
+      }
+      map.get(key).list.push(m);
+    };
+
+    for (const m of filteredMatches) {
+      if (groupBy === 'court') {
+        const c = m.court_number || 0;
+        add(`court-${c}`, `Lapangan ${c}`, `Court ${c}`, c, m);
+      } else if (groupBy === 'category') {
+        const cat = (m.category_name || 'Tanpa Kategori').trim();
+        const disc = m.discipline || '';
+        const key = `${cat}||${disc}`;
+        add(
+          key,
+          cat,
+          disc ? `${disc} · ${DISCIPLINE_LABEL[disc] || disc}` : '',
+          0,
+          m
+        );
+      } else if (groupBy === 'date') {
+        const dRaw = (m.scheduled_date || '').trim() || 'Tanpa Tanggal';
+        const dVal = parseScheduleDateValue(dRaw);
+        add(dRaw, dRaw, 'Jadwal Harian', dVal, m);
+      } else if (groupBy === 'discipline') {
+        const disc = m.discipline || '-';
+        add(
+          disc,
+          `${disc} — ${DISCIPLINE_LABEL[disc] || disc}`,
+          'Disiplin Pertandingan',
+          DISCIPLINES.indexOf(disc) >= 0 ? DISCIPLINES.indexOf(disc) : 99,
+          m
+        );
+      } else if (groupBy === 'status') {
+        const st = m.session_management?.status || 'scheduled';
+        const labelMap = {
+          in_progress: ['Sedang Berlangsung (LIVE)', 'Pertandingan aktif di lapangan', 1],
+          locked: ['Persiapan / Setup Wasit', 'Wasit sedang undian & posisi', 2],
+          scheduled: ['Akan Datang (Terjadwal)', 'Menunggu giliran bermain', 3],
+          finished: ['Sudah Selesai (Finished)', 'Pertandingan telah berakhir', 4],
+        };
+        const [title, sub, ord] = labelMap[st] || [st, '', 99];
+        add(st, title, sub, ord, m);
+      }
+    }
+
+    // Sort matches inside each card in logical chronological / queue order:
+    // Date -> Time -> Court -> Natural Match Number
+    const result = Array.from(map.values());
+    for (const g of result) {
+      g.list.sort((x, y) => {
+        return (
+          parseScheduleDateValue(x.scheduled_date) - parseScheduleDateValue(y.scheduled_date) ||
+          parseScheduleMins(x.scheduled_time) - parseScheduleMins(y.scheduled_time) ||
+          x.court_number - y.court_number ||
+          cmpStr(x.match_number, y.match_number)
+        );
+      });
+      g.stats = {
+        total: g.list.length,
+        live: g.list.filter((m) => m.session_management?.status === 'in_progress').length,
+        setup: g.list.filter((m) => m.session_management?.status === 'locked').length,
+        scheduled: g.list.filter((m) => m.session_management?.status === 'scheduled').length,
+        finished: g.list.filter((m) => m.session_management?.status === 'finished').length,
+      };
+    }
+
+    // Sort cards themselves
+    result.sort((a, b) => {
+      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+      return cmpStr(a.title, b.title) || cmpStr(a.subtitle, b.subtitle);
+    });
+
+    return result;
+  }, [filteredMatches, groupBy]);
+
+  const formatScoreCompact = (m) => {
+    const st = m.live_state;
+    const sm = m.session_management;
+    if (sm.status === 'scheduled') {
+      return { main: '— : —', sub: m.rules.scoring_type === 'sets' ? 'Best of 3' : `Target ${m.rules.win_point}`, isLive: false };
+    }
+    const isSets = m.rules.scoring_type === 'sets';
+    const historyStr = st.set_history?.length
+      ? st.set_history.map((s) => `${s.a}-${s.b}`).join(', ')
+      : '';
+    if (sm.status === 'finished' || st.phase === 'finished') {
+      return {
+        main: historyStr || `${st.score.a} - ${st.score.b}`,
+        sub: isSets && st.set_history?.length > 1 ? `Set ${st.sets.a}-${st.sets.b}` : 'Final',
+        isLive: false,
+      };
+    }
+    return {
+      main: `${st.score.a} - ${st.score.b}`,
+      sub: historyStr ? `(${historyStr})` : isSets ? `Set ${st.current_set}` : 'Live',
+      isLive: true,
+    };
+  };
+
+  return (
+    <div className="col" style={{ gap: '.9rem' }}>
+      {/* Control Toolbar */}
+      <div className="card gb-toolbar">
+        <div className="gb-toolbar-group">
+          <span className="gb-toolbar-label">🗂️ Susun Kartu Berdasarkan:</span>
+          <div className="gb-pill-group">
+            {[
+              ['court', '🏟️ Per-Lapangan'],
+              ['category', '🏅 Per-Kategori'],
+              ['date', '📅 Per-Tanggal'],
+              ['discipline', '🏸 Per-Disiplin'],
+              ['status', '📊 Per-Status'],
+            ].map(([val, lbl]) => (
+              <button
+                key={val}
+                type="button"
+                className={`gb-pill-btn ${groupBy === val ? 'active' : ''}`}
+                onClick={() => setGroupBy(val)}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="gb-toolbar-group">
+          <span className="gb-toolbar-label">🔍 Tampilkan Status:</span>
+          <div className="gb-pill-group">
+            {[
+              ['all', `Semua (${matches.length})`],
+              ['active_upcoming', 'Belum Selesai'],
+              ['in_progress', 'Sedang Main (Live)'],
+              ['scheduled', 'Akan Datang'],
+              ['finished', 'Sudah Selesai'],
+            ].map(([val, lbl]) => (
+              <button
+                key={val}
+                type="button"
+                className={`gb-pill-btn ${statusFilter === val ? 'active' : ''}`}
+                onClick={() => setStatusFilter(val)}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="gb-toolbar-group" style={{ marginLeft: 'auto' }}>
+          <input
+            className="input"
+            style={{ width: 210, padding: '.4rem .7rem', fontSize: '.88rem' }}
+            placeholder="Cari nomor / pemain / klub…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <div className="gb-pill-group" title="Jumlah kolom kartu per baris">
+            {[1, 2, 3].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={`gb-pill-btn ${cols === n ? 'active' : ''}`}
+                onClick={() => setCols(n)}
+              >
+                {n} Kolom
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Cards Grid */}
+      {groups.length === 0 ? (
+        <div className="card muted" style={{ textAlign: 'center', padding: '2.5rem' }}>
+          Tidak ada data pertandingan yang sesuai dengan filter saat ini.
+        </div>
+      ) : (
+        <div className={`gb-cards-grid cols-${cols}`}>
+          {groups.map((g) => {
+            const pct = g.stats.total > 0 ? Math.round((g.stats.finished / g.stats.total) * 100) : 0;
+            return (
+              <section key={g.key} className={`gb-card ${g.stats.live > 0 ? 'has-live' : ''}`}>
+                {/* Card Header */}
+                <header className="gb-card-header">
+                  <div className="gb-card-title-wrap">
+                    <h3 className="gb-card-title">{g.title}</h3>
+                    {g.subtitle && <span className="gb-card-subtitle">{g.subtitle}</span>}
+                  </div>
+                  <div className="gb-card-badges">
+                    {g.stats.live > 0 && <span className="badge green">● {g.stats.live} Live</span>}
+                    {g.stats.setup > 0 && <span className="badge blue">{g.stats.setup} Setup</span>}
+                    {g.stats.scheduled > 0 && <span className="badge">{g.stats.scheduled} Antre</span>}
+                    <span className="badge gold">
+                      {g.stats.finished}/{g.stats.total} Selesai ({pct}%)
+                    </span>
+                  </div>
+                </header>
+
+                {/* Thin Progress Bar */}
+                <div className="gb-progress-track">
+                  <div className="gb-progress-fill" style={{ width: `${pct}%` }} />
+                </div>
+
+                {/* Column Header Legend for Straight Visual Alignment */}
+                <div className="gb-row gb-row-head">
+                  <div>NO. MATCH</div>
+                  <div>JADWAL / INFO</div>
+                  <div>TIM A vs TIM B (LURUS &amp; SEJAJAR)</div>
+                  <div style={{ textAlign: 'center' }}>SKOR</div>
+                  <div style={{ textAlign: 'right' }}>STATUS</div>
+                </div>
+
+                {/* Straight-Aligned Match Rows */}
+                <div className="gb-rows-wrap">
+                  {g.list.map((m) => {
+                    const sm = m.session_management;
+                    const st = m.live_state;
+                    const isFinished = sm.status === 'finished' || st.phase === 'finished';
+                    const isLive = sm.status === 'in_progress';
+                    const isSetup = sm.status === 'locked';
+                    const winSide = isFinished ? st.winner : null;
+                    const seedA = teamSeedBadge(m, 'a');
+                    const seedB = teamSeedBadge(m, 'b');
+                    const sc = formatScoreCompact(m);
+                    const dur = matchDurationText(m, now);
+
+                    // Secondary context column adapts to whatever we are NOT grouping by
+                    const metaPrimary =
+                      groupBy === 'court'
+                        ? `${m.category_name || '-'} (${m.discipline})`
+                        : groupBy === 'category'
+                        ? `Lapangan ${m.court_number}`
+                        : `Lap. ${m.court_number} · ${m.category_name || '-'} (${m.discipline})`;
+                    const metaSecondary =
+                      groupBy === 'date'
+                        ? `🕒 ${m.scheduled_time || '-'}`
+                        : [m.scheduled_date, m.scheduled_time].filter(Boolean).join(' · ') || '-';
+
+                    return (
+                      <div
+                        key={m.match_number}
+                        className={`gb-row ${isLive ? 'row-live' : isSetup ? 'row-setup' : isFinished ? 'row-finished' : 'row-scheduled'}`}
+                        onClick={() => onEdit?.(m)}
+                        title="Klik untuk mengedit / melihat detail pertandingan ini"
+                      >
+                        {/* Col 1: Match Number */}
+                        <div className="gb-col-no">
+                          <span className="gb-match-no">{m.match_number}</span>
+                        </div>
+
+                        {/* Col 2: Context (Time / Court / Category) */}
+                        <div className="gb-col-meta">
+                          <div className="gb-meta-top">{metaPrimary}</div>
+                          <div className="gb-meta-sub">{metaSecondary}</div>
+                        </div>
+
+                        {/* Col 3: Teams (Strictly aligned 2-line or straight horizontal pairing) */}
+                        <div className="gb-col-teams">
+                          <div className={`gb-team-line ${winSide === 'a' ? 'is-winner' : winSide === 'b' ? 'is-loser' : ''}`}>
+                            <span className="gb-team-name">
+                              {winSide === 'a' && '🏆 '}
+                              {teamLabel(m, 'a')}
+                            </span>
+                            {seedA && <span className="seed-pill">{seedA}</span>}
+                            {m.teams.team_a.club && <span className="gb-team-club">{m.teams.team_a.club}</span>}
+                          </div>
+                          <div className={`gb-team-line ${winSide === 'b' ? 'is-winner' : winSide === 'a' ? 'is-loser' : ''}`}>
+                            <span className="gb-team-name">
+                              {winSide === 'b' && '🏆 '}
+                              {teamLabel(m, 'b')}
+                            </span>
+                            {seedB && <span className="seed-pill">{seedB}</span>}
+                            {m.teams.team_b.club && <span className="gb-team-club">{m.teams.team_b.club}</span>}
+                          </div>
+                        </div>
+
+                        {/* Col 4: Score & Duration */}
+                        <div className="gb-col-score mono">
+                          <div className={`gb-score-main ${sc.isLive ? 'live' : isFinished ? 'done' : 'idle'}`}>
+                            {sc.main}
+                          </div>
+                          <div className="gb-score-sub">
+                            {sc.sub}
+                            {dur ? ` · ⏱${dur}` : ''}
+                          </div>
+                        </div>
+
+                        {/* Col 5: Status Badge & Quick Log Button */}
+                        <div className="gb-col-status" onClick={(e) => e.stopPropagation()}>
+                          <StatusBadge match={m} />
+                          <div className="gb-row-actions">
+                            <button
+                              type="button"
+                              className="gb-action-btn"
+                              onClick={() => onEdit?.(m)}
+                              title="Edit Pertandingan"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              type="button"
+                              className="gb-action-btn"
+                              onClick={() => onLogs?.(m.match_number)}
+                              title="Riwayat Log Poin"
+                            >
+                              📜
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [token, setToken] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
@@ -2173,6 +2531,13 @@ export default function AdminPage() {
           </button>
           <button
             type="button"
+            className={`btn btn-sm ${activeTab === 'board' ? 'btn-primary' : ''}`}
+            onClick={() => setActiveTab('board')}
+          >
+            🗂️ Papan Jadwal &amp; Progres
+          </button>
+          <button
+            type="button"
             className={`btn btn-sm ${activeTab === 'users' ? 'btn-primary' : ''}`}
             onClick={() => setActiveTab('users')}
           >
@@ -2230,6 +2595,8 @@ export default function AdminPage() {
           }}
           notify={notify}
         />
+      ) : activeTab === 'board' ? (
+        <GroupedMatchBoard matches={matches} now={now} onEdit={setEditMatch} onLogs={setLogsFor} />
       ) : (
         <>
           <CourtGrid
