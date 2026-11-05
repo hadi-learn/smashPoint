@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { detailsToInput, isDoubles, matchDurationText, playerName, teamLabel, teamSeedBadge } from '@/lib/engine';
+import { breakCountdownInfo, detailsToInput, isDoubles, matchDurationText, playerName, teamLabel, teamSeedBadge } from '@/lib/engine';
 import CourtMap from '../CourtMap';
 import { Shuttle } from '../Icons';
 
@@ -255,6 +255,32 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
   };
 
   let overlay = null;
+  const breakTimer = breakCountdownInfo(match, now);
+
+  const renderBreakTimer = (bt) => {
+    if (!bt) return null;
+    const pct = Math.min(100, Math.round((bt.remainingSec / bt.targetSec) * 100));
+    const stateCls = bt.isOvertime ? 'overtime' : bt.callWarning ? 'warning' : 'normal';
+    return (
+      <div className={`bwf-countdown-box ${stateCls}`}>
+        <div className="bwf-countdown-rule">{bt.ruleLabel}</div>
+        <div className="bwf-countdown-digits mono">
+          {bt.isOvertime ? `00:00 (${bt.overtimeFormatted})` : bt.formatted}
+        </div>
+        <div className="bwf-countdown-bar">
+          <div className="bwf-countdown-fill" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="bwf-countdown-hint">
+          {bt.isOvertime
+            ? '⏰ WAKTU ISTIRAHAT HABIS! Panggil pemain: "Play / Mulai!"'
+            : bt.callWarning
+            ? `📢 PANGGIL PEMAIN KE LAPANGAN ("Lapangan ${match.court_number}, 20 Detik!")`
+            : `Istirahat berjalan · Sisa ${bt.remainingSec} detik dari ${bt.targetSec} detik`}
+        </div>
+      </div>
+    );
+  };
+
   if (finished) {
     overlay = (
       <div className="phase-overlay">
@@ -270,17 +296,18 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
   } else if (st.phase === 'interval') {
     overlay = (
       <div className="phase-overlay">
-        <h2>{st.interval_swap ? 'INTERVAL - TUKAR LAPANGAN' : 'INTERVAL'}</h2>
+        <h2>{st.interval_swap ? 'INTERVAL - TUKAR LAPANGAN' : 'INTERVAL ISTIRAHAT'}</h2>
         <div className="muted">
           Skor {st.score[L]} - {st.score[R]}. {st.interval_swap ? 'Pemain bertukar sisi lapangan.' : 'Istirahat singkat, tanpa tukar sisi.'}
         </div>
+        {renderBreakTimer(breakTimer)}
         {!readOnly && (
           <div className="row">
             <button className="btn btn-yellow btn-lg" disabled={!canAct} onClick={() => send('UNDO')}>
               ↶ UNDO
             </button>
             <button className="btn btn-blue btn-lg" disabled={!canAct} onClick={() => send('CONFIRM_INTERVAL')}>
-              {st.interval_swap ? '⇄ Konfirmasi Tukar Posisi' : '▶ Lanjutkan Permainan'}
+              {st.interval_swap ? '⇄ Konfirmasi Tukar Posisi & Lanjut' : '▶ Selesai Interval & Lanjutkan'}
             </button>
           </div>
         )}
@@ -290,11 +317,12 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
     const last = st.set_history[st.set_history.length - 1];
     overlay = (
       <div className="phase-overlay">
-        <h2>SET {st.current_set} SELESAI</h2>
-        <div style={{ fontSize: '1.4rem', fontWeight: 800 }}>Pemenang: {teamLabel(match, st.game_winner)}</div>
+        <h2>SET {st.current_set} SELESAI · JEDA ANTAR SET</h2>
+        <div style={{ fontSize: '1.35rem', fontWeight: 800 }}>Pemenang Set {st.current_set}: {teamLabel(match, st.game_winner)}</div>
         <div className="muted">
-          Skor set: {last?.a}-{last?.b} · Sets {st.sets.a}-{st.sets.b}
+          Skor set: {last?.a}-{last?.b} · Kedudukan Set {st.sets.a}-{st.sets.b} · Pemain bertukar sisi lapangan
         </div>
+        {renderBreakTimer(breakTimer)}
         {!readOnly && (
           <div className="row">
             <button className="btn btn-yellow btn-lg" disabled={!canAct} onClick={() => send('UNDO')}>

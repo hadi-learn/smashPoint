@@ -106,7 +106,11 @@ export default function RefereePage() {
     async (silent = false) => {
       const { matchNo: id, deviceId: dev, label: lbl } = refs.current;
       if (!id) return;
-      const r = await emitAck('match:lock', { match_number: id, device_id: dev, label: lbl });
+      if (!silent && !String(lbl || '').trim()) {
+        setNotice({ type: 'error', text: 'Identitas Nama Wasit wajib diisi terlebih dahulu sebelum melakukan setup pertandingan!' });
+        return;
+      }
+      const r = await emitAck('match:lock', { match_number: id, device_id: dev, label: String(lbl || '').trim() });
       if (!r.ok) {
         if (!(silent && r.offline)) setNotice({ type: 'error', text: r.error });
         return;
@@ -244,6 +248,7 @@ export default function RefereePage() {
   else if (mode === 'none' || !matchNo) body = <EntryScreen label={label} setLabel={setLabel} deviceId={deviceId} onOpen={open} />;
   else if (!match) body = <div className="container muted">Memuat data match {matchNo}… {!connected && '(menunggu koneksi server)'}</div>;
   else if (mode === 'preview') {
+    const hasRefereeName = Boolean(String(label || '').trim());
     body = (
       <div className="container col" style={{ maxWidth: 1100 }}>
         <div className="card col">
@@ -253,9 +258,37 @@ export default function RefereePage() {
             {sm.locked && <span className="badge red">🔒 Dikontrol: {sm.controller_label || `…${sm.controller_tag}`}</span>}
           </div>
           <MatchInfo match={match} />
+
+          {/* Wajib Identitas Wasit Sebelum Kunci & Setup */}
+          <div className="col" style={{ background: '#0a1328', padding: '.75rem 1rem', borderRadius: 12, border: `1px solid ${hasRefereeName ? '#166534' : 'var(--gold)'}` }}>
+            <div className="row">
+              <label className="field" style={{ flex: 1, minWidth: 220 }}>
+                <span style={{ color: hasRefereeName ? '#4ade80' : 'var(--gold)', fontWeight: 800 }}>
+                  👤 Nama Wasit Bertugas (Wajib Diisi Sebelum Setup Pertandingan) *
+                </span>
+                <input
+                  className="input"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  placeholder="Ketik nama Wasit yang memimpin pertandingan ini..."
+                  maxLength={40}
+                />
+              </label>
+            </div>
+            {!hasRefereeName && (
+              <div className="small" style={{ color: 'var(--gold)', fontWeight: 700 }}>
+                ⚠ Silakan isi nama Anda di atas untuk mengaktifkan tombol &quot;Kunci &amp; Mulai Setup&quot;.
+              </div>
+            )}
+          </div>
+
           <div className="row">
-            <button className="btn btn-green btn-lg" disabled={!connected || sm.status === 'finished'} onClick={() => lock(false)}>
-              🔒 Kunci & Mulai Setup
+            <button
+              className="btn btn-green btn-lg"
+              disabled={!connected || sm.status === 'finished' || !hasRefereeName}
+              onClick={() => lock(false)}
+            >
+              🔒 Kunci &amp; Mulai Setup
             </button>
             <button className="btn btn-lg" onClick={() => setMode('spectator')}>
               👁 Mode Pantau

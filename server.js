@@ -11,6 +11,7 @@ import next from 'next';
 import nextEnv from '@next/env';
 import { Server } from 'socket.io';
 import { Store, StoreError } from './lib/server/store.js';
+import { AdminAuth } from './lib/server/auth.js';
 import { SheetsExporter, RESULT_HEADER, LOG_HEADER, resultRow } from './lib/server/sheetsExporter.js';
 import { ingest, toCsv, COLUMNS, OPTIONAL_COLUMNS } from './lib/server/ingest.js';
 
@@ -39,11 +40,13 @@ const HOST = process.env.HOST || '0.0.0.0';
 const COURT_COUNT = parseInt(process.env.COURT_COUNT || '15', 10);
 const MASTER_PIN = process.env.MASTER_PIN || '1234';
 const ADMIN_PIN = process.env.ADMIN_PIN || MASTER_PIN;
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const LOCK_TIMEOUT_MS = parseInt(process.env.LOCK_TIMEOUT_MS || '60000', 10);
 const HEARTBEAT_MS = 10000;
 const ROOT = process.cwd();
 
 const store = new Store({ dataDir: path.join(ROOT, 'data'), courtCount: COURT_COUNT, lockTimeoutMs: LOCK_TIMEOUT_MS, masterPin: MASTER_PIN });
+const adminAuth = new AdminAuth({ dataDir: path.join(ROOT, 'data'), defaultUsername: ADMIN_USERNAME, defaultPassword: ADMIN_PIN });
 const sheetsExporter = new SheetsExporter({
   exportDir: path.join(ROOT, 'exports'),
   dataDir: path.join(ROOT, 'data'),
@@ -88,7 +91,7 @@ function readBody(req, limit = 5 * 1024 * 1024) {
   });
 }
 
-const isAdmin = (req) => String(req.headers['x-admin-pin'] || '') === ADMIN_PIN;
+const isAdmin = (req) => Boolean(adminAuth.verifyRequest(req));
 const validDevice = (id) => typeof id === 'string' && id.length >= 8 && id.length <= 100;
 
 /**
@@ -355,13 +358,62 @@ async function handleApi(req, res, url) {
     return send(res, 200, `\uFEFF${toCsv(LOG_HEADER, logs)}`, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="smashpoint-logs${id ? `-${id}` : ''}.csv"` });
   }
 
-  // ---- admin
-  if (pathname === '/api/admin/verify' && method === 'POST') {
-    return isAdmin(req) ? send(res, 200, { ok: true }) : send(res, 403, { ok: false, error: 'PIN Admin salah' });
+  // ---- admin authentication & user management (RBAC)
+  if (pathname === '/api/admin/login' && method === 'POST') {
+    const b = await readBody(req);
+    const { token, user } = adminAuth.login(b.username, b.password);
+    return send(res, 200, { ok: true, token, user });
   }
-  if (!isAdmin(req)) return send(res, 403, { ok: false, error: 'Akses admin ditolak (PIN salah)' });
+  if (pathname === '/api/admin/logout' && method === 'POST') {
+    const token = req.headers['x-admin-token'] || req.headers['x-admin-pin'] || '';
+    adminAuth.logout(token);
+    return send(res, 200, { ok: true });
+  }
+  if (pathname === '/api/admin/verify' && (method === 'POST' || method === 'GET')) {
+    const user = adminAuth.verifyRequest(req);
+    return user
+      ? send(res, 200, { ok: true, user })
+      : send(res, 401, { ok: false, error: 'Sesi berakhir atau kredensial tidak valid' });
+  }
 
-  if (pathname === '/api/admin/status') return send(res, 200, { exporter: sheetsExporter.status(), sync: syncStatus() });
+  const adminUser = adminAuth.verifyRequest(req);
+  if (!adminUser) return send(res, 401, { ok: false, error: 'Akses admin ditolak (Silakan login dengan Username & Password)' });
+
+  if (pathname === '/api/admin/me/password' && method === 'POST') {
+    const b = await readBody(req);
+    const updated = adminAuth.changeOwnPassword(adminUser.username, {
+      currentPassword: b.current_password,
+      newPassword: b.new_password,
+      displayName: b.display_name,
+    });
+    return send(res, 200, { ok: true, user: updated });
+  }
+
+  if (pathname === '/api/admin/users' && method === 'GET') {
+    adminAuth.mustVerifyRequest(req, { requireSuper: true });
+    return send(res, 200, { ok: true, users: adminAuth.listUsers() });
+  }
+  if (pathname === '/api/admin/users' && method === 'POST') {
+    const actor = adminAuth.mustVerifyRequest(req, { requireSuper: true });
+    const b = await readBody(req);
+    const created = adminAuth.createUser(actor, b);
+    return send(res, 200, { ok: true, user: created, users: adminAuth.listUsers() });
+  }
+  if (parts[1] === 'admin' && parts[2] === 'users' && parts[3]) {
+    const actor = adminAuth.mustVerifyRequest(req, { requireSuper: true });
+    const targetUsername = decodeURIComponent(parts[3]);
+    if (method === 'PATCH') {
+      const b = await readBody(req);
+      const updated = adminAuth.updateUser(actor, targetUsername, b);
+      return send(res, 200, { ok: true, user: updated, users: adminAuth.listUsers() });
+    }
+    if (method === 'DELETE') {
+      adminAuth.deleteUser(actor, targetUsername);
+      return send(res, 200, { ok: true, users: adminAuth.listUsers() });
+    }
+  }
+
+  if (pathname === '/api/admin/status') return send(res, 200, { exporter: sheetsExporter.status(), sync: syncStatus(), user: adminUser });
   if (pathname === '/api/admin/export/retry' && method === 'POST') {
     await sheetsExporter.flush();
     return send(res, 200, { ok: true, exporter: sheetsExporter.status() });
@@ -538,10 +590,11 @@ io.on('connection', (socket) => {
     socket.join(`court:${c}`);
     return { ok: true, snapshot: store.courtSnapshot(c) };
   }));
-  socket.on('admin:watch', wrap(({ pin }) => {
-    if (String(pin || '') !== ADMIN_PIN) throw new StoreError('PIN Admin salah', 'bad_pin');
+  socket.on('admin:watch', wrap(({ pin, token }) => {
+    const user = adminAuth.verifyToken(token || pin);
+    if (!user) throw new StoreError('Sesi Admin tidak valid atau sudah berakhir', 'bad_pin');
     socket.join('admin');
-    return { ok: true, matches: store.list().map((m) => store.toPublic(m)), exporter: sheetsExporter.status(), sync: syncStatus() };
+    return { ok: true, user, matches: store.list().map((m) => store.toPublic(m)), exporter: sheetsExporter.status(), sync: syncStatus() };
   }));
 
   // ---- session manager

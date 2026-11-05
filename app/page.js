@@ -13,18 +13,9 @@ export default function Home() {
       </section>
       <section className="home-grid">
         <div className="card home-card">
-          <div className="icon">🖥️</div>
-          <h2>Server Admin</h2>
-          <p className="muted small">Import jadwal (CSV / Google Sheets), dashboard {COURTS} lapangan, koreksi jadwal, resolusi Session Lock, ekspor hasil.</p>
-          <div className="spacer" />
-          <Link className="btn btn-primary" href="/admin">
-            Buka Dashboard Admin
-          </Link>
-        </div>
-        <div className="card home-card">
           <div className="icon">📱</div>
           <h2>Wasit (Referee)</h2>
-          <p className="muted small">Input Match ID, verifikasi data, undian & posisi, tombol reli, undo, override, takeover darurat.</p>
+          <p className="muted small">Input identitas wasit &amp; Match ID, verifikasi data, undian &amp; posisi, tombol reli, undo, override, takeover darurat.</p>
           <div className="spacer" />
           <Link className="btn btn-green" href="/referee">
             Buka Controller Wasit
@@ -32,7 +23,7 @@ export default function Home() {
         </div>
         <div className="card home-card">
           <div className="icon">📺</div>
-          <h2>Court Display & OBS</h2>
+          <h2>Court Display &amp; OBS</h2>
           <p className="muted small">Papan skor TV Arena atau YouTube/OBS Scorebug Overlay (pojok kiri atas).</p>
           <div className="court-links">
             {Array.from({ length: COURTS }, (_, i) => (

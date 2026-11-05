@@ -73,6 +73,9 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
   const [courtCount, setCourtCount] = useState(15);
   const [court, setCourt] = useState(null);
   const [list, setList] = useState(null);
+  const [nameAlert, setNameAlert] = useState(false);
+
+  const hasName = Boolean(String(label || '').trim());
 
   useEffect(() => {
     api('/api/config').then((c) => c.court_count && setCourtCount(c.court_count));
@@ -84,14 +87,52 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
     api(`/api/matches?court=${court}`).then((r) => setList(r.matches || []));
   }, [court]);
 
+  const tryOpen = (matchNumber) => {
+    if (!hasName) {
+      setNameAlert(true);
+      return;
+    }
+    setNameAlert(false);
+    onOpen(matchNumber);
+  };
+
   return (
     <div className="container col" style={{ maxWidth: 960 }}>
-      <div className="card col">
-        <h2>Controller Wasit</h2>
+      <div className="card col" style={{ borderColor: !hasName ? 'var(--gold)' : 'var(--line)' }}>
+        <div className="row">
+          <h2 style={{ margin: 0 }}>👤 Identitas Wasit (Wajib Diisi)</h2>
+          {hasName ? (
+            <span className="badge green">✓ Identitas Siap: {label.trim()}</span>
+          ) : (
+            <span className="badge gold">⚠ Wajib Diisi Sebelum Memilih Match</span>
+          )}
+        </div>
+        {(nameAlert || !hasName) && (
+          <div className={`notice ${nameAlert ? 'error' : 'warn'} small`}>
+            {nameAlert
+              ? '⚠️ Harap isi Nama Wasit terlebih dahulu pada kolom di bawah sebelum membuka atau memilih pertandingan!'
+              : 'ℹ️ Masukkan nama lengkap atau panggilan Anda sebagai identitas Wasit yang bertugas sebelum memilih pertandingan.'}
+          </div>
+        )}
         <div className="row">
           <label className="field" style={{ flex: 1, minWidth: 220 }}>
-            Nama perangkat / wasit (tampil saat konflik sesi)
-            <input className="input" value={label} placeholder="mis. Tablet Lapangan 3" onChange={(e) => setLabel(e.target.value)} maxLength={40} />
+            Nama Wasit Bertugas (tampil pada laporan &amp; pengontrol lapangan) *
+            <input
+              className="input"
+              style={{
+                fontSize: '1.15rem',
+                fontWeight: 700,
+                borderColor: !hasName ? 'var(--gold)' : undefined,
+              }}
+              value={label}
+              placeholder="Contoh: Wasit Budi / Umpire Andi (Lap. 3)"
+              onChange={(e) => {
+                setLabel(e.target.value);
+                if (e.target.value.trim()) setNameAlert(false);
+              }}
+              maxLength={40}
+              autoFocus={!hasName}
+            />
           </label>
           <div className="small muted">
             ID Perangkat:
@@ -105,13 +146,20 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
         className="card col"
         onSubmit={(e) => {
           e.preventDefault();
-          if (code.trim()) onOpen(code.trim().toUpperCase());
+          if (code.trim()) tryOpen(code.trim().toUpperCase());
         }}
       >
         <h3>Masukkan Nomor Pertandingan</h3>
         <div className="row">
-          <input className="input" style={{ flex: 1, fontSize: '1.6rem', fontWeight: 800, textTransform: 'uppercase' }} value={code} placeholder="M-101" onChange={(e) => setCode(e.target.value)} autoCapitalize="characters" />
-          <button className="btn btn-primary btn-lg" type="submit" disabled={!code.trim()}>
+          <input
+            className="input"
+            style={{ flex: 1, fontSize: '1.6rem', fontWeight: 800, textTransform: 'uppercase' }}
+            value={code}
+            placeholder="M-101 / A-B#1"
+            onChange={(e) => setCode(e.target.value)}
+            autoCapitalize="characters"
+          />
+          <button className="btn btn-primary btn-lg" type="submit" disabled={!code.trim() || !hasName}>
             Buka Match
           </button>
         </div>
@@ -132,7 +180,13 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
             {!list && <div className="muted">Memuat…</div>}
             {list && !list.length && <div className="muted">Belum ada match di lapangan ini.</div>}
             {list?.map((m) => (
-              <button key={m.match_number} className="list-item" onClick={() => onOpen(m.match_number)} type="button">
+              <button
+                key={m.match_number}
+                className="list-item"
+                style={{ opacity: hasName ? 1 : 0.7 }}
+                onClick={() => tryOpen(m.match_number)}
+                type="button"
+              >
                 <div style={{ minWidth: 105 }}>
                   <div style={{ fontWeight: 900, fontSize: '1.1rem' }}>{m.match_number}</div>
                   {m.scheduled_date && <div className="small muted">{m.scheduled_date}</div>}

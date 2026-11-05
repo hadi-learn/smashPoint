@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Store, StoreError } from '../lib/server/store.js';
+import { AdminAuth } from '../lib/server/auth.js';
 import { ingest } from '../lib/server/ingest.js';
-import { parseScheduleDateValue } from '../lib/engine.js';
+import { breakCountdownInfo, BWF_INTERVAL_SECONDS, BWF_SET_BREAK_SECONDS, parseScheduleDateValue } from '../lib/engine.js';
 
 const testDir = path.join(process.cwd(), 'tests', 'temp_store_test');
 
@@ -115,6 +116,93 @@ M-101,Pak Pele Cup 3,Veteran U-110,MD,side_out,continuous,30,15,Budi,Agus,Djarum
   assert.ok(exportedMatch);
 
   // Clean up
+  store.flush();
+  fs.rmSync(testDir, { recursive: true, force: true });
+});
+
+test('AdminAuth RBAC (Super Admin vs Admin Operasional) & Mandatory Referee Name', () => {
+  if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+  fs.mkdirSync(testDir, { recursive: true });
+
+  const auth = new AdminAuth({
+    dataDir: testDir,
+    defaultUsername: 'admin',
+    defaultPassword: '1234',
+  });
+
+  // 1. Default Super Admin login
+  const superSession = auth.login('admin', '1234');
+  assert.equal(superSession.user.role, 'super_admin');
+  assert.ok(superSession.token);
+
+  // 2. Super Admin creates an Operational Admin ('panitia1')
+  const created = auth.createUser(superSession.user, {
+    username: 'panitia1',
+    display_name: 'Panitia Lapangan',
+    password: 'abcd',
+    role: 'admin',
+  });
+  assert.equal(created.username, 'panitia1');
+  assert.equal(created.role, 'admin');
+
+  // 3. Operational Admin logs in & can change their own password
+  const opSession = auth.login('panitia1', 'abcd');
+  assert.equal(opSession.user.role, 'admin');
+  auth.changeOwnPassword('panitia1', {
+    currentPassword: 'abcd',
+    newPassword: 'efgh',
+    displayName: 'Panitia Senior',
+  });
+  const opReLogin = auth.login('panitia1', 'efgh');
+  assert.equal(opReLogin.user.display_name, 'Panitia Senior');
+
+  // 4. Operational Admin CANNOT create or delete users
+  assert.throws(() => {
+    auth.createUser(opSession.user, {
+      username: 'hacker',
+      password: '1234',
+      role: 'super_admin',
+    });
+  }, /Hanya Super Admin/);
+
+  assert.throws(() => {
+    auth.deleteUser(opSession.user, 'admin');
+  }, /Hanya Super Admin/);
+
+  // 5. Mandatory Referee Name on Store.lock + BWF Break Countdown
+  const store = new Store({
+    dataDir: testDir,
+    courtCount: 15,
+    lockTimeoutMs: 1000,
+    masterPin: '1234',
+  });
+  const sampleCsv = `match_number,tournament_name,category_name,discipline,scoring_method,scoring_type,win_point,interval_point,team_a_p1_name,team_a_p2_name,team_a_club,team_a_details,team_b_p1_name,team_b_p2_name,team_b_club,team_b_details,scheduled_date,court_number,scheduled_time
+M-201,Pak Pele Cup 3,Dewasa,MS,rally_point,sets,21,11,Ginting,,SGS,1,Jonatan,,Tangkas,2,2026-10-20,1,14:00 WIB`;
+  store.upsertMatches(ingest(sampleCsv, { courtCount: 15 }).matches);
+
+  // Locking without referee name throws missing_referee_name
+  assert.throws(() => {
+    store.lock('M-201', 'uuid-device-ref-1', '   ');
+  }, /Identitas Nama Wasit wajib diisi/);
+
+  const lockOk = store.lock('M-201', 'uuid-device-ref-1', 'Wasit Ahmad');
+  assert.equal(lockOk.match.session_management.controller_label, 'Wasit Ahmad');
+
+  // Verify BWF Interval (60s) and Set Break (120s) constants
+  assert.equal(BWF_INTERVAL_SECONDS, 60);
+  assert.equal(BWF_SET_BREAK_SECONDS, 120);
+  const startMs = Date.now();
+  const fakeMatch = {
+    live_state: {
+      phase: 'interval',
+      break_started_at: new Date(startMs).toISOString(),
+    },
+  };
+  const info = breakCountdownInfo(fakeMatch, startMs + 42000);
+  assert.equal(info.targetSec, 60);
+  assert.equal(info.remainingSec, 18);
+  assert.equal(info.callWarning, true);
+
   store.flush();
   fs.rmSync(testDir, { recursive: true, force: true });
 });

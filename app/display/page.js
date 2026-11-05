@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { DISCIPLINE_LABEL, isDoubles, matchDurationText, teamLabel, teamSeedBadge, teamSeedText } from '@/lib/engine';
+import { breakCountdownInfo, DISCIPLINE_LABEL, isDoubles, matchDurationText, teamLabel, teamSeedBadge, teamSeedText } from '@/lib/engine';
 import { api, emitAck, getSocket, useNow } from '@/lib/client';
 import { Shuttle } from '@/components/Icons';
 
@@ -435,25 +435,37 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
       </div>
     );
   } else if (st.phase === 'interval') {
+    const bt = breakCountdownInfo(match, now);
     overlay = (
       <div className="tv-overlay">
-        <div className="tv-overlay-badge">MATCH INTERVAL</div>
+        <div className="tv-overlay-badge">MATCH INTERVAL (BWF 60s)</div>
         <h1>{st.interval_swap ? 'INTERVAL · TUKAR SISI LAPANGAN' : 'INTERVAL BREAK'}</h1>
         <h2>
           {st.score[L]} — {st.score[R]}
         </h2>
+        {bt && (
+          <div className={`tv-break-timer mono ${bt.isOvertime ? 'overtime' : bt.callWarning ? 'warning' : ''}`}>
+            ⏱ {bt.isOvertime ? '00:00 · MULAI' : bt.formatted}
+          </div>
+        )}
       </div>
     );
   } else if (st.phase === 'set_break') {
     const last = st.set_history[st.set_history.length - 1];
+    const bt = breakCountdownInfo(match, now);
     overlay = (
       <div className="tv-overlay">
-        <div className="tv-overlay-badge">END OF GAME {st.current_set}</div>
+        <div className="tv-overlay-badge">END OF GAME {st.current_set} (BWF 120s)</div>
         <h1>{teamLabel(match, st.game_winner)}</h1>
         <h2>
           Skor Set: {last?.a} - {last?.b} · Kedudukan Set {st.sets.a} - {st.sets.b}
         </h2>
         <p>Pemain bertukar sisi lapangan</p>
+        {bt && (
+          <div className={`tv-break-timer mono ${bt.isOvertime ? 'overtime' : bt.callWarning ? 'warning' : ''}`}>
+            ⏱ {bt.isOvertime ? '00:00 · MULAI' : bt.formatted}
+          </div>
+        )}
       </div>
     );
   }

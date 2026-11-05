@@ -13,26 +13,65 @@ function heartbeatAge(m, now) {
   return Math.max(0, Math.round((now - new Date(m.session_management.last_heartbeat).getTime()) / 1000));
 }
 
-function PinGate({ onOk }) {
-  const [pin, setPin] = useState('');
+function LoginGate({ onOk }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+
   const submit = async (e) => {
     e.preventDefault();
-    const r = await api('/api/admin/verify', { method: 'POST', pin });
-    if (r.ok) {
-      sessionStorage.setItem('sp_admin_pin', pin);
-      onOk(pin);
-    } else setErr(r.error || 'PIN salah');
+    setBusy(true);
+    setErr(null);
+    const r = await api('/api/admin/login', {
+      method: 'POST',
+      body: { username: username.trim(), password },
+    });
+    setBusy(false);
+    if (r.ok && r.token) {
+      sessionStorage.setItem('sp_admin_token', r.token);
+      sessionStorage.setItem('sp_admin_user', JSON.stringify(r.user));
+      onOk(r.token, r.user);
+    } else {
+      setErr(r.error || 'Username atau password salah');
+    }
   };
+
   return (
-    <main className="container" style={{ maxWidth: 420, paddingTop: '10vh' }}>
+    <main className="container" style={{ maxWidth: 440, paddingTop: '10vh' }}>
       <form className="card col" onSubmit={submit}>
-        <h2>🖥️ Server Admin</h2>
-        <p className="muted small">Masukkan PIN Admin (ADMIN_PIN di .env, default sama dengan Master PIN).</p>
+        <div className="row">
+          <h2 style={{ margin: 0 }}>🔐 Login Server Admin</h2>
+        </div>
+        <p className="muted small">
+          Halaman terproteksi khusus Administrator Turnamen. Masukkan <b>Username</b> dan <b>Password</b> Anda untuk melanjutkan.
+        </p>
         {err && <div className="notice error">{err}</div>}
-        <input className="input pin-input" type="password" inputMode="numeric" autoFocus value={pin} onChange={(e) => setPin(e.target.value)} />
-        <button className="btn btn-primary btn-lg" disabled={!pin}>
-          Masuk
+        <label className="field">
+          Username
+          <input
+            className="input"
+            type="text"
+            autoFocus
+            autoComplete="username"
+            placeholder="contoh: admin"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          Password
+          <input
+            className="input"
+            type="password"
+            autoComplete="current-password"
+            placeholder="Masukkan password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <button className="btn btn-primary btn-lg" disabled={!username.trim() || !password || busy}>
+          {busy ? 'Memverifikasi…' : 'Masuk ke Dashboard Admin'}
         </button>
       </form>
     </main>
@@ -1330,8 +1369,395 @@ function ExportCard({ pin, exporter, setExporter, notify }) {
   );
 }
 
+function UserManagementPanel({ token, currentUser, onUserUpdated, notify }) {
+  const isSuper = currentUser?.role === 'super_admin';
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // Own profile / password state
+  const [myDisplayName, setMyDisplayName] = useState(currentUser?.display_name || '');
+  const [curPwd, setCurPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [busySelf, setBusySelf] = useState(false);
+
+  // Super Admin: create new user state
+  const [newUsername, setNewUsername] = useState('');
+  const [newDisplay, setNewDisplay] = useState('');
+  const [newUserPwd, setNewUserPwd] = useState('');
+  const [newRole, setNewRole] = useState('admin');
+  const [busyCreate, setBusyCreate] = useState(false);
+
+  // Super Admin: reset password inline modal/state
+  const [resetTarget, setResetTarget] = useState(null);
+  const [resetPwd, setResetPwd] = useState('');
+
+  const loadUsers = useCallback(async () => {
+    if (!isSuper) return;
+    setLoading(true);
+    const r = await api('/api/admin/users', { pin: token });
+    setLoading(false);
+    if (r.ok && r.users) setUsers(r.users);
+  }, [isSuper, token]);
+
+  useEffect(() => {
+    setMyDisplayName(currentUser?.display_name || '');
+  }, [currentUser?.display_name]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  const handleSelfPassword = async (e) => {
+    e.preventDefault();
+    if (newPwd !== confirmPwd) {
+      notify({ type: 'error', text: 'Konfirmasi password baru tidak cocok' });
+      return;
+    }
+    setBusySelf(true);
+    const r = await api('/api/admin/me/password', {
+      method: 'POST',
+      pin: token,
+      body: {
+        current_password: curPwd,
+        new_password: newPwd,
+        display_name: myDisplayName,
+      },
+    });
+    setBusySelf(false);
+    if (r.ok) {
+      setCurPwd('');
+      setNewPwd('');
+      setConfirmPwd('');
+      if (r.user) onUserUpdated?.(r.user);
+      loadUsers();
+      notify({ type: 'ok', text: 'Password & profil Anda berhasil diperbarui' });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal mengubah password' });
+    }
+  };
+
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    setBusyCreate(true);
+    const r = await api('/api/admin/users', {
+      method: 'POST',
+      pin: token,
+      body: {
+        username: newUsername.trim(),
+        display_name: newDisplay.trim() || newUsername.trim(),
+        password: newUserPwd,
+        role: newRole,
+      },
+    });
+    setBusyCreate(false);
+    if (r.ok) {
+      setNewUsername('');
+      setNewDisplay('');
+      setNewUserPwd('');
+      setNewRole('admin');
+      if (r.users) setUsers(r.users);
+      notify({ type: 'ok', text: `User admin "${r.user?.username}" berhasil dibuat` });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal membuat user' });
+    }
+  };
+
+  const handleUpdateUser = async (uname, patch, msg) => {
+    const r = await api(`/api/admin/users/${encodeURIComponent(uname)}`, {
+      method: 'PATCH',
+      pin: token,
+      body: patch,
+    });
+    if (r.ok) {
+      if (r.users) setUsers(r.users);
+      if (uname === currentUser?.username && r.user) onUserUpdated?.(r.user);
+      notify({ type: 'ok', text: msg || `User "${uname}" diperbarui` });
+      return true;
+    }
+    notify({ type: 'error', text: r.error || 'Gagal memperbarui user' });
+    return false;
+  };
+
+  const handleDeleteUser = async (uname) => {
+    if (!window.confirm(`Hapus permanen akun admin "${uname}"?`)) return;
+    const r = await api(`/api/admin/users/${encodeURIComponent(uname)}`, {
+      method: 'DELETE',
+      pin: token,
+    });
+    if (r.ok) {
+      if (r.users) setUsers(r.users);
+      notify({ type: 'ok', text: `Akun "${uname}" dihapus` });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal menghapus user' });
+    }
+  };
+
+  return (
+    <div className="col" style={{ gap: '1rem' }}>
+      {/* Card 1: Current User Profile & Change Own Password (Available to ALL Admin levels) */}
+      <div className="card col">
+        <div className="row">
+          <h3 style={{ margin: 0 }}>🔑 Profil &amp; Ubah Password Saya</h3>
+          <span className={`badge ${isSuper ? 'gold' : 'blue'}`}>
+            {isSuper ? '👑 Super Admin (Akses Penuh + Kelola User)' : '🛡️ Admin Operasional (Kelola Pertandingan)'}
+          </span>
+        </div>
+        <p className="muted small" style={{ margin: 0 }}>
+          Anda login sebagai <b>{currentUser?.display_name}</b> (<span className="mono">@{currentUser?.username}</span>).{' '}
+          {isSuper
+            ? 'Sebagai Super Admin, Anda memiliki hak penuh untuk mengendalikan aplikasi sekaligus membuat atau mengatur akun Admin lainnya di bawah.'
+            : 'Sebagai Admin Operasional, Anda dapat mengendalikan penuh jalannya pertandingan & jadwal aplikasi, serta mengubah password akun Anda sendiri.'}
+        </p>
+        <form className="col" onSubmit={handleSelfPassword} style={{ maxWidth: 560, marginTop: '.4rem' }}>
+          <div className="row">
+            <label className="field" style={{ flex: 1 }}>
+              Nama Tampilan
+              <input
+                className="input"
+                value={myDisplayName}
+                onChange={(e) => setMyDisplayName(e.target.value)}
+                placeholder="Nama lengkap / jabatan"
+              />
+            </label>
+            <label className="field" style={{ flex: 1 }}>
+              Password Saat Ini
+              <input
+                className="input"
+                type="password"
+                value={curPwd}
+                onChange={(e) => setCurPwd(e.target.value)}
+                placeholder="Wajib diisi"
+              />
+            </label>
+          </div>
+          <div className="row">
+            <label className="field" style={{ flex: 1 }}>
+              Password Baru (min. 4 karakter)
+              <input
+                className="input"
+                type="password"
+                value={newPwd}
+                onChange={(e) => setNewPwd(e.target.value)}
+                placeholder="Password baru"
+              />
+            </label>
+            <label className="field" style={{ flex: 1 }}>
+              Konfirmasi Password Baru
+              <input
+                className="input"
+                type="password"
+                value={confirmPwd}
+                onChange={(e) => setConfirmPwd(e.target.value)}
+                placeholder="Ulangi password baru"
+              />
+            </label>
+          </div>
+          <div>
+            <button className="btn btn-primary" disabled={!curPwd || !newPwd || !confirmPwd || busySelf}>
+              {busySelf ? 'Menyimpan…' : '💾 Simpan Password Baru'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Card 2: Super Admin Only — Manage Admin Users */}
+      {isSuper ? (
+        <div className="setup-grid" style={{ gridTemplateColumns: 'minmax(300px, 420px) 1fr' }}>
+          <form className="card col" onSubmit={handleCreateUser}>
+            <h3 style={{ margin: 0 }}>➕ Tambah Akun Admin Baru</h3>
+            <p className="muted small" style={{ margin: 0 }}>
+              Buat akun untuk panitia lain. Pilih level <b>Admin Operasional</b> jika hanya boleh mengelola jadwal &amp; skor tanpa bisa mengubah daftar user.
+            </p>
+            <label className="field">
+              Username Login (huruf/angka tanpa spasi)
+              <input
+                className="input mono"
+                value={newUsername}
+                onChange={(e) => setNewUsername(e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
+                placeholder="contoh: panitia_lapangan"
+              />
+            </label>
+            <label className="field">
+              Nama Lengkap / Jabatan
+              <input
+                className="input"
+                value={newDisplay}
+                onChange={(e) => setNewDisplay(e.target.value)}
+                placeholder="contoh: Koordinator Pertandingan"
+              />
+            </label>
+            <label className="field">
+              Password Awal (min. 4 karakter)
+              <input
+                className="input"
+                type="password"
+                value={newUserPwd}
+                onChange={(e) => setNewUserPwd(e.target.value)}
+                placeholder="Minimal 4 karakter"
+              />
+            </label>
+            <label className="field">
+              Level Hak Akses (Role)
+              <select className="input" value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+                <option value="admin">🛡️ Admin Operasional (Kelola Aplikasi, Tanpa Kelola User)</option>
+                <option value="super_admin">👑 Super Admin (Akses Penuh + Kelola Semua User)</option>
+              </select>
+            </label>
+            <button
+              className="btn btn-green"
+              disabled={!newUsername.trim() || newUserPwd.length < 4 || busyCreate}
+            >
+              {busyCreate ? 'Membuat…' : '➕ Buat Akun Admin'}
+            </button>
+          </form>
+
+          <div className="card col">
+            <div className="row">
+              <h3 style={{ margin: 0 }}>👥 Daftar Akun Admin ({users.length})</h3>
+              <div className="spacer" />
+              <button type="button" className="btn btn-sm" onClick={loadUsers} disabled={loading}>
+                ⟳ Muat Ulang
+              </button>
+            </div>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Nama Tampilan</th>
+                    <th>Level / Role</th>
+                    <th>Status</th>
+                    <th>Login Terakhir</th>
+                    <th>Aksi Super Admin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((u) => {
+                    const isMe = u.username === currentUser?.username;
+                    return (
+                      <tr key={u.username}>
+                        <td className="mono">
+                          <b>@{u.username}</b> {isMe && <span className="badge green">Anda</span>}
+                        </td>
+                        <td>{u.display_name}</td>
+                        <td>
+                          <select
+                            className="inline-input"
+                            style={{ width: '11.5rem' }}
+                            value={u.role}
+                            onChange={(e) =>
+                              handleUpdateUser(u.username, { role: e.target.value }, `Level @${u.username} diubah`)
+                            }
+                          >
+                            <option value="super_admin">👑 Super Admin</option>
+                            <option value="admin">🛡️ Admin Operasional</option>
+                          </select>
+                        </td>
+                        <td>
+                          <span className={`badge ${u.active ? 'green' : 'red'}`}>
+                            {u.active ? 'Aktif' : 'Nonaktif'}
+                          </span>
+                        </td>
+                        <td className="small muted">
+                          {u.last_login ? new Date(u.last_login).toLocaleString('id-ID') : 'Belum pernah'}
+                        </td>
+                        <td>
+                          <div className="row" style={{ gap: '.3rem' }}>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-yellow"
+                              onClick={() => {
+                                setResetTarget(u.username);
+                                setResetPwd('');
+                              }}
+                            >
+                              🔑 Reset Password
+                            </button>
+                            {!isMe && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  onClick={() =>
+                                    handleUpdateUser(
+                                      u.username,
+                                      { active: !u.active },
+                                      `Status @${u.username} ${!u.active ? 'diaktifkan' : 'dinonaktifkan'}`
+                                    )
+                                  }
+                                >
+                                  {u.active ? 'Nonaktifkan' : 'Aktifkan'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-red"
+                                  onClick={() => handleDeleteUser(u.username)}
+                                >
+                                  🗑 Hapus
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {resetTarget && (
+              <div className="row" style={{ background: '#0a1328', padding: '.75rem 1rem', borderRadius: 10, border: '1px solid var(--gold)' }}>
+                <span className="small">
+                  Reset Password untuk <b>@{resetTarget}</b>:
+                </span>
+                <input
+                  className="input"
+                  style={{ width: 200 }}
+                  type="password"
+                  placeholder="Password baru (min 4)"
+                  value={resetPwd}
+                  onChange={(e) => setResetPwd(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm btn-green"
+                  disabled={resetPwd.length < 4}
+                  onClick={async () => {
+                    const ok = await handleUpdateUser(
+                      resetTarget,
+                      { password: resetPwd },
+                      `Password @${resetTarget} berhasil direset`
+                    );
+                    if (ok) {
+                      setResetTarget(null);
+                      setResetPwd('');
+                    }
+                  }}
+                >
+                  ✔ Simpan Password
+                </button>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setResetTarget(null)}>
+                  Batal
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="notice info">
+          ℹ️ Pengelolaan daftar pengguna (membuat, mengubah role, atau menghapus akun admin lain) hanya tersedia untuk akun berlevel <b>Super Admin</b>.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPage() {
-  const [pin, setPin] = useState(null);
+  const [token, setToken] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'users'
   const [matches, setMatches] = useState([]);
   const [exporter, setExporter] = useState(null);
   const [sync, setSync] = useState(null);
@@ -1343,24 +1769,37 @@ export default function AdminPage() {
   const now = useNow(1000);
 
   useEffect(() => {
-    const p = sessionStorage.getItem('sp_admin_pin');
-    if (p) setPin(p);
+    const savedTok = sessionStorage.getItem('sp_admin_token') || sessionStorage.getItem('sp_admin_pin');
+    const savedUsr = sessionStorage.getItem('sp_admin_user');
+    if (savedTok) setToken(savedTok);
+    if (savedUsr) {
+      try {
+        setCurrentUser(JSON.parse(savedUsr));
+      } catch { /* ignore */ }
+    }
     api('/api/config').then((c) => c.court_count && setCourtCount(c.court_count));
   }, []);
 
   useEffect(() => {
-    if (!pin) return undefined;
+    if (!token) return undefined;
     const s = getSocket();
     const sub = async () => {
       setConnected(true);
-      const r = await emitAck('admin:watch', { pin });
+      const r = await emitAck('admin:watch', { token, pin: token });
       if (r.ok) {
         setMatches(r.matches);
         setExporter(r.exporter);
         if (r.sync) setSync(r.sync);
+        if (r.user) {
+          setCurrentUser(r.user);
+          sessionStorage.setItem('sp_admin_user', JSON.stringify(r.user));
+        }
       } else if (r.reason === 'bad_pin') {
+        sessionStorage.removeItem('sp_admin_token');
         sessionStorage.removeItem('sp_admin_pin');
-        setPin(null);
+        sessionStorage.removeItem('sp_admin_user');
+        setToken(null);
+        setCurrentUser(null);
       }
     };
     const onState = (d) => {
@@ -1378,14 +1817,23 @@ export default function AdminPage() {
       s.off('disconnect', onDisc);
       s.off('admin:state', onState);
     };
-  }, [pin]);
+  }, [token]);
 
   const notify = useCallback((n) => {
     setNotice(n);
     setTimeout(() => setNotice((x) => (x === n ? null : x)), 4000);
   }, []);
 
-  if (!pin) return <PinGate onOk={setPin} />;
+  if (!token) {
+    return (
+      <LoginGate
+        onOk={(tok, usr) => {
+          setToken(tok);
+          setCurrentUser(usr);
+        }}
+      />
+    );
+  }
 
   const stats = {
     total: matches.length,
@@ -1402,19 +1850,44 @@ export default function AdminPage() {
             🏸 SmashPoint <span className="muted" style={{ fontSize: '1rem' }}>Server Admin</span>
           </h1>
         </Link>
+        <div className="tabs" style={{ marginLeft: '1rem' }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${activeTab === 'dashboard' ? 'btn-primary' : ''}`}
+            onClick={() => setActiveTab('dashboard')}
+          >
+            🏟️ Pengendalian Pertandingan
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${activeTab === 'users' ? 'btn-primary' : ''}`}
+            onClick={() => setActiveTab('users')}
+          >
+            👥 Manajemen User &amp; Password ({currentUser?.role === 'super_admin' ? 'Super Admin' : 'Akun Saya'})
+          </button>
+        </div>
         <div className="spacer" />
         <span className="badge">Total {stats.total}</span>
         <span className="badge blue">Setup {stats.setup}</span>
         <span className="badge green">Live {stats.live}</span>
         <span className="badge gold">Selesai {stats.finished}</span>
+        {currentUser && (
+          <span className={`badge ${currentUser.role === 'super_admin' ? 'gold' : 'cyan'}`} title={currentUser.role_label}>
+            {currentUser.role === 'super_admin' ? '👑' : '🛡️'} {currentUser.display_name || currentUser.username}
+          </span>
+        )}
         <span className="row small" style={{ gap: '.4rem' }}>
           <span className={`dot ${connected ? 'on' : ''}`} /> {connected ? 'Real-time' : 'Terputus'}
         </span>
         <button
           className="btn btn-sm btn-ghost"
-          onClick={() => {
+          onClick={async () => {
+            await api('/api/admin/logout', { method: 'POST', pin: token });
+            sessionStorage.removeItem('sp_admin_token');
             sessionStorage.removeItem('sp_admin_pin');
-            setPin(null);
+            sessionStorage.removeItem('sp_admin_user');
+            setToken(null);
+            setCurrentUser(null);
           }}
         >
           Keluar
@@ -1422,27 +1895,42 @@ export default function AdminPage() {
       </div>
       {notice && <div className={`notice ${notice.type}`}>{notice.text}</div>}
 
-      <CourtGrid
-        matches={matches}
-        courtCount={courtCount}
-        now={now}
-        onUnlock={async (id) => {
-          if (!window.confirm(`Lepas paksa kunci sesi ${id}? Perangkat wasit akan dialihkan ke mode pantau.`)) return;
-          const r = await api(`/api/matches/${encodeURIComponent(id)}/unlock`, { method: 'POST', pin });
-          notify(r.ok ? { type: 'ok', text: `Kunci ${id} dilepas` } : { type: 'error', text: r.error });
-        }}
-      />
+      {activeTab === 'users' ? (
+        <UserManagementPanel
+          token={token}
+          currentUser={currentUser}
+          onUserUpdated={(u) => {
+            setCurrentUser(u);
+            sessionStorage.setItem('sp_admin_user', JSON.stringify(u));
+          }}
+          notify={notify}
+        />
+      ) : (
+        <>
+          <CourtGrid
+            matches={matches}
+            courtCount={courtCount}
+            now={now}
+            onUnlock={async (id) => {
+              if (!window.confirm(`Lepas paksa kunci sesi ${id}? Perangkat wasit akan dialihkan ke mode pantau.`)) return;
+              const r = await api(`/api/matches/${encodeURIComponent(id)}/unlock`, { method: 'POST', pin: token });
+              notify(r.ok ? { type: 'ok', text: `Kunci ${id} dilepas` } : { type: 'error', text: r.error });
+            }}
+          />
 
-      <div className="setup-grid">
-        <ImportPanel pin={pin} sync={sync} onSyncChange={setSync} onDone={() => notify({ type: 'ok', text: 'Import selesai' })} />
-        <ExportCard pin={pin} exporter={exporter} setExporter={setExporter} notify={notify} />
-      </div>
+          <div className="setup-grid">
+            <ImportPanel pin={token} sync={sync} onSyncChange={setSync} onDone={() => notify({ type: 'ok', text: 'Import selesai' })} />
+            <ExportCard pin={token} exporter={exporter} setExporter={setExporter} notify={notify} />
+          </div>
 
-      <MatchTable matches={matches} pin={pin} courtCount={courtCount} now={now} onEdit={setEditMatch} onLogs={setLogsFor} notify={notify} />
+          <MatchTable matches={matches} pin={token} courtCount={courtCount} now={now} onEdit={setEditMatch} onLogs={setLogsFor} notify={notify} />
+        </>
+      )}
+
       {editMatch && (
         <EditMatchModal
           match={matches.find((x) => x.match_number === editMatch.match_number) || editMatch}
-          pin={pin}
+          pin={token}
           courtCount={courtCount}
           onClose={() => setEditMatch(null)}
           notify={notify}
