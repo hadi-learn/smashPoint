@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { DISCIPLINE_LABEL, isDoubles, matchDurationText, teamSeedBadge, teamSeedText } from '@/lib/engine';
-import { api, useNow } from '@/lib/client';
+import { api, getSocket, useNow } from '@/lib/client';
 
 export const STATUS_BADGE = {
   scheduled: ['Terjadwal', ''],
@@ -71,6 +71,7 @@ export function MatchInfo({ match }) {
 export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
   const [code, setCode] = useState('');
   const [courtCount, setCourtCount] = useState(15);
+  const [activeProfile, setActiveProfile] = useState(null);
   const [court, setCourt] = useState(null);
   const [list, setList] = useState(null);
   const [nameAlert, setNameAlert] = useState(false);
@@ -78,14 +79,23 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
   const hasName = Boolean(String(label || '').trim());
 
   useEffect(() => {
-    api('/api/config').then((c) => c.court_count && setCourtCount(c.court_count));
+    api('/api/config').then((c) => {
+      if (c.court_count) setCourtCount(c.court_count);
+      if (c.active_profile) setActiveProfile(c.active_profile);
+    });
+    const s = getSocket();
+    const onProfileSwitched = ({ active_profile }) => {
+      if (active_profile) setActiveProfile(active_profile);
+    };
+    s.on('profile:switched', onProfileSwitched);
+    return () => s.off('profile:switched', onProfileSwitched);
   }, []);
 
   useEffect(() => {
     if (!court) return;
     setList(null);
     api(`/api/matches?court=${court}`).then((r) => setList(r.matches || []));
-  }, [court]);
+  }, [court, activeProfile?.id]);
 
   const tryOpen = (matchNumber) => {
     if (!hasName) {
@@ -101,6 +111,12 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
       <div className="card col" style={{ borderColor: !hasName ? 'var(--gold)' : 'var(--line)' }}>
         <div className="row">
           <h2 style={{ margin: 0 }}>👤 Identitas Wasit (Wajib Diisi)</h2>
+          {activeProfile && (
+            <span className="badge blue" title={activeProfile.description || 'Profil Turnamen Aktif'}>
+              🏆 {activeProfile.name}
+            </span>
+          )}
+          <div className="spacer" />
           {hasName ? (
             <span className="badge green">✓ Identitas Siap: {label.trim()}</span>
           ) : (

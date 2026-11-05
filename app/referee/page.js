@@ -152,11 +152,23 @@ export default function RefereePage() {
       setMatchNo(null);
       setMatch(null);
     };
+    const onProfileSwitched = ({ active_profile }) => {
+      if (refs.current.matchNo) {
+        setMode('none');
+        setMatchNo(null);
+        setMatch(null);
+        setNotice({
+          type: 'info',
+          text: `Profil turnamen beralih ke "${active_profile?.name || 'Turnamen Baru'}". Progres sebelumnya telah tersimpan otomatis.`,
+        });
+      }
+    };
     s.on('connect', onConnect);
     s.on('disconnect', onDisconnect);
     s.on('match:state', onState);
     s.on('session:kicked', onKicked);
     s.on('match:removed', onRemoved);
+    s.on('profile:switched', onProfileSwitched);
     if (s.connected) onConnect();
     return () => {
       s.off('connect', onConnect);
@@ -164,6 +176,7 @@ export default function RefereePage() {
       s.off('match:state', onState);
       s.off('session:kicked', onKicked);
       s.off('match:removed', onRemoved);
+      s.off('profile:switched', onProfileSwitched);
     };
   }, [ready, applyMatch, lock, watch]);
 

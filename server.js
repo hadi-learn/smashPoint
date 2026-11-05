@@ -12,6 +12,7 @@ import nextEnv from '@next/env';
 import { Server } from 'socket.io';
 import { Store, StoreError } from './lib/server/store.js';
 import { AdminAuth } from './lib/server/auth.js';
+import { ProfileManager } from './lib/server/profiles.js';
 import { SheetsExporter, RESULT_HEADER, LOG_HEADER, resultRow } from './lib/server/sheetsExporter.js';
 import { ingest, toCsv, COLUMNS, OPTIONAL_COLUMNS } from './lib/server/ingest.js';
 
@@ -45,11 +46,17 @@ const LOCK_TIMEOUT_MS = parseInt(process.env.LOCK_TIMEOUT_MS || '60000', 10);
 const HEARTBEAT_MS = 10000;
 const ROOT = process.cwd();
 
-const store = new Store({ dataDir: path.join(ROOT, 'data'), courtCount: COURT_COUNT, lockTimeoutMs: LOCK_TIMEOUT_MS, masterPin: MASTER_PIN });
+const profileManager = new ProfileManager({ rootDir: ROOT });
+const store = new Store({
+  dataDir: profileManager.dataDirFor(),
+  courtCount: COURT_COUNT,
+  lockTimeoutMs: LOCK_TIMEOUT_MS,
+  masterPin: MASTER_PIN,
+});
 const adminAuth = new AdminAuth({ dataDir: path.join(ROOT, 'data'), defaultUsername: ADMIN_USERNAME, defaultPassword: ADMIN_PIN });
 const sheetsExporter = new SheetsExporter({
-  exportDir: path.join(ROOT, 'exports'),
-  dataDir: path.join(ROOT, 'data'),
+  exportDir: profileManager.exportDirFor(),
+  dataDir: profileManager.dataDirFor(),
   webhookUrl: process.env.GOOGLE_SHEETS_WEBHOOK_URL,
   webhookSecret: process.env.GOOGLE_SHEETS_WEBHOOK_SECRET,
   onStatus: (id, status) => store.setExportStatus(id, status),
@@ -142,8 +149,7 @@ function buildSheetsCandidateUrls(url, sheetName = 'Jadwal') {
   return [u.includes('?') ? `${u}&${cb}` : `${u}?${cb}`];
 }
 
-// ------------------------------------------------------------------ Auto-Sync Poller & Persisted Config
-const syncConfigFile = path.join(ROOT, 'data', 'sheets-sync.json');
+// ------------------------------------------------------------------ Auto-Sync Poller & Persisted Config (Per Tournament Profile)
 const sheetSync = {
   url: process.env.GOOGLE_SHEETS_SCHEDULE_URL || '',
   sheetName: process.env.GOOGLE_SHEETS_TAB_NAME || 'Jadwal',
@@ -154,31 +160,62 @@ const sheetSync = {
   busy: false,
   timer: null,
 };
-try {
-  if (fs.existsSync(syncConfigFile)) {
-    const saved = JSON.parse(fs.readFileSync(syncConfigFile, 'utf8'));
-    if (saved.url) sheetSync.url = saved.url;
-    if (saved.sheetName) sheetSync.sheetName = saved.sheetName;
-    if (Number.isInteger(saved.intervalSec)) sheetSync.intervalSec = saved.intervalSec;
-    if (saved.webhookUrl && !process.env.GOOGLE_SHEETS_WEBHOOK_URL) {
-      sheetsExporter.setConfig({ webhookUrl: saved.webhookUrl, webhookSecret: saved.webhookSecret || '' });
-    }
-  }
-} catch { /* ignore */ }
+
+function loadSyncConfigForActiveProfile() {
+  const saved = profileManager.readSyncConfig();
+  sheetSync.url = saved.url || process.env.GOOGLE_SHEETS_SCHEDULE_URL || '';
+  sheetSync.sheetName = saved.sheetName || process.env.GOOGLE_SHEETS_TAB_NAME || 'Jadwal';
+  sheetSync.intervalSec = Number.isInteger(saved.intervalSec) ? saved.intervalSec : 0;
+  sheetSync.lastSync = null;
+  sheetSync.lastResult = null;
+  sheetSync.lastError = null;
+  sheetsExporter.setConfig({
+    webhookUrl: saved.webhookUrl || process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
+    webhookSecret: saved.webhookSecret || process.env.GOOGLE_SHEETS_WEBHOOK_SECRET || '',
+  });
+}
+loadSyncConfigForActiveProfile();
 
 function saveSyncConfig() {
-  try {
-    fs.writeFileSync(
-      syncConfigFile,
-      JSON.stringify({
-        url: sheetSync.url,
-        sheetName: sheetSync.sheetName || 'Jadwal',
-        intervalSec: sheetSync.intervalSec,
-        webhookUrl: sheetsExporter.webhookUrl || '',
-        webhookSecret: sheetsExporter.webhookSecret || '',
-      })
-    );
-  } catch { /* ignore */ }
+  profileManager.writeSyncConfig(profileManager.activeId, {
+    url: sheetSync.url,
+    sheetName: sheetSync.sheetName || 'Jadwal',
+    intervalSec: sheetSync.intervalSec,
+    webhookUrl: sheetsExporter.webhookUrl || '',
+    webhookSecret: sheetsExporter.webhookSecret || '',
+  });
+}
+
+function switchTournamentProfile(targetId) {
+  // 1. Save current profile's sync config and flush store + exporter queue
+  saveSyncConfig();
+  store.flush();
+
+  // 2. Activate target profile in ProfileManager
+  const profile = profileManager.setActive(targetId);
+
+  // 3. Switch Store dataDir & load target profile's matches/logs/undo
+  store.switchDataDir(profileManager.dataDirFor(profile.id));
+
+  // 4. Switch SheetsExporter & reload sync config for target profile
+  const savedSync = profileManager.readSyncConfig(profile.id);
+  sheetsExporter.switchProfile({
+    exportDir: profileManager.exportDirFor(profile.id),
+    dataDir: profileManager.dataDirFor(profile.id),
+    webhookUrl: savedSync.webhookUrl || process.env.GOOGLE_SHEETS_WEBHOOK_URL || '',
+    webhookSecret: savedSync.webhookSecret || process.env.GOOGLE_SHEETS_WEBHOOK_SECRET || '',
+  });
+  loadSyncConfigForActiveProfile();
+  restartAutoSyncTimer();
+
+  // 5. Broadcast updated courts & admin state to all connected screens
+  for (let c = 1; c <= COURT_COUNT; c += 1) emitCourt(c);
+  io.emit('profile:switched', {
+    active_profile: profileManager.activeProfile(store),
+  });
+  emitAdmin();
+
+  return profileManager.activeProfile(store);
 }
 
 async function fetchAndIngestUrl(rawUrl, { dryRun = false, sheetName } = {}) {
@@ -310,8 +347,8 @@ async function handleApi(req, res, url) {
   const method = req.method;
   const parts = pathname.split('/').filter(Boolean); // ['api', ...]
 
-  if (pathname === '/api/health') return send(res, 200, { ok: true, time: new Date().toISOString(), matches: Object.keys(store.matches).length });
-  if (pathname === '/api/config') return send(res, 200, { court_count: COURT_COUNT, heartbeat_ms: HEARTBEAT_MS, lock_timeout_ms: LOCK_TIMEOUT_MS });
+  if (pathname === '/api/health') return send(res, 200, { ok: true, time: new Date().toISOString(), matches: Object.keys(store.matches).length, active_profile: profileManager.activeProfile(store) });
+  if (pathname === '/api/config') return send(res, 200, { court_count: COURT_COUNT, heartbeat_ms: HEARTBEAT_MS, lock_timeout_ms: LOCK_TIMEOUT_MS, active_profile: profileManager.activeProfile(store) });
 
   if (pathname === '/api/template.csv') {
     const sample = [
@@ -413,7 +450,79 @@ async function handleApi(req, res, url) {
     }
   }
 
-  if (pathname === '/api/admin/status') return send(res, 200, { exporter: sheetsExporter.status(), sync: syncStatus(), user: adminUser });
+  if (pathname === '/api/admin/status') {
+    return send(res, 200, {
+      exporter: sheetsExporter.status(),
+      sync: syncStatus(),
+      user: adminUser,
+      active_profile: profileManager.activeProfile(store),
+      profiles: profileManager.list(store),
+    });
+  }
+
+  // ---- tournament profile management (available to ALL logged-in admins: Super Admin & Operational Admin)
+  if (pathname === '/api/admin/profiles' && method === 'GET') {
+    return send(res, 200, {
+      ok: true,
+      active_profile: profileManager.activeProfile(store),
+      profiles: profileManager.list(store),
+    });
+  }
+  if (pathname === '/api/admin/profiles' && method === 'POST') {
+    const b = await readBody(req);
+    const created = profileManager.create({
+      name: b.name,
+      description: b.description,
+      createdBy: adminUser.username,
+    });
+    if (b.activate) {
+      switchTournamentProfile(created.id);
+    } else {
+      emitAdmin();
+    }
+    return send(res, 200, {
+      ok: true,
+      profile: profileManager.profileSummary(created, store),
+      active_profile: profileManager.activeProfile(store),
+      profiles: profileManager.list(store),
+      matches: store.list().map((m) => store.toPublic(m)),
+      exporter: sheetsExporter.status(),
+      sync: syncStatus(),
+    });
+  }
+  if (parts[1] === 'admin' && parts[2] === 'profiles' && parts[3]) {
+    const profId = decodeURIComponent(parts[3]);
+    if (parts[4] === 'activate' && method === 'POST') {
+      const activeProf = switchTournamentProfile(profId);
+      return send(res, 200, {
+        ok: true,
+        active_profile: activeProf,
+        profiles: profileManager.list(store),
+        matches: store.list().map((m) => store.toPublic(m)),
+        exporter: sheetsExporter.status(),
+        sync: syncStatus(),
+      });
+    }
+    if (parts.length === 4 && method === 'PATCH') {
+      const b = await readBody(req);
+      profileManager.update(profId, b);
+      emitAdmin();
+      return send(res, 200, {
+        ok: true,
+        active_profile: profileManager.activeProfile(store),
+        profiles: profileManager.list(store),
+      });
+    }
+    if (parts.length === 4 && method === 'DELETE') {
+      profileManager.delete(profId);
+      emitAdmin();
+      return send(res, 200, {
+        ok: true,
+        active_profile: profileManager.activeProfile(store),
+        profiles: profileManager.list(store),
+      });
+    }
+  }
   if (pathname === '/api/admin/export/retry' && method === 'POST') {
     await sheetsExporter.flush();
     return send(res, 200, { ok: true, exporter: sheetsExporter.status() });
@@ -527,7 +636,13 @@ function emitAdmin() {
   if (adminTimer) return;
   adminTimer = setTimeout(() => {
     adminTimer = null;
-    io.to('admin').emit('admin:state', { matches: store.list().map((m) => store.toPublic(m)), exporter: sheetsExporter.status(), sync: syncStatus() });
+    io.to('admin').emit('admin:state', {
+      matches: store.list().map((m) => store.toPublic(m)),
+      exporter: sheetsExporter.status(),
+      sync: syncStatus(),
+      active_profile: profileManager.activeProfile(store),
+      profiles: profileManager.list(store),
+    });
   }, 200);
 }
 function emitCourt(court) {
@@ -594,7 +709,15 @@ io.on('connection', (socket) => {
     const user = adminAuth.verifyToken(token || pin);
     if (!user) throw new StoreError('Sesi Admin tidak valid atau sudah berakhir', 'bad_pin');
     socket.join('admin');
-    return { ok: true, user, matches: store.list().map((m) => store.toPublic(m)), exporter: sheetsExporter.status(), sync: syncStatus() };
+    return {
+      ok: true,
+      user,
+      matches: store.list().map((m) => store.toPublic(m)),
+      exporter: sheetsExporter.status(),
+      sync: syncStatus(),
+      active_profile: profileManager.activeProfile(store),
+      profiles: profileManager.list(store),
+    };
   }));
 
   // ---- session manager

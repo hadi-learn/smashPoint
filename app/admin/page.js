@@ -89,9 +89,10 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
   const [result, setResult] = useState(null);
 
   useEffect(() => {
-    if (sync?.url && !url) setUrl(sync.url);
-    if (sync?.sheet_name) setSheetName(sync.sheet_name);
+    setUrl(sync?.url || '');
+    setSheetName(sync?.sheet_name || 'Jadwal');
     if (sync?.interval_sec !== undefined) setIntervalSec(sync.interval_sec);
+    setResult(null);
   }, [sync?.url, sync?.sheet_name, sync?.interval_sec]);
 
   const run = async (dry) => {
@@ -1246,7 +1247,8 @@ function ExportCard({ pin, exporter, setExporter, notify }) {
 
   useEffect(() => {
     if (exporter?.webhook_url !== undefined) {
-      setWebhookUrl((prev) => (prev === '' ? exporter.webhook_url : prev));
+      setWebhookUrl(exporter.webhook_url || '');
+      setTestMsg(null);
     }
   }, [exporter?.webhook_url]);
 
@@ -1754,10 +1756,309 @@ function UserManagementPanel({ token, currentUser, onUserUpdated, notify }) {
   );
 }
 
+function TournamentProfileBar({ token, activeProfile, profiles = [], onSwitched, notify }) {
+  const [expanded, setExpanded] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [activateOnCreate, setActivateOnCreate] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+
+  const handleSwitch = async (id) => {
+    if (!id || id === activeProfile?.id) return;
+    const target = profiles.find((p) => p.id === id);
+    if (
+      !window.confirm(
+        `Pindah ke Profil Turnamen "${target?.name || id}"?\n\nSeluruh progres pertandingan di profil "${activeProfile?.name || 'saat ini'}" akan disimpan (auto-saved) dengan aman dan dapat dilanjutkan kembali kapan saja.`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    const r = await api(`/api/admin/profiles/${encodeURIComponent(id)}/activate`, {
+      method: 'POST',
+      pin: token,
+    });
+    setBusy(false);
+    if (r.ok) {
+      onSwitched?.(r);
+      notify({
+        type: 'ok',
+        text: `📂 Berhasil memuat Profil Turnamen "${r.active_profile?.name}". Progres profil sebelumnya tersimpan aman.`,
+      });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal berpindah profil turnamen' });
+    }
+  };
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setBusy(true);
+    const r = await api('/api/admin/profiles', {
+      method: 'POST',
+      pin: token,
+      body: {
+        name: newName.trim(),
+        description: newDesc.trim(),
+        activate: activateOnCreate,
+      },
+    });
+    setBusy(false);
+    if (r.ok) {
+      setNewName('');
+      setNewDesc('');
+      onSwitched?.(r);
+      notify({
+        type: 'ok',
+        text: activateOnCreate
+          ? `✅ Profil Turnamen "${r.profile?.name}" dibuat dan langsung diaktifkan!`
+          : `✅ Profil Turnamen "${r.profile?.name}" berhasil dibuat.`,
+      });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal membuat profil turnamen' });
+    }
+  };
+
+  const handleSaveEdit = async (id) => {
+    if (!editName.trim()) return;
+    setBusy(true);
+    const r = await api(`/api/admin/profiles/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      pin: token,
+      body: { name: editName.trim(), description: editDesc.trim() },
+    });
+    setBusy(false);
+    if (r.ok) {
+      setEditingId(null);
+      onSwitched?.(r);
+      notify({ type: 'ok', text: 'Profil turnamen diperbarui' });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal mengubah profil' });
+    }
+  };
+
+  const handleDelete = async (p) => {
+    if (
+      !window.confirm(
+        `Hapus permanen profil turnamen "${p.name}" (${p.stats?.total || 0} pertandingan)?\nTindakan ini tidak dapat dibatalkan.`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    const r = await api(`/api/admin/profiles/${encodeURIComponent(p.id)}`, {
+      method: 'DELETE',
+      pin: token,
+    });
+    setBusy(false);
+    if (r.ok) {
+      onSwitched?.(r);
+      notify({ type: 'ok', text: `Profil "${p.name}" dihapus` });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal menghapus profil' });
+    }
+  };
+
+  return (
+    <div className="card col" style={{ borderColor: 'rgba(250, 204, 21, 0.45)', background: 'linear-gradient(180deg, #132247 0%, #0b152c 100%)' }}>
+      <div className="row">
+        <div className="row" style={{ gap: '.55rem' }}>
+          <span className="badge gold" style={{ fontSize: '.82rem', padding: '.28rem .7rem' }}>
+            🏆 PROFIL TURNAMEN AKTIF
+          </span>
+          <strong style={{ fontSize: '1.15rem', color: '#fff' }}>
+            {activeProfile?.name || 'Turnamen Utama'}
+          </strong>
+          {activeProfile?.description && (
+            <span className="small muted">({activeProfile.description})</span>
+          )}
+        </div>
+
+        <div className="spacer" />
+
+        {/* Quick Switcher Dropdown */}
+        <div className="row" style={{ gap: '.45rem' }}>
+          <span className="small muted" style={{ fontWeight: 700 }}>Pindah Profil (Auto-Save):</span>
+          <select
+            className="input"
+            style={{ width: 250, padding: '.4rem .7rem', fontWeight: 700, borderColor: 'var(--gold)' }}
+            value={activeProfile?.id || ''}
+            disabled={busy}
+            onChange={(e) => handleSwitch(e.target.value)}
+          >
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.active ? '● ' : '○ '}
+                {p.name} ({p.stats?.finished || 0}/{p.stats?.total || 0} selesai)
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className={`btn btn-sm ${expanded ? 'btn-primary' : 'btn-yellow'}`}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? '▲ Tutup Kelola Profil' : `📂 Kelola / Buat Profil Turnamen (${profiles.length})`}
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="setup-grid" style={{ marginTop: '.5rem', paddingTop: '.75rem', borderTop: '1px solid var(--line)', gridTemplateColumns: 'minmax(290px, 380px) 1fr' }}>
+          {/* Create New Tournament Profile Form (Available to all Admin levels) */}
+          <form className="col" onSubmit={handleCreate} style={{ background: '#0a1328', padding: '.85rem', borderRadius: 12, border: '1px solid var(--line)' }}>
+            <h4 style={{ margin: 0, color: 'var(--gold)' }}>➕ Buat Profil Turnamen Baru</h4>
+            <p className="muted small" style={{ margin: 0 }}>
+              Cocok jika terdapat beberapa turnamen berbeda di hari yang sama (Pagi / Siang / Malam). Progres setiap turnamen tersimpan terpisah.
+            </p>
+            <label className="field">
+              Nama Profil Turnamen *
+              <input
+                className="input"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Contoh: Turnamen B - Sesi Siang"
+                maxLength={80}
+              />
+            </label>
+            <label className="field">
+              Keterangan / Jadwal Sesi (Opsional)
+              <input
+                className="input"
+                value={newDesc}
+                onChange={(e) => setNewDesc(e.target.value)}
+                placeholder="Contoh: 7-12 Nov · Sesi 13:00 - 18:00 WIB"
+                maxLength={160}
+              />
+            </label>
+            <label className="row small" style={{ cursor: 'pointer', color: 'var(--text)' }}>
+              <input
+                type="checkbox"
+                checked={activateOnCreate}
+                onChange={(e) => setActivateOnCreate(e.target.checked)}
+              />
+              Langsung aktifkan profil ini setelah dibuat
+            </label>
+            <button className="btn btn-green" disabled={!newName.trim() || busy}>
+              {busy ? 'Menyimpan…' : '➕ Buat & Simpan Profil Turnamen'}
+            </button>
+          </form>
+
+          {/* Saved Tournament Profiles List */}
+          <div className="col" style={{ gap: '.5rem' }}>
+            <div className="small muted" style={{ fontWeight: 700 }}>
+              📚 Daftar Profil Turnamen Tersimpan ({profiles.length}) — Klik &quot;Muat / Aktifkan&quot; untuk melanjutkan progres:
+            </div>
+            <div className="col" style={{ maxHeight: 280, overflow: 'auto', gap: '.45rem' }}>
+              {profiles.map((p) => {
+                const isEditing = editingId === p.id;
+                return (
+                  <div
+                    key={p.id}
+                    className="row"
+                    style={{
+                      padding: '.65rem .85rem',
+                      borderRadius: 10,
+                      background: p.active ? 'rgba(34, 197, 94, 0.12)' : '#0a1328',
+                      border: `1px solid ${p.active ? '#22c55e' : 'var(--line)'}`,
+                    }}
+                  >
+                    {isEditing ? (
+                      <div className="row" style={{ flex: 1, gap: '.4rem' }}>
+                        <input
+                          className="input"
+                          style={{ flex: 1 }}
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          placeholder="Nama Profil"
+                        />
+                        <input
+                          className="input"
+                          style={{ flex: 1 }}
+                          value={editDesc}
+                          onChange={(e) => setEditDesc(e.target.value)}
+                          placeholder="Keterangan"
+                        />
+                        <button type="button" className="btn btn-sm btn-green" onClick={() => handleSaveEdit(p.id)}>
+                          ✔ Simpan
+                        </button>
+                        <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditingId(null)}>
+                          Batal
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="col" style={{ gap: '.15rem', flex: 1, minWidth: 200 }}>
+                          <div className="row" style={{ gap: '.45rem' }}>
+                            <strong style={{ fontSize: '1rem', color: p.active ? '#4ade80' : 'var(--text)' }}>
+                              {p.name}
+                            </strong>
+                            {p.active && <span className="badge green">● SEDANG AKTIF</span>}
+                            {p.description && <span className="small muted">· {p.description}</span>}
+                          </div>
+                          <div className="row small muted" style={{ gap: '.6rem' }}>
+                            <span>Total: <b>{p.stats?.total || 0}</b> match</span>
+                            <span>Live: <b>{p.stats?.live || 0}</b></span>
+                            <span>Setup: <b>{p.stats?.setup || 0}</b></span>
+                            <span>Selesai: <b>{p.stats?.finished || 0}</b></span>
+                            <span>Dibuat oleh: @{p.created_by}</span>
+                          </div>
+                        </div>
+                        <div className="row" style={{ gap: '.35rem' }}>
+                          {!p.active && (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-primary"
+                              disabled={busy}
+                              onClick={() => handleSwitch(p.id)}
+                            >
+                              📂 Muat / Aktifkan
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => {
+                              setEditingId(p.id);
+                              setEditName(p.name);
+                              setEditDesc(p.description || '');
+                            }}
+                          >
+                            ✏️ Ubah Nama
+                          </button>
+                          {!p.active && profiles.length > 1 && (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-red"
+                              disabled={busy}
+                              onClick={() => handleDelete(p)}
+                            >
+                              🗑
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [token, setToken] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'users'
+  const [activeProfile, setActiveProfile] = useState(null);
+  const [profiles, setProfiles] = useState([]);
   const [matches, setMatches] = useState([]);
   const [exporter, setExporter] = useState(null);
   const [sync, setSync] = useState(null);
@@ -1790,6 +2091,8 @@ export default function AdminPage() {
         setMatches(r.matches);
         setExporter(r.exporter);
         if (r.sync) setSync(r.sync);
+        if (r.active_profile) setActiveProfile(r.active_profile);
+        if (r.profiles) setProfiles(r.profiles);
         if (r.user) {
           setCurrentUser(r.user);
           sessionStorage.setItem('sp_admin_user', JSON.stringify(r.user));
@@ -1806,6 +2109,8 @@ export default function AdminPage() {
       setMatches(d.matches);
       setExporter(d.exporter);
       if (d.sync) setSync(d.sync);
+      if (d.active_profile) setActiveProfile(d.active_profile);
+      if (d.profiles) setProfiles(d.profiles);
     };
     const onDisc = () => setConnected(false);
     s.on('connect', sub);
@@ -1823,6 +2128,14 @@ export default function AdminPage() {
     setNotice(n);
     setTimeout(() => setNotice((x) => (x === n ? null : x)), 4000);
   }, []);
+
+  const applyProfileResponse = (r) => {
+    if (r.active_profile) setActiveProfile(r.active_profile);
+    if (r.profiles) setProfiles(r.profiles);
+    if (r.matches) setMatches(r.matches);
+    if (r.exporter) setExporter(r.exporter);
+    if (r.sync) setSync(r.sync);
+  };
 
   if (!token) {
     return (
@@ -1894,6 +2207,15 @@ export default function AdminPage() {
         </button>
       </div>
       {notice && <div className={`notice ${notice.type}`}>{notice.text}</div>}
+
+      {/* Multi-Tournament Profile Switcher & Manager (Available to ALL Admin levels) */}
+      <TournamentProfileBar
+        token={token}
+        activeProfile={activeProfile}
+        profiles={profiles}
+        onSwitched={applyProfileResponse}
+        notify={notify}
+      />
 
       {activeTab === 'users' ? (
         <UserManagementPanel

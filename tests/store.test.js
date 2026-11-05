@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Store, StoreError } from '../lib/server/store.js';
 import { AdminAuth } from '../lib/server/auth.js';
+import { ProfileManager } from '../lib/server/profiles.js';
+import { SheetsExporter } from '../lib/server/sheetsExporter.js';
 import { ingest } from '../lib/server/ingest.js';
 import { breakCountdownInfo, BWF_INTERVAL_SECONDS, BWF_SET_BREAK_SECONDS, parseScheduleDateValue } from '../lib/engine.js';
 
@@ -252,6 +254,167 @@ E-F#7,Pak Pele Cup 3,Dewasa,MS,rally_point,sets,21,11,Ginting,,SGS,1,Jonatan,,Ta
   assert.equal(d2, 20261108);
   assert.equal(d3, 20261112);
   assert.ok(d1 < d2 && d2 < d3);
+
+  store.flush();
+  fs.rmSync(testDir, { recursive: true, force: true });
+});
+
+test('Multi-Tournament Profile System (Save, Switch & Resume Progress Across Profiles)', () => {
+  if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true, force: true });
+  const legacyDataDir = path.join(testDir, 'data');
+  fs.mkdirSync(legacyDataDir, { recursive: true });
+
+  // 0. Create legacy root data/db.json to verify seamless auto-migration into 'default' profile
+  const legacyStore = new Store({
+    dataDir: legacyDataDir,
+    courtCount: 15,
+    lockTimeoutMs: 1000,
+    masterPin: '1234',
+  });
+  const csvPagi = `match_number,tournament_name,category_name,discipline,scoring_method,scoring_type,win_point,interval_point,team_a_p1_name,team_a_p2_name,team_a_club,team_a_details,team_b_p1_name,team_b_p2_name,team_b_club,team_b_details,scheduled_date,court_number,scheduled_time
+PAGI-01,Turnamen Pagi,Ganda Putra,MD,rally_point,sets,21,11,Fajar,Rian,SGS,1,Leo,Daniel,Djarum,2,Sabtu / 7 November 2026,1,08:00 WIB`;
+  legacyStore.upsertMatches(ingest(csvPagi, { courtCount: 15 }).matches);
+  legacyStore.flush();
+
+  // 1. Initialize ProfileManager -> should migrate data/db.json into data/profiles/default/db.json
+  const pm = new ProfileManager({ rootDir: testDir });
+  const activeDefault = pm.activeProfile();
+  assert.equal(activeDefault.id, 'default');
+  assert.equal(activeDefault.name, 'Turnamen Pagi');
+
+  const store = new Store({
+    dataDir: pm.dataDirFor(activeDefault.id),
+    courtCount: 15,
+    lockTimeoutMs: 1000,
+    masterPin: '1234',
+  });
+  const exporter = new SheetsExporter({
+    exportDir: pm.exportDirFor(activeDefault.id),
+    dataDir: pm.dataDirFor(activeDefault.id),
+  });
+
+  // Verify PAGI-01 was migrated and start scoring in Profile A (default / Turnamen Pagi)
+  assert.equal(store.list().length, 1);
+  pm.update('default', { name: 'Turnamen A (Pagi)', description: 'Sesi Pagi 08:00-12:00' });
+
+  const lockA = store.lock('PAGI-01', 'dev-ref-1', 'Wasit Pagi');
+  const setupA = store.action('PAGI-01', 'dev-ref-1', {
+    type: 'SETUP_START',
+    last_log_id: lockA.match.last_log_id,
+    payload: {
+      left: 'a',
+      positions: { a: { even: 'a1', odd: 'a2' }, b: { even: 'b1', odd: 'b2' } },
+      server_id: 'a1',
+      receiver_id: 'b1',
+    },
+  });
+  const rally1 = store.action('PAGI-01', 'dev-ref-1', {
+    type: 'WIN_RALLY',
+    last_log_id: setupA.match.last_log_id,
+    payload: { side: 'left' },
+  });
+  const rally2 = store.action('PAGI-01', 'dev-ref-1', {
+    type: 'WIN_RALLY',
+    last_log_id: rally1.match.last_log_id,
+    payload: { side: 'left' },
+  });
+  assert.equal(rally2.match.live_state.score.a, 2);
+  assert.equal(rally2.match.live_state.score.b, 0);
+
+  // 2. Create Tournament Profile B (Siang/Sore) & switch to it
+  const profileB = pm.create({
+    name: 'Turnamen B (Siang-Sore)',
+    description: 'Sesi Siang 13:00-17:00',
+    createdBy: 'panitia1',
+  });
+  pm.setActive(profileB.id);
+  store.switchDataDir(pm.dataDirFor(profileB.id));
+  exporter.switchProfile({
+    exportDir: pm.exportDirFor(profileB.id),
+    dataDir: pm.dataDirFor(profileB.id),
+  });
+
+  // Profile B starts completely clean
+  assert.equal(store.list().length, 0);
+
+  const csvSiang = `match_number,tournament_name,category_name,discipline,scoring_method,scoring_type,win_point,interval_point,team_a_p1_name,team_a_p2_name,team_a_club,team_a_details,team_b_p1_name,team_b_p2_name,team_b_club,team_b_details,scheduled_date,court_number,scheduled_time
+SIANG-01,Turnamen Siang,Tunggal Putra,MS,rally_point,sets,21,11,Ginting,,SGS,1,Jonatan,,Tangkas,2,Sabtu / 7 November 2026,1,13:00 WIB
+SIANG-02,Turnamen Siang,Tunggal Putri,WS,rally_point,sets,21,11,Gregoria,,Mutiara,1,Putri KW,,Exist,2,Sabtu / 7 November 2026,2,13:30 WIB`;
+  store.upsertMatches(ingest(csvSiang, { courtCount: 15 }).matches);
+  assert.equal(store.list().length, 2);
+
+  // Play SIANG-01 to 0-1 in Profile B
+  const lockB = store.lock('SIANG-01', 'dev-ref-2', 'Wasit Siang');
+  const setupB = store.action('SIANG-01', 'dev-ref-2', {
+    type: 'SETUP_START',
+    last_log_id: lockB.match.last_log_id,
+    payload: {
+      left: 'a',
+      positions: { a: { even: 'a1', odd: null }, b: { even: 'b1', odd: null } },
+      server_id: 'a1',
+      receiver_id: 'b1',
+    },
+  });
+  const scoreB = store.action('SIANG-01', 'dev-ref-2', {
+    type: 'WIN_RALLY',
+    last_log_id: setupB.match.last_log_id,
+    payload: { side: 'right' },
+  });
+  assert.equal(scoreB.match.live_state.score.b, 1);
+
+  // 3. Create Tournament Profile C (Malam) & switch to it
+  const profileC = pm.create({
+    name: 'Turnamen C (Malam)',
+    description: 'Sesi Malam 19:00-23:00',
+    createdBy: 'admin',
+  });
+  pm.setActive(profileC.id);
+  store.switchDataDir(pm.dataDirFor(profileC.id));
+  assert.equal(store.list().length, 0);
+
+  // Verify summaries across all 3 profiles
+  const allProfiles = pm.list(store);
+  assert.equal(allProfiles.length, 3);
+  const sumA = allProfiles.find((p) => p.id === 'default');
+  const sumB = allProfiles.find((p) => p.id === profileB.id);
+  const sumC = allProfiles.find((p) => p.id === profileC.id);
+  assert.equal(sumA.stats.total, 1);
+  assert.equal(sumA.stats.live, 1);
+  assert.equal(sumB.stats.total, 2);
+  assert.equal(sumB.stats.live, 1);
+  assert.equal(sumC.stats.total, 0);
+
+  // 4. Switch back to Profile A (Turnamen Pagi) -> progress (score 2-0, logs, undo stack) must resume seamlessly!
+  pm.setActive('default');
+  store.switchDataDir(pm.dataDirFor('default'));
+  assert.equal(store.list().length, 1);
+  const resumedA = store.get('PAGI-01');
+  assert.ok(resumedA);
+  assert.equal(resumedA.live_state.phase, 'live');
+  assert.equal(resumedA.live_state.score.a, 2);
+  assert.equal(resumedA.live_state.score.b, 0);
+  assert.ok(store.getLogs('PAGI-01').length >= 3);
+
+  // Continue scoring in Profile A -> 3-0
+  const rally3 = store.action('PAGI-01', 'dev-ref-1', {
+    type: 'WIN_RALLY',
+    last_log_id: resumedA.last_log_id,
+    payload: { side: 'left' },
+  });
+  assert.equal(rally3.match.live_state.score.a, 3);
+
+  // 5. Switch back to Profile B -> verify SIANG-01 is still at 0-1
+  pm.setActive(profileB.id);
+  store.switchDataDir(pm.dataDirFor(profileB.id));
+  assert.equal(store.list().length, 2);
+  const resumedB = store.get('SIANG-01');
+  assert.equal(resumedB.live_state.score.a, 0);
+  assert.equal(resumedB.live_state.score.b, 1);
+
+  // Active profile cannot be deleted, inactive profile C can be deleted
+  assert.throws(() => pm.delete(profileB.id), /sedang aktif/);
+  pm.delete(profileC.id);
+  assert.equal(pm.list(store).length, 2);
 
   store.flush();
   fs.rmSync(testDir, { recursive: true, force: true });
