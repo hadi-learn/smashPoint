@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { breakCountdownInfo, DISCIPLINE_LABEL, isDoubles, matchDurationText, teamLabel, teamSeedBadge, teamSeedText } from '@/lib/engine';
 import { api, emitAck, getSocket, useNow } from '@/lib/client';
 import { Shuttle } from '@/components/Icons';
+import RallyHistoryStrip from '@/components/RallyHistoryStrip';
 
 /** DetectSpecialPoint: Game Point, Match Point, Set Point, Deuce */
 function getTeamPointAlert(match, t) {
@@ -80,84 +81,107 @@ function BroadcastScorebug({ match, now, compact = false }) {
         {st.phase === 'live' && <span className="bwf-live-pill"><span className="bwf-live-dot" />LIVE</span>}
       </div>
 
-      {/* Main 2-Row Score Table */}
-      <div className="bwf-bug-table">
-        {rows.map((t) => {
-          const tm = match.teams[`team_${t}`];
-          const serving = ss.side === t && !['setup', 'finished'].includes(st.phase);
-          const isSecond = serving && sideOut && ss.turn === 2;
-          const serveCls = isSecond ? 'serve-2' : 'serve-1';
-          const isWinner = finished && st.winner === t;
-          const p1Serving = serving && ss.player_id === `${t}1`;
-          const p2Serving = serving && ss.player_id === `${t}2`;
-          const teamPointAlert = getTeamPointAlert(match, t);
-          const seed = teamSeedText(tm.details);
+      {/* Main 2-Row Score Table + 10 Serves History Strip */}
+      <div className="bwf-bug-body">
+        <div className="bwf-bug-table">
+          {rows.map((t) => {
+            const tm = match.teams[`team_${t}`];
+            const serving = ss.side === t && !['setup', 'finished'].includes(st.phase);
+            const isSecond = serving && sideOut && ss.turn === 2;
+            const serveCls = isSecond ? 'serve-2' : 'serve-1';
+            const isWinner = finished && st.winner === t;
+            const p1Serving = serving && ss.player_id === `${t}1`;
+            const p2Serving = serving && ss.player_id === `${t}2`;
+            const seed = teamSeedText(tm.details);
 
-          return (
-            <div key={t} className={`bwf-row team-${t} ${serving ? `is-serving ${serveCls}` : ''} ${isWinner ? 'is-winner' : ''}`}>
-              {/* Team color bar */}
-              <div className={`bwf-accent team-${t}`} />
+            return (
+              <div key={t} className={`bwf-row team-${t} ${serving ? `is-serving ${serveCls}` : ''} ${isWinner ? 'is-winner' : ''}`}>
+                {/* Team color bar */}
+                <div className={`bwf-accent team-${t}`} />
 
-              {/* Player Names + Club Name + Seeded stacked underneath */}
-              <div className="bwf-identity">
-                <div className="bwf-players">
-                  <span className={`bwf-pname ${p1Serving ? `srv ${serveCls}` : serving ? 'partner' : 'neutral'}`}>
-                    {tm.p1}
-                  </span>
-                  {dbl && tm.p2 && (
-                    <>
-                      <span className="bwf-slash">/</span>
-                      <span className={`bwf-pname ${p2Serving ? `srv ${serveCls}` : serving ? 'partner' : 'neutral'}`}>
-                        {tm.p2}
-                      </span>
-                    </>
+                {/* Player Names + Club Name + Seeded stacked underneath */}
+                <div className="bwf-identity">
+                  <div className="bwf-players">
+                    <span className={`bwf-pname ${p1Serving ? `srv ${serveCls}` : serving ? 'partner' : 'neutral'}`}>
+                      {tm.p1}
+                    </span>
+                    {dbl && tm.p2 && (
+                      <>
+                        <span className="bwf-slash">/</span>
+                        <span className={`bwf-pname ${p2Serving ? `srv ${serveCls}` : serving ? 'partner' : 'neutral'}`}>
+                          {tm.p2}
+                        </span>
+                      </>
+                    )}
+                    {seed && <span className="bwf-seed-badge">{seed}</span>}
+                  </div>
+                  {(tm.club || seed) && (
+                    <div className="bwf-club-sub">
+                      {tm.club || '-'}
+                    </div>
                   )}
-                  {seed && <span className="bwf-seed-badge">{seed}</span>}
                 </div>
-                {(tm.club || seed) && (
-                  <div className="bwf-club-sub">
-                    {tm.club || '-'}
+
+                {/* Service Shuttlecock Indicator (1 for 1st serve, 2 for 2nd serve) */}
+                <div className="bwf-serve-slot">
+                  {serving && (
+                    <div key={`bug-sh-${ss.side}-${ss.turn}-${ss.player_id}`} className={`bwf-shuttles ${serveCls}`}>
+                      <Shuttle className="bwf-shuttle-svg" size={16} />
+                      {isSecond && <Shuttle className="bwf-shuttle-svg" size={16} />}
+                    </div>
+                  )}
+                  {isWinner && <span className="bwf-win-check">★</span>}
+                </div>
+
+                {/* Previous Completed Sets */}
+                {isSets && st.set_history.map((s) => (
+                  <div key={s.set} className={`bwf-prev-set ${s.winner === t ? 'won' : ''}`}>
+                    {s[t]}
+                  </div>
+                ))}
+
+                {/* Sets Won Counter (if Sets mode) */}
+                {isSets && (
+                  <div className="bwf-sets-won" title="Sets Won">
+                    {st.sets[t]}
                   </div>
                 )}
-              </div>
 
-              {/* Service Shuttlecock Indicator (1 for 1st serve, 2 for 2nd serve) */}
-              <div className="bwf-serve-slot">
-                {serving && (
-                  <div key={`bug-sh-${ss.side}-${ss.turn}-${ss.player_id}`} className={`bwf-shuttles ${serveCls}`}>
-                    <Shuttle className="bwf-shuttle-svg" size={16} />
-                    {isSecond && <Shuttle className="bwf-shuttle-svg" size={16} />}
-                  </div>
-                )}
-                {isWinner && <span className="bwf-win-check">★</span>}
-              </div>
-
-              {/* Previous Completed Sets */}
-              {isSets && st.set_history.map((s) => (
-                <div key={s.set} className={`bwf-prev-set ${s.winner === t ? 'won' : ''}`}>
-                  {s[t]}
+                {/* Active Game Points */}
+                <div className={`bwf-points ${serving ? `serving ${serveCls}` : ''}`}>
+                  {st.score[t]}
                 </div>
-              ))}
-
-              {/* Sets Won Counter (if Sets mode) */}
-              {isSets && (
-                <div className="bwf-sets-won" title="Sets Won">
-                  {st.sets[t]}
-                </div>
-              )}
-
-              {/* Active Game Points */}
-              <div className={`bwf-points ${serving ? `serving ${serveCls}` : ''}`}>
-                {st.score[t]}
               </div>
+            );
+          })}
+        </div>
 
-              {/* External Right-Side Match Point / Game Point Callout (aligned to this player's row) */}
-              {teamPointAlert && (
-                <div className={`bwf-point-callout ${teamPointAlert.tone}`}>
-                  <span className="bwf-callout-arrow">◀</span>
-                  <span>{teamPointAlert.type}</span>
-                </div>
-              )}
+        {/* 10 Recent Serves / Rally History Strip placed directly beside the active score box */}
+        {!compact && (
+          <RallyHistoryStrip
+            match={match}
+            limit={10}
+            topSide="a"
+            bottomSide="b"
+            title="10 SERVIS TERAKHIR"
+          />
+        )}
+
+        {/* External Right-Side Match Point / Game Point Callout (placed after history strip) */}
+        {rows.map((t) => {
+          const teamPointAlert = getTeamPointAlert(match, t);
+          if (!teamPointAlert) return null;
+          return (
+            <div
+              key={`callout-${t}`}
+              className={`bwf-point-callout ${teamPointAlert.tone}`}
+              style={{
+                top: t === 'a' ? '25%' : '75%',
+                left: 'calc(100% + 12px)',
+              }}
+            >
+              <span className="bwf-callout-arrow">◀</span>
+              <span>{teamPointAlert.type}</span>
             </div>
           );
         })}

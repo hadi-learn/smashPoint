@@ -14,6 +14,7 @@ import {
 import { api, emitAck, getSocket, lsGet, lsSet, useNow } from '@/lib/client';
 import CourtMap from '@/components/CourtMap';
 import { Shuttle } from '@/components/Icons';
+import RallyHistoryStrip from '@/components/RallyHistoryStrip';
 
 const MAX_DISPLAY_COURTS = 8;
 const LS_COUNT_KEY = 'sp_livescore_count';
@@ -72,6 +73,8 @@ function LiveScoreCourtCard({
   const previous = snapshot?.previous || [];
   const compact = totalSlots >= 5; // 5..8 courts -> compact density
   const medium = totalSlots >= 3 && totalSlots <= 4;
+  // History limit scales dynamically based on court card size: 1 -> 12, 2 -> 10, 3-4 -> 8, 5-8 -> 5
+  const historyLimit = totalSlots === 1 ? 12 : totalSlots === 2 ? 10 : totalSlots <= 4 ? 8 : 5;
 
   // Render Court Selector Header
   const renderCardHeader = () => {
@@ -348,6 +351,18 @@ function LiveScoreCourtCard({
         {renderTeamSide(R, 'right')}
       </div>
 
+      {/* Dynamic Rally/Serve History Strip between Scorebar and CourtMap */}
+      <div className="ls-history-container">
+        <RallyHistoryStrip
+          match={match}
+          limit={historyLimit}
+          topSide={L}
+          bottomSide={R}
+          compact={compact}
+          title={compact ? 'SERVIS' : `${historyLimit} SERVIS TERAKHIR`}
+        />
+      </div>
+
       {/* Animated Badminton Court (same visual CourtMap as Referee page) */}
       <div className="ls-court-wrap">
         <CourtMap
@@ -362,15 +377,15 @@ function LiveScoreCourtCard({
         />
       </div>
 
-      {/* Footer Info: Tournament Name, Referee on Duty & Next Match Preview */}
-      <div className="ls-card-footer">
-        <span className="ls-footer-item">🏆 {match.tournament_name || '-'}</span>
-        {match.session_management?.controller_label && (
+      {/* Ramping & Bersih: Sederhana agar gambar lapangan lebih dominan */}
+      <div className="ls-card-footer simple">
+        <span className="ls-footer-item">🏟️ Lapangan {courtNum}</span>
+        {match.session_management?.controller_label && !compact && (
           <span className="ls-footer-item">👤 Wasit: {match.session_management.controller_label}</span>
         )}
         {upcoming.length > 0 && (
           <span className="ls-footer-next" title="Pertandingan berikutnya di lapangan ini">
-            ⏭ Next: <b>{upcoming[0].match_number}</b> ({upcoming[0].team_a} vs {upcoming[0].team_b})
+            ⏭ Next ({upcoming[0].match_number}): <b>{upcoming[0].team_a}</b> vs <b>{upcoming[0].team_b}</b>
           </span>
         )}
       </div>

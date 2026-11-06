@@ -1665,12 +1665,18 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 
 .bwf-bug {
   display: inline-flex; flex-direction: column;
-  width: 495px; min-width: 495px; max-width: 520px;
+  width: auto; min-width: 495px; max-width: none;
   border-radius: 10px; overflow: visible;
   background: #040917;
   border: 1.5px solid rgba(255, 255, 255, 0.28);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.82), 0 2px 6px rgba(0, 0, 0, 0.6);
   font-family: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  position: relative;
+}
+
+.bwf-bug-body {
+  display: flex;
+  align-items: stretch;
   position: relative;
 }
 
@@ -1866,6 +1872,205 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 .bwf-callout-arrow {
   font-size: 11px;
   line-height: 1;
+}
+
+/* --------------------------------------------------------------------------
+   Rally & Serve History Strip (OBS YouTube Scorebug & LiveScore Card)
+   Displays 2-row last N serves (top player vs bottom player)
+   -------------------------------------------------------------------------- */
+.rhs-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: linear-gradient(180deg, #050b18 0%, #081126 100%);
+  border-left: 2px solid rgba(255, 255, 255, 0.22);
+  padding: 4px 7px;
+  user-select: none;
+  flex-shrink: 0;
+}
+.rhs-wrap.compact {
+  padding: 2px 4px;
+}
+.rhs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 3px 2px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 3px;
+}
+.rhs-wrap.compact .rhs-header {
+  font-size: 8px;
+  padding-bottom: 2px;
+  margin-bottom: 2px;
+}
+.rhs-title {
+  color: var(--gold);
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.rhs-count-info {
+  color: #64748b;
+  font-size: 9px;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.rhs-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.rhs-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.rhs-col-cell {
+  flex-shrink: 0;
+}
+
+/* Individual Cell: 1 rally outcome for 1 team */
+.rhs-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 27px;
+  height: 48px;
+  border-radius: 4px;
+  font-family: ui-monospace, 'Consolas', monospace;
+  font-variant-numeric: tabular-nums;
+  transition: transform 0.15s, background 0.15s;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.rhs-cell.compact {
+  width: 21px;
+  height: 36px;
+}
+.rhs-cell.empty {
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+}
+.rhs-empty-dot {
+  color: #475569;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Score number */
+.rhs-score {
+  font-size: 13.5px;
+  font-weight: 900;
+  line-height: 1;
+}
+.rhs-cell.compact .rhs-score {
+  font-size: 11px;
+}
+
+/* Small badge: S1, S2, ⇄, +1 */
+.rhs-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 900;
+  padding: 1px 2px;
+  border-radius: 3px;
+  line-height: 1;
+  margin-top: 3px;
+  letter-spacing: -0.02em;
+  background: rgba(0, 0, 0, 0.45);
+}
+.rhs-cell.compact .rhs-badge {
+  font-size: 7px;
+  padding: 0 1px;
+  margin-top: 1px;
+}
+
+/* 1. Winner Server: High-Contrast Gold / Yellow */
+.rhs-cell.winner-server {
+  background: linear-gradient(180deg, #fef08a 0%, #eab308 100%);
+  color: #090d16;
+  border-color: #fef08a;
+  box-shadow: 0 0 10px rgba(234, 179, 8, 0.45);
+}
+.rhs-cell.winner-server .rhs-score {
+  color: #090d16;
+  font-weight: 950;
+}
+.rhs-cell.winner-server .rhs-badge {
+  background: #090d16;
+  color: #fde047;
+}
+.rhs-cell.winner-server .rhs-badge.serve-2 {
+  background: #c2410c;
+  color: #fff;
+}
+
+/* 2. Winner Receiver: High-Contrast Green (Rally Point Break / Pindah Servis) */
+.rhs-cell.winner-receiver {
+  background: linear-gradient(180deg, #86efac 0%, #22c55e 100%);
+  color: #022c22;
+  border-color: #86efac;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.4);
+}
+.rhs-cell.winner-receiver .rhs-score {
+  color: #022c22;
+  font-weight: 950;
+}
+.rhs-cell.winner-receiver .rhs-badge {
+  background: #052e16;
+  color: #86efac;
+}
+
+/* 3. Loser Server: Server that lost rally (Side out / point lost) */
+.rhs-cell.loser-server {
+  background: rgba(30, 41, 59, 0.65);
+  color: #94a3b8;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.rhs-cell.loser-server .rhs-score {
+  color: #cbd5e1;
+}
+.rhs-cell.loser-server .rhs-badge {
+  background: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+
+/* 4. Loser Receiver: Neutral grayed out */
+.rhs-cell.loser-receiver {
+  background: rgba(15, 23, 42, 0.6);
+  color: #64748b;
+  border-color: rgba(255, 255, 255, 0.05);
+}
+.rhs-cell.loser-receiver .rhs-score {
+  color: #64748b;
+}
+.rhs-cell.loser-receiver .rhs-badge {
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+}
+
+/* LiveScore Card History Placement */
+.ls-history-container {
+  display: flex;
+  justify-content: center;
+  padding: 4px 8px;
+  background: rgba(2, 6, 23, 0.5);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ls-history-container .rhs-wrap {
+  border-left: none;
+  background: transparent;
+  padding: 0;
 }
 
 /* Bottom Sub-bar of Scorebug */
