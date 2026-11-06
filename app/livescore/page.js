@@ -359,7 +359,7 @@ function LiveScoreCourtCard({
           topSide={L}
           bottomSide={R}
           compact={compact}
-          title={compact ? 'SERVIS' : `${historyLimit} SERVIS TERAKHIR`}
+          showTeamNames={!compact}
         />
       </div>
 

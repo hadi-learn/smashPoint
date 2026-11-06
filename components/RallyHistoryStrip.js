@@ -13,9 +13,13 @@ import { getRecentRallies, teamLabel } from '@/lib/engine';
  *  - Strict vertical alignment (Top vs Bottom):
  *    Top row corresponds to Top Team (e.g. Team A / Left Side).
  *    Bottom row corresponds to Bottom Team (e.g. Team B / Right Side).
- *  - In each vertical column, the rally winner is rendered with high-contrast vibrant color,
- *    while the losing receiver/opponent is neutral/grayed-out, making rally progression instantly clear.
- *  - Indicators: S1 (1st serve), S2 (2nd serve), ⇄ (Side-out / serve change), +1 (point gained).
+ *  - Symbols for serves:
+ *    Serve 1: single dot '●'
+ *    Serve 2: double dot '● ●'
+ *    Side-out / Break: transfer arrow '⇄'
+ *    No text letters like S1/S2!
+ *  - Dynamic single header (no redundant counters):
+ *    Real-time: `${rallies.length} RALLY TERAKHIR`
  */
 export default function RallyHistoryStrip({
   match,
@@ -24,8 +28,8 @@ export default function RallyHistoryStrip({
   bottomSide = 'b',
   compact = false,
   showLabel = true,
-  showTeamNames = true,
-  title = 'HISTORI RELI',
+  showTeamNames = false,
+  title = null,
   className = '',
 }) {
   const rallies = useMemo(() => {
@@ -38,6 +42,7 @@ export default function RallyHistoryStrip({
 
   const topName = teamLabel(match, topSide);
   const bottomName = teamLabel(match, bottomSide);
+  const dynamicTitle = title || `${rallies.length} RALLY TERAKHIR`;
 
   const renderCell = (r, team, isTopRow) => {
     const winner = r.winner;
@@ -45,7 +50,6 @@ export default function RallyHistoryStrip({
     const isServer = srv === team;
     const isWinner = winner === team;
     const scoreVal = r.score ? r.score[team] : '-';
-    const pointDelta = r.point_delta ? r.point_delta[team] : 0;
     const isSecondServe = r.second_serve || (isServer && r.server_turn === 2);
     const isSideOut = r.side_out;
 
@@ -59,37 +63,39 @@ export default function RallyHistoryStrip({
       tone = 'loser-server'; // Server that lost the rally
     }
 
-    // Badge indicator: S1, S2, ⇄, +1
-    let badgeText = null;
-    let badgeTitle = '';
-
+    // Pure symbols for serves: 1 dot for 1st serve, 2 dots for 2nd serve, ⇄ for side-out
+    let symbol = null;
     if (isServer) {
       if (isSecondServe) {
-        badgeText = 'S2';
-        badgeTitle = 'Servis ke-2';
+        symbol = (
+          <span className="rhs-dot-sym serve-2" title="Servis ke-2">
+            ● ●
+          </span>
+        );
       } else {
-        badgeText = 'S1';
-        badgeTitle = 'Servis ke-1';
+        symbol = (
+          <span className="rhs-dot-sym serve-1" title="Servis ke-1">
+            ●
+          </span>
+        );
       }
     } else if (isWinner && isSideOut) {
-      badgeText = '⇄';
-      badgeTitle = 'Pindah Servis';
-    } else if (pointDelta > 0) {
-      badgeText = '+1';
-      badgeTitle = 'Poin Bertambah';
+      symbol = (
+        <span className="rhs-dot-sym sideout" title="Pindah Servis">
+          ⇄
+        </span>
+      );
     }
 
     return (
       <div
         className={`rhs-cell ${tone} ${compact ? 'compact' : ''} ${isWinner ? 'is-winner' : 'is-loser'}`}
-        title={`Reli #${r.rally_number} (Set ${r.set}): ${team.toUpperCase()} Skor ${scoreVal}${badgeTitle ? ` · ${badgeTitle}` : ''}`}
+        title={`Reli #${r.rally_number} (Set ${r.set}): ${team.toUpperCase()} Skor ${scoreVal}${isServer ? (isSecondServe ? ' · Servis ke-2' : ' · Servis ke-1') : isWinner ? ' · Pindah Servis' : ''}`}
       >
         <span className="rhs-score">{scoreVal}</span>
-        {badgeText && (
-          <span className={`rhs-badge ${isSecondServe ? 'serve-2' : ''}`}>
-            {badgeText}
-          </span>
-        )}
+        <div className="rhs-symbol-slot">
+          {symbol || <span className="rhs-symbol-spacer" />}
+        </div>
       </div>
     );
   };
@@ -98,15 +104,12 @@ export default function RallyHistoryStrip({
     <div className={`rhs-wrap ${compact ? 'compact' : ''} ${className}`}>
       {showLabel && (
         <div className="rhs-header">
-          <span className="rhs-title">{title}</span>
-          <span className="rhs-count-info">
-            {rallies.length} Servis Terakhir
-          </span>
+          <span className="rhs-title">📊 {dynamicTitle}</span>
         </div>
       )}
 
       <div className="rhs-body-layout">
-        {/* Optional Team Name Indicator Column on the Left for crystal clear Atas vs Bawah reading */}
+        {/* Optional Team Name Labels on the Left (disabled for OBS scorebug to prevent clutter) */}
         {showTeamNames && (
           <div className="rhs-team-labels">
             <div className={`rhs-team-tag top team-${topSide}`} title={topName}>

@@ -1702,6 +1702,19 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   background: var(--gold); color: #0f172a; font-weight: 900;
   padding: 1px 7px; border-radius: 4px; font-size: 11px;
 }
+.bwf-history-header-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  background: linear-gradient(135deg, #fde047 0%, #eab308 100%);
+  color: #090d16;
+  font-weight: 900;
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  box-shadow: 0 0 8px rgba(234, 179, 8, 0.4);
+}
 .bwf-live-pill {
   display: inline-flex; align-items: center; gap: 4px;
   background: #dc2626; color: #fff; font-weight: 900;
@@ -2021,32 +2034,65 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 
 /* Score number */
 .rhs-score {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 900;
   line-height: 1;
 }
 .rhs-cell.compact .rhs-score {
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
-/* Small badge: S1, S2, ⇄, +1 */
-.rhs-badge {
+/* Symbol slot underneath score number */
+.rhs-symbol-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 13px;
+  margin-top: 2px;
+}
+.rhs-symbol-spacer {
+  display: block;
+  width: 6px;
+  height: 6px;
+}
+.rhs-dot-sym {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 8px;
-  font-weight: 900;
-  padding: 1px 2px;
-  border-radius: 3px;
   line-height: 1;
-  margin-top: 3px;
-  letter-spacing: -0.02em;
-  background: rgba(0, 0, 0, 0.45);
 }
-.rhs-cell.compact .rhs-badge {
-  font-size: 7px;
-  padding: 0 1px;
-  margin-top: 1px;
+.rhs-dot-sym.serve-1 {
+  font-size: 9px;
+  color: #090d16;
+}
+.rhs-cell.winner-server .rhs-dot-sym.serve-1 {
+  color: #090d16;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.4));
+}
+.rhs-cell.loser-server .rhs-dot-sym.serve-1 {
+  color: #fde047;
+}
+.rhs-cell.loser-receiver .rhs-dot-sym.serve-1 {
+  color: #94a3b8;
+}
+.rhs-dot-sym.serve-2 {
+  font-size: 8px;
+  letter-spacing: 2px;
+  color: #9a3412;
+}
+.rhs-cell.winner-server .rhs-dot-sym.serve-2 {
+  color: #7c2d12;
+}
+.rhs-cell.loser-server .rhs-dot-sym.serve-2 {
+  color: #f97316;
+}
+.rhs-dot-sym.sideout {
+  font-size: 12px;
+  font-weight: 900;
+  color: #022c22;
+}
+.rhs-cell.winner-receiver .rhs-dot-sym.sideout {
+  color: #022c22;
 }
 
 /* 1. Winner Server: High-Contrast Gold / Yellow */
@@ -2060,14 +2106,6 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   color: #090d16;
   font-weight: 950;
 }
-.rhs-cell.winner-server .rhs-badge {
-  background: #090d16;
-  color: #fde047;
-}
-.rhs-cell.winner-server .rhs-badge.serve-2 {
-  background: #c2410c;
-  color: #fff;
-}
 
 /* 2. Winner Receiver: High-Contrast Green (Rally Point Break / Pindah Servis) */
 .rhs-cell.winner-receiver {
@@ -2080,10 +2118,6 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   color: #022c22;
   font-weight: 950;
 }
-.rhs-cell.winner-receiver .rhs-badge {
-  background: #052e16;
-  color: #86efac;
-}
 
 /* 3. Loser Server: Server that lost rally (Side out / point lost) */
 .rhs-cell.loser-server {
@@ -2093,10 +2127,6 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 }
 .rhs-cell.loser-server .rhs-score {
   color: #cbd5e1;
-}
-.rhs-cell.loser-server .rhs-badge {
-  background: rgba(239, 68, 68, 0.3);
-  color: #fca5a5;
 }
 
 /* 4. Loser Receiver: Neutral grayed out */
@@ -2108,9 +2138,37 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 .rhs-cell.loser-receiver .rhs-score {
   color: #64748b;
 }
-.rhs-cell.loser-receiver .rhs-badge {
-  background: rgba(255, 255, 255, 0.08);
-  color: #94a3b8;
+
+/* OBS Scorebug Strict Alignment (Height 54px, matching .bwf-row and .bwf-points) */
+.bwf-bug .rhs-wrap {
+  border-left: 2px solid rgba(255, 255, 255, 0.25);
+  background: transparent;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bwf-bug .rhs-body-layout {
+  height: 100%;
+}
+.bwf-bug .rhs-cols-scroll {
+  gap: 0;
+}
+.bwf-bug .rhs-vertical-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex-shrink: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+}
+.bwf-bug .rhs-cell {
+  width: 34px;
+  height: 54px; /* Tepat sama persis dengan tinggi .bwf-row dan .bwf-points */
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18); /* Garis horizontal tengah sejajar segaris dengan .bwf-row */
+}
+.bwf-bug .rhs-vertical-col > .rhs-cell:last-child {
+  border-bottom: none; /* Baris bawah tanpa border bawah, persis seperti .bwf-row:last-child */
 }
 
 /* LiveScore Card History Placement */

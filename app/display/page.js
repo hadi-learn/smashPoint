@@ -67,6 +67,7 @@ function BroadcastScorebug({ match, now, compact = false, showHistory = null }) 
   const duration = matchDurationText(match, now);
   // Show history ONLY if triggered/enabled by operator or panitia
   const isHistoryVisible = showHistory !== null ? Boolean(showHistory) : Boolean(st?.show_rally_history);
+  const ralliesCount = Math.min(10, st?.rally_history?.length || 0);
 
   // Order rows consistently: top = Team A (or left side), bottom = Team B (or right side)
   const rows = ['a', 'b'];
@@ -81,6 +82,11 @@ function BroadcastScorebug({ match, now, compact = false, showHistory = null }) 
         <span className="bwf-disc">{match.discipline}</span>
         <span className="bwf-court-tag">COURT {match.court_number}</span>
         {st.phase === 'live' && <span className="bwf-live-pill"><span className="bwf-live-dot" />LIVE</span>}
+        {isHistoryVisible && ralliesCount > 0 && (
+          <span className="bwf-history-header-pill">
+            📊 {ralliesCount} RALLY TERAKHIR
+          </span>
+        )}
       </div>
 
       {/* Main 2-Row Score Table + 10 Serves History Strip */}
@@ -158,14 +164,15 @@ function BroadcastScorebug({ match, now, compact = false, showHistory = null }) 
           })}
         </div>
 
-        {/* 10 Recent Serves / Rally History Strip: ONLY shown on-demand when operator/panitia toggles it */}
+        {/* Dynamic Rally History Strip: EXACT height & vertical alignment with bwf-points (no redundant names/labels) */}
         {!compact && isHistoryVisible && (
           <RallyHistoryStrip
             match={match}
             limit={10}
             topSide="a"
             bottomSide="b"
-            title="10 SERVIS TERAKHIR"
+            showLabel={false}
+            showTeamNames={false}
           />
         )}
 
