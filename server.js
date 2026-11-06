@@ -612,6 +612,7 @@ async function handleApi(req, res, url) {
       if (op === 'unlock') return send(res, 200, { ok: true, match: store.adminUnlock(id) });
       if (op === 'reset') return send(res, 200, { ok: true, match: store.adminReset(id) });
       if (op === 'reopen') return send(res, 200, { ok: true, match: store.adminReopen(id) });
+      if (op === 'reset_override') return send(res, 200, { ok: true, match: store.adminResetOverride(id) });
       if (op === 'export') {
         const m = store.mustGet(id);
         if (m.session_management.status !== 'finished') throw new StoreError('Hanya match berstatus selesai yang dapat diekspor');

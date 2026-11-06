@@ -7,7 +7,16 @@ import { AdminAuth } from '../lib/server/auth.js';
 import { ProfileManager } from '../lib/server/profiles.js';
 import { SheetsExporter } from '../lib/server/sheetsExporter.js';
 import { ingest } from '../lib/server/ingest.js';
-import { breakCountdownInfo, BWF_INTERVAL_SECONDS, BWF_SET_BREAK_SECONDS, parseScheduleDateValue } from '../lib/engine.js';
+import {
+  breakCountdownInfo,
+  BWF_INTERVAL_SECONDS,
+  BWF_SET_BREAK_SECONDS,
+  parseScheduleDateValue,
+  parseScheduleDateToIso,
+  formatIsoToIndonesianDate,
+  parseScheduleTimeToPicker,
+  formatPickerToScheduleTime,
+} from '../lib/engine.js';
 
 const testDir = path.join(process.cwd(), 'tests', 'temp_store_test');
 
@@ -418,4 +427,91 @@ SIANG-02,Turnamen Siang,Tunggal Putri,WS,rally_point,sets,21,11,Gregoria,,Mutiar
 
   store.flush();
   fs.rmSync(testDir, { recursive: true, force: true });
+});
+
+
+test('Option 2: Admin Manual Edit Override Lock & Sheet Auto-Sync Protection', () => {
+  const syncTestDir = path.join(process.cwd(), 'tests', 'temp_sync_override_test');
+  if (fs.existsSync(syncTestDir)) fs.rmSync(syncTestDir, { recursive: true, force: true });
+  fs.mkdirSync(syncTestDir, { recursive: true });
+
+  const store = new Store({
+    dataDir: syncTestDir,
+    courtCount: 15,
+    lockTimeoutMs: 1000,
+    masterPin: '1234',
+  });
+
+  // 1. Initial Google Sheet import data
+  const sheetInitialCsv = `match_number,tournament_name,category_name,discipline,scoring_method,scoring_type,win_point,interval_point,team_a_p1_name,team_a_p2_name,team_a_club,team_a_details,team_b_p1_name,team_b_p2_name,team_b_club,team_b_details,scheduled_date,court_number,scheduled_time
+M-201,Piala Walikota,Ganda Putra Open,MD,rally_point,sets,21,11,Kevin,Marcus,Djarum,,Fajar,Rian,SGS,,Sabtu / 7 November 2026,2,09:00 WIB
+M-202,Piala Walikota,Tunggal Putra Open,MS,rally_point,sets,21,11,Jonatan,,Tangkas,,Ginting,,SGS,,Sabtu / 7 November 2026,3,10:00 WIB`;
+
+  const parsed1 = ingest(sheetInitialCsv, { courtCount: 15 });
+  assert.equal(parsed1.matches.length, 2);
+  const upRes1 = store.upsertMatches(parsed1.matches);
+  assert.equal(upRes1.created, 2);
+
+  // Initial check
+  const m201 = store.get('M-201');
+  assert.equal(m201.court_number, 2);
+  assert.equal(m201.scheduled_time, '09:00 WIB');
+  assert.equal(m201.admin_override, null);
+
+  // Test date & time picker helpers
+  const isoDate = parseScheduleDateToIso(m201.scheduled_date);
+  assert.equal(isoDate, '2026-11-07');
+  assert.equal(formatIsoToIndonesianDate('2026-11-08'), 'Minggu / 8 November 2026');
+  assert.equal(parseScheduleTimeToPicker(m201.scheduled_time), '09:00');
+  assert.equal(formatPickerToScheduleTime('15:45', true), '15:45 WIB');
+
+  // 2. Admin manually edits M-201 via adminUpdate (Opsi 2):
+  // Panitia memindahkan ke Court 5, jam 11:30 WIB, dan tanggal 8 November 2026
+  const updatedM201 = store.adminUpdate('M-201', {
+    court_number: 5,
+    scheduled_date: 'Minggu / 8 November 2026',
+    scheduled_time: '11:30 WIB',
+  }, 'Panitia Pelaksana');
+
+  assert.equal(updatedM201.court_number, 5);
+  assert.equal(updatedM201.scheduled_time, '11:30 WIB');
+  assert.equal(updatedM201.scheduled_date, 'Minggu / 8 November 2026');
+  assert.equal(updatedM201.admin_override.is_edited, true);
+  assert.equal(updatedM201.admin_override.edited_by, 'Panitia Pelaksana');
+
+  // 3. Auto-Sync Google Sheets fires with the original spreadsheet content (where M-201 is still Court 2, 09:00 WIB)
+  const autoSyncResult = store.upsertMatches(parsed1.matches);
+  // Preserved edits should include M-201
+  assert.ok(autoSyncResult.preserved_edits.includes('M-201'));
+
+  // Verify M-201 retains manual edits and was NOT overwritten by Google Sheet!
+  const afterSyncM201 = store.get('M-201');
+  assert.equal(afterSyncM201.court_number, 5, 'Court number must remain 5, not reset to 2');
+  assert.equal(afterSyncM201.scheduled_time, '11:30 WIB', 'Time must remain 11:30 WIB, not reset to 09:00 WIB');
+  assert.equal(afterSyncM201.scheduled_date, 'Minggu / 8 November 2026');
+  assert.equal(afterSyncM201.admin_override.is_edited, true);
+  // Sheet differences should be recorded in sheet_diff
+  assert.ok(afterSyncM201.sheet_diff);
+  assert.equal(afterSyncM201.sheet_diff.court_number.sheet, 2);
+  assert.equal(afterSyncM201.sheet_diff.scheduled_time.sheet, '09:00 WIB');
+
+  // Meanwhile, un-edited M-202 remains normal
+  const m202 = store.get('M-202');
+  assert.equal(m202.admin_override, null);
+
+  // 4. Admin decides to reset override / release lock to follow Google Sheets again
+  const unlockedM201 = store.adminResetOverride('M-201');
+  assert.equal(unlockedM201.admin_override, null);
+  assert.equal(unlockedM201.sheet_diff, null);
+
+  // 5. Subsequent auto-sync now updates M-201 back to Google Sheet value
+  const autoSyncResult2 = store.upsertMatches(parsed1.matches);
+  assert.equal(autoSyncResult2.preserved_edits.length, 0);
+  const resyncedM201 = store.get('M-201');
+  assert.equal(resyncedM201.court_number, 2);
+  assert.equal(resyncedM201.scheduled_time, '09:00 WIB');
+  assert.equal(resyncedM201.scheduled_date, 'Sabtu / 7 November 2026');
+
+  store.flush();
+  fs.rmSync(syncTestDir, { recursive: true, force: true });
 });

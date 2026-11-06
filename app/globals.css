@@ -2797,46 +2797,120 @@ table.tbl tr:hover td { background: rgba(59, 130, 246, .05); }
 .gb-progress-track { height: 3px; background: rgba(255, 255, 255, .06); }
 .gb-progress-fill { height: 100%; background: var(--gold); transition: width .3s; }
 
-/* Straight, fixed-column rows so every info lines up vertically */
+/* Straight, dynamically aligned match rows */
 .gb-row {
   display: grid;
-  grid-template-columns: 92px 150px minmax(0, 1fr) 110px 96px;
   align-items: center;
-  gap: .6rem;
-  padding: .45rem .85rem;
-  border-bottom: 1px solid rgba(255, 255, 255, .05);
+  gap: .55rem;
+  padding: .48rem .85rem;
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
   border-left: 3px solid transparent;
   cursor: pointer;
+  transition: background .12s, border-left-color .12s;
 }
-.gb-row:hover { background: rgba(59, 130, 246, .07); }
-.gb-row-head { cursor: default; font-size: .64rem; font-weight: 800; letter-spacing: .05em; color: var(--muted); padding-top: .35rem; padding-bottom: .35rem; background: rgba(0, 0, 0, .18); }
-.gb-row-head:hover { background: rgba(0, 0, 0, .18); }
-.gb-rows-wrap { max-height: 560px; overflow: auto; }
-.gb-row.row-live { border-left-color: #22c55e; background: rgba(34, 197, 94, .06); }
-.gb-row.row-setup { border-left-color: #3b82f6; }
+.gb-row:hover { background: rgba(59, 130, 246, .08); }
+.gb-row-head {
+  cursor: default;
+  font-size: .65rem;
+  font-weight: 800;
+  letter-spacing: .05em;
+  color: var(--muted);
+  padding-top: .4rem;
+  padding-bottom: .4rem;
+  background: rgba(4, 9, 22, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, .1);
+}
+.gb-row-head:hover { background: rgba(4, 9, 22, 0.45); }
+.gb-rows-wrap { max-height: 580px; overflow: auto; }
+.gb-row.row-live {
+  border-left-color: #22c55e;
+  background: rgba(34, 197, 94, .07);
+}
+.gb-row.row-setup {
+  border-left-color: #3b82f6;
+  background: rgba(59, 130, 246, .04);
+}
 .gb-row.row-scheduled { border-left-color: transparent; }
-.gb-row.row-finished { opacity: .72; }
+.gb-row.row-finished { opacity: .76; }
 
-.gb-match-no { font-weight: 900; font-size: .85rem; font-family: ui-monospace, Consolas, monospace; color: #fff; }
-.gb-col-meta, .gb-col-teams { min-width: 0; }
-.gb-meta-top { font-size: .8rem; font-weight: 700; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gb-meta-sub { font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gb-team-line { display: flex; align-items: center; gap: .35rem; min-width: 0; line-height: 1.35; }
-.gb-team-name { font-size: .88rem; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gb-col-no { display: flex; flex-direction: column; gap: 2px; }
+.gb-match-no {
+  font-weight: 900;
+  font-size: .86rem;
+  font-family: ui-monospace, Consolas, monospace;
+  color: #fff;
+  background: #14234b;
+  border: 1px solid #233b78;
+  padding: .12rem .4rem;
+  border-radius: 5px;
+  width: fit-content;
+}
+.gb-override-tag {
+  font-size: .62rem;
+  font-weight: 900;
+  color: var(--gold);
+  letter-spacing: .02em;
+}
+
+.gb-col-cat {
+  font-size: .78rem;
+  font-weight: 700;
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gb-col-date {
+  font-size: .76rem;
+  font-weight: 600;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gb-col-time {
+  font-size: .78rem;
+  font-weight: 800;
+  color: var(--cyan);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.gb-court-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: .12rem .4rem;
+  border-radius: 5px;
+  font-size: .72rem;
+  font-weight: 800;
+  background: rgba(59, 130, 246, .18);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, .35);
+  white-space: nowrap;
+}
+
+.gb-col-teams { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gb-team-line { display: flex; align-items: center; gap: .35rem; min-width: 0; line-height: 1.3; }
+.gb-team-name { font-size: .88rem; font-weight: 700; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gb-team-line .seed-pill { margin-left: 0; font-size: .62rem; }
-.gb-team-club { font-size: .7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gb-team-club { font-size: .68rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gb-team-line.is-winner .gb-team-name { color: var(--gold); font-weight: 900; }
-.gb-team-line.is-loser .gb-team-name { color: #7c8bab; }
+.gb-team-line.is-loser .gb-team-name { color: #64748b; }
+
 .gb-col-score { text-align: center; }
 .gb-score-main { font-size: .95rem; font-weight: 900; font-variant-numeric: tabular-nums; }
-.gb-score-main.live { color: #4ade80; }
-.gb-score-main.done { color: #e2e8f0; }
+.gb-score-main.live { color: #4ade80; text-shadow: 0 0 10px rgba(74, 222, 128, .4); }
+.gb-score-main.done { color: #f1f5f9; }
 .gb-score-main.idle { color: #475569; }
 .gb-score-sub { font-size: .66rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gb-col-status { display: flex; flex-direction: column; align-items: flex-end; gap: .2rem; }
-.gb-row-actions { display: flex; gap: .2rem; }
-.gb-action-btn { appearance: none; border: 1px solid var(--line); background: transparent; border-radius: 5px; padding: .05rem .3rem; font-size: .72rem; cursor: pointer; }
+
+.gb-col-status { display: flex; flex-direction: column; align-items: center; gap: .2rem; }
+.gb-col-actions { display: flex; justify-content: flex-end; gap: .2rem; }
+.gb-action-btn { appearance: none; border: 1px solid var(--line); background: transparent; border-radius: 5px; padding: .1rem .35rem; font-size: .75rem; cursor: pointer; }
 .gb-action-btn:hover { background: var(--panel2); }
+
+@media (max-width: 900px) {
+  .gb-col-cat, .gb-col-date { display: none !important; }
+}
 @media (max-width: 700px) {
   .gb-row { grid-template-columns: 80px minmax(0, 1fr) 90px; }
   .gb-row .gb-col-meta, .gb-row .gb-col-status, .gb-row-head > :nth-child(2), .gb-row-head > :nth-child(5) { display: none; }

@@ -2,7 +2,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api, emitAck, getSocket, useNow } from '@/lib/client';
-import { DISCIPLINES, DISCIPLINE_LABEL, DOUBLES, detailsToInput, matchDurationSec, matchDurationText, parseScheduleDateValue, teamLabel, teamSeedBadge } from '@/lib/engine';
+import {
+  DISCIPLINES,
+  DISCIPLINE_LABEL,
+  DOUBLES,
+  detailsToInput,
+  matchDurationSec,
+  matchDurationText,
+  parseScheduleDateValue,
+  parseScheduleDateToIso,
+  formatIsoToIndonesianDate,
+  parseScheduleTimeToPicker,
+  formatPickerToScheduleTime,
+  teamLabel,
+  teamSeedBadge,
+} from '@/lib/engine';
 import { StatusBadge } from '@/components/referee/Entry';
 
 const ACTIVE = ['locked', 'in_progress'];
@@ -251,8 +265,11 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
   const [categoryName, setCategoryName] = useState(match.category_name || '');
   const [discipline, setDiscipline] = useState(match.discipline || 'MD');
   const [scheduledDate, setScheduledDate] = useState(match.scheduled_date || '');
+  const [datePickerVal, setDatePickerVal] = useState(parseScheduleDateToIso(match.scheduled_date));
   const [scheduledTime, setScheduledTime] = useState(match.scheduled_time || '');
+  const [timePickerVal, setTimePickerVal] = useState(parseScheduleTimeToPicker(match.scheduled_time));
   const [courtNumber, setCourtNumber] = useState(String(match.court_number || 1));
+  const [lockAdminOverride, setLockAdminOverride] = useState(true);
 
   const [scoringMethod, setScoringMethod] = useState(match.rules?.scoring_method || 'rally_point');
   const [scoringType, setScoringType] = useState(match.rules?.scoring_type || 'sets');
@@ -289,6 +306,42 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
   const [err, setErr] = useState(null);
 
   const isDbl = DOUBLES.includes(discipline);
+
+  const onPickDate = (iso) => {
+    setDatePickerVal(iso);
+    if (iso) {
+      setScheduledDate(formatIsoToIndonesianDate(iso));
+    }
+  };
+
+  const onPickTime = (val) => {
+    setTimePickerVal(val);
+    if (val) {
+      setScheduledTime(`${val} WIB`);
+    }
+  };
+
+  const handleResetOverride = async () => {
+    if (
+      !window.confirm(
+        `Buka kunci auto-sync untuk Match ${match.match_number}?\n\nData match akan kembali mengikuti pembaruan otomatis dari Google Spreadsheet saat sync berikutnya.`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    const r = await api(`/api/matches/${encodeURIComponent(match.match_number)}/reset_override`, {
+      method: 'POST',
+      pin,
+    });
+    setBusy(false);
+    if (r.ok) {
+      notify({ type: 'ok', text: `Kunci edit Match ${match.match_number} dilepas. Kembali mengikuti Google Sheet.` });
+      onClose();
+    } else {
+      setErr(r.error || 'Gagal melepas kunci');
+    }
+  };
 
   const applyQuickPreset = (preset, winTeam) => {
     const loseTeam = winTeam === 'a' ? 'b' : 'a';
@@ -339,6 +392,20 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
 
   const submit = async (e) => {
     e.preventDefault();
+
+    // Dialog konfirmasi simpan edit (Opsi 2)
+    const confirmMsg =
+      `Konfirmasi Perubahan Match ${match.match_number}:\n\n` +
+      `• Lapangan: Lapangan ${courtNumber}\n` +
+      `• Tanggal: ${scheduledDate || '-'}\n` +
+      `• Jam: ${scheduledTime || '-'}\n` +
+      `• Status: ${status}\n\n` +
+      (lockAdminOverride
+        ? `🔒 Data editan ini akan DIKUNCI dari penimpaan auto-sync Google Spreadsheet sehingga tidak akan hilang saat sync berjalan.\n\nSimpan sekarang?`
+        : `⚠️ Kunci dinonaktifkan: Data ini dapat tertimpa kembali oleh Google Spreadsheet.\n\nSimpan sekarang?`);
+
+    if (!window.confirm(confirmMsg)) return;
+
     setBusy(true);
     setErr(null);
     const body = {
@@ -348,6 +415,7 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
       scheduled_date: scheduledDate,
       scheduled_time: scheduledTime,
       court_number: parseInt(courtNumber, 10),
+      lock_admin_override: lockAdminOverride,
       rules: {
         scoring_method: scoringMethod,
         scoring_type: scoringType,
@@ -379,7 +447,7 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
     });
     setBusy(false);
     if (r.ok) {
-      notify({ type: 'ok', text: `Match ${match.match_number} berhasil diperbarui` });
+      notify({ type: 'ok', text: `Match ${match.match_number} berhasil diperbarui & dikunci dari auto-sync!` });
       onClose();
     } else {
       setErr(r.error || 'Gagal menyimpan perubahan');
@@ -388,22 +456,55 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
 
   return (
     <div className="modal-bg" onClick={onClose}>
-      <form className="modal col" style={{ width: 'min(920px, 100%)' }} onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+      <form className="modal col" style={{ width: 'min(940px, 100%)' }} onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <div className="row">
           <h2 style={{ margin: 0 }}>✏️ Edit Lengkap Pertandingan · {match.match_number}</h2>
           <StatusBadge match={match} />
+          {match.admin_override?.is_edited && (
+            <span className="badge gold" title="Data pertandingan ini telah dikunci dari penimpaan auto-sync sheet">
+              🔒 DIEDIT PANITIA
+            </span>
+          )}
           <div className="spacer" />
           <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
             ✕
           </button>
         </div>
 
+        {/* Banner Kunci & Perbedaan Sheet jika ada */}
+        {match.admin_override?.is_edited && (
+          <div className="notice ok small" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+            <span>
+              🔒 <b>Data Ini Terkunci:</b> Perubahan yang dilakukan panitia dilindungi dan tidak akan tertimpa saat auto-sync Google Sheets berjalan.
+            </span>
+            <button
+              type="button"
+              className="btn btn-sm btn-yellow"
+              disabled={busy}
+              onClick={handleResetOverride}
+              title="Lepas kunci agar data match ini kembali mengikuti Google Spreadsheet"
+            >
+              ↺ Buka Kunci (Ikuti Sheet)
+            </button>
+          </div>
+        )}
+
+        {match.sheet_diff && (
+          <div className="notice warn small">
+            ⚠️ <b>Perbedaan Terdeteksi dari Google Sheet:</b>
+            {match.sheet_diff.court_number && ` Lapangan Sheet: Lap ${match.sheet_diff.court_number.sheet} (Aplikasi: Lap ${match.sheet_diff.court_number.local}); `}
+            {match.sheet_diff.scheduled_time && ` Jam Sheet: ${match.sheet_diff.scheduled_time.sheet} (Aplikasi: ${match.sheet_diff.scheduled_time.local}); `}
+            {match.sheet_diff.scheduled_date && ` Tanggal Sheet: ${match.sheet_diff.scheduled_date.sheet} (Aplikasi: ${match.sheet_diff.scheduled_date.local}); `}
+            <span className="muted">(Editan panitia di aplikasi tetap aktif karena terkunci).</span>
+          </div>
+        )}
+
         {err && <div className="notice error">{err}</div>}
 
         {/* Section 1: Jadwal, Lapangan & Aturan */}
         <div className="card col" style={{ padding: '.85rem' }}>
           <div className="small" style={{ fontWeight: 800, color: 'var(--gold)' }}>1. JADWAL, LAPANGAN & ATURAN PERTANDINGAN</div>
-          <div className="info-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
+          <div className="info-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
             <label className="field">
               Nama Turnamen
               <input className="input" value={tournamentName} onChange={(e) => setTournamentName(e.target.value)} />
@@ -422,14 +523,87 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
                 ))}
               </select>
             </label>
-            <label className="field">
-              Tanggal (YYYY-MM-DD)
-              <input className="input" value={scheduledDate} placeholder="2026-10-20" onChange={(e) => setScheduledDate(e.target.value)} />
-            </label>
-            <label className="field">
-              Jam Pertandingan
-              <input className="input" value={scheduledTime} placeholder="14:30 WIB" onChange={(e) => setScheduledTime(e.target.value)} />
-            </label>
+
+            {/* Input Tanggal dengan Date Picker */}
+            <div className="field">
+              <span className="row" style={{ justifyContent: 'space-between' }}>
+                <span>Tanggal Pertandingan</span>
+                <span className="small muted">📅 Date Picker</span>
+              </span>
+              <div className="row" style={{ gap: '.35rem' }}>
+                <input
+                  type="date"
+                  className="input"
+                  style={{ width: 140, cursor: 'pointer' }}
+                  value={datePickerVal}
+                  onChange={(e) => onPickDate(e.target.value)}
+                  title="Pilih tanggal dari kalender"
+                />
+                <input
+                  className="input"
+                  style={{ flex: 1 }}
+                  value={scheduledDate}
+                  placeholder="Sabtu / 7 November 2026"
+                  onChange={(e) => {
+                    setScheduledDate(e.target.value);
+                    const iso = parseScheduleDateToIso(e.target.value);
+                    if (iso) setDatePickerVal(iso);
+                  }}
+                  title="Format teks tanggal (bisa diketik bebas atau dipilih dari kalender)"
+                />
+              </div>
+              {datePickerVal && (
+                <div className="row" style={{ gap: '.3rem', marginTop: '.2rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '.72rem', padding: '.1rem .4rem' }}
+                    onClick={() => setScheduledDate(formatIsoToIndonesianDate(datePickerVal))}
+                  >
+                    Format Hari: {formatIsoToIndonesianDate(datePickerVal)}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '.72rem', padding: '.1rem .4rem' }}
+                    onClick={() => setScheduledDate(datePickerVal)}
+                  >
+                    Format ISO: {datePickerVal}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Input Jam dengan Time Picker */}
+            <div className="field">
+              <span className="row" style={{ justifyContent: 'space-between' }}>
+                <span>Jam Pertandingan</span>
+                <span className="small muted">🕒 Time Picker</span>
+              </span>
+              <div className="row" style={{ gap: '.35rem' }}>
+                <input
+                  type="time"
+                  className="input"
+                  style={{ width: 110, cursor: 'pointer' }}
+                  value={timePickerVal}
+                  onChange={(e) => onPickTime(e.target.value)}
+                  title="Pilih jam pertandingan"
+                />
+                <input
+                  className="input"
+                  style={{ flex: 1 }}
+                  value={scheduledTime}
+                  placeholder="14:30 WIB"
+                  onChange={(e) => {
+                    setScheduledTime(e.target.value);
+                    const p = parseScheduleTimeToPicker(e.target.value);
+                    if (p) setTimePickerVal(p);
+                  }}
+                  title="Format jam pertandingan"
+                />
+              </div>
+            </div>
+
             <label className="field">
               Lapangan (Court)
               <select className="input" value={courtNumber} onChange={(e) => setCourtNumber(e.target.value)}>
@@ -647,9 +821,27 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
           )}
         </div>
 
+        {/* Opsi 2: Kunci Auto-Sync Google Sheets */}
+        <div className="card col" style={{ padding: '.75rem .9rem', background: '#0a1328', borderColor: lockAdminOverride ? '#22c55e' : 'var(--line)' }}>
+          <label className="row small" style={{ cursor: 'pointer', color: 'var(--text)', fontWeight: 700, alignItems: 'flex-start' }}>
+            <input
+              type="checkbox"
+              style={{ marginTop: 3 }}
+              checked={lockAdminOverride}
+              onChange={(e) => setLockAdminOverride(e.target.checked)}
+            />
+            <div className="col" style={{ gap: 2 }}>
+              <span>🔒 <b>Kunci Data Ini dari Penimpaan Auto-Sync Google Sheets (Opsi 2 - Best Practice)</b></span>
+              <span className="muted" style={{ fontWeight: 500 }}>
+                Nomor match ini akan memakai data editan panitia dan tidak akan pernah tertimpa/reset saat fitur auto-sync Google Spreadsheet berjalan.
+              </span>
+            </div>
+          </label>
+        </div>
+
         <div className="row">
           <button type="submit" className="btn btn-primary btn-lg" disabled={busy}>
-            {busy ? 'Menyimpan…' : '💾 Simpan Semua Perubahan'}
+            {busy ? 'Menyimpan…' : '💾 Simpan Perubahan (Konfirmasi)'}
           </button>
           <button type="button" className="btn btn-ghost btn-lg" onClick={onClose}>
             Batal
@@ -2189,6 +2381,24 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs }) {
     };
   };
 
+  // Dynamic column layout based on current grouping
+  const showCategory = groupBy !== 'category' && groupBy !== 'discipline';
+  const showDate = groupBy !== 'date';
+  const showCourt = groupBy !== 'court';
+  const showStatus = groupBy !== 'status';
+
+  const gridColumns = [
+    '88px', // Col 1: Match No & Override Tag
+    showCategory ? '120px' : null, // Col 2: Kategori
+    showDate ? '135px' : null, // Col 3: Hari/Tanggal
+    '75px', // Col 4: Jam
+    showCourt ? '76px' : null, // Col 5: Lapangan
+    'minmax(180px, 1fr)', // Col 6: Tim A vs Tim B
+    '115px', // Col 7: Skor
+    showStatus ? '95px' : null, // Col 8: Status
+    '50px', // Col 9: Aksi (Edit / Log)
+  ].filter(Boolean).join(' ');
+
   return (
     <div className="col" style={{ gap: '.9rem' }}>
       {/* Control Toolbar */}
@@ -2293,12 +2503,16 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs }) {
                 </div>
 
                 {/* Column Header Legend for Straight Visual Alignment */}
-                <div className="gb-row gb-row-head">
+                <div className="gb-row gb-row-head" style={{ gridTemplateColumns: gridColumns }}>
                   <div>NO. MATCH</div>
-                  <div>JADWAL / INFO</div>
-                  <div>TIM A vs TIM B (LURUS &amp; SEJAJAR)</div>
+                  {showCategory && <div>KATEGORI</div>}
+                  {showDate && <div>HARI / TANGGAL</div>}
+                  <div>JAM</div>
+                  {showCourt && <div style={{ textAlign: 'center' }}>LAPANGAN</div>}
+                  <div>PEMAIN / TIM</div>
                   <div style={{ textAlign: 'center' }}>SKOR</div>
-                  <div style={{ textAlign: 'right' }}>STATUS</div>
+                  {showStatus && <div style={{ textAlign: 'center' }}>STATUS</div>}
+                  <div style={{ textAlign: 'right' }}>AKSI</div>
                 </div>
 
                 {/* Straight-Aligned Match Rows */}
@@ -2315,37 +2529,59 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs }) {
                     const sc = formatScoreCompact(m);
                     const dur = matchDurationText(m, now);
 
-                    // Secondary context column adapts to whatever we are NOT grouping by
-                    const metaPrimary =
-                      groupBy === 'court'
-                        ? `${m.category_name || '-'} (${m.discipline})`
-                        : groupBy === 'category'
-                        ? `Lapangan ${m.court_number}`
-                        : `Lap. ${m.court_number} · ${m.category_name || '-'} (${m.discipline})`;
-                    const metaSecondary =
-                      groupBy === 'date'
-                        ? `🕒 ${m.scheduled_time || '-'}`
-                        : [m.scheduled_date, m.scheduled_time].filter(Boolean).join(' · ') || '-';
-
                     return (
                       <div
                         key={m.match_number}
                         className={`gb-row ${isLive ? 'row-live' : isSetup ? 'row-setup' : isFinished ? 'row-finished' : 'row-scheduled'}`}
+                        style={{ gridTemplateColumns: gridColumns }}
                         onClick={() => onEdit?.(m)}
                         title="Klik untuk mengedit / melihat detail pertandingan ini"
                       >
-                        {/* Col 1: Match Number */}
+                        {/* Col 1: Match Number & Lock/Override Indicator */}
                         <div className="gb-col-no">
                           <span className="gb-match-no">{m.match_number}</span>
+                          {m.admin_override?.is_edited && (
+                            <span
+                              className="gb-override-tag"
+                              title={`Manual edit oleh ${m.admin_override?.edited_by || 'admin'}. Terkunci dari auto-sync Sheet.`}
+                            >
+                              🔒 EDIT
+                            </span>
+                          )}
                         </div>
 
-                        {/* Col 2: Context (Time / Court / Category) */}
-                        <div className="gb-col-meta">
-                          <div className="gb-meta-top">{metaPrimary}</div>
-                          <div className="gb-meta-sub">{metaSecondary}</div>
+                        {/* Col 2: Kategori (dihilangkan jika groupBy === 'category' atau 'discipline') */}
+                        {showCategory && (
+                          <div className="gb-col-cat" title={`${m.category_name || '-'} (${m.discipline || '-'})`}>
+                            <div style={{ fontWeight: 700, color: '#f1f5f9', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {m.category_name || '-'}
+                            </div>
+                            <div style={{ fontSize: '.68rem', color: 'var(--muted)' }}>
+                              {m.discipline ? `${m.discipline} · ${DISCIPLINE_LABEL[m.discipline] || m.discipline}` : ''}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Col 3: Hari & Tanggal (dihilangkan jika groupBy === 'date') */}
+                        {showDate && (
+                          <div className="gb-col-date" title={m.scheduled_date || '-'}>
+                            {m.scheduled_date || '-'}
+                          </div>
+                        )}
+
+                        {/* Col 4: Jam */}
+                        <div className="gb-col-time" title={m.scheduled_time || '-'}>
+                          {m.scheduled_time || '-'}
                         </div>
 
-                        {/* Col 3: Teams (Strictly aligned 2-line or straight horizontal pairing) */}
+                        {/* Col 5: Nomor Lapangan (dihilangkan jika groupBy === 'court') */}
+                        {showCourt && (
+                          <div className="gb-col-court" style={{ textAlign: 'center' }}>
+                            <span className="gb-court-tag">Lap. {m.court_number || '-'}</span>
+                          </div>
+                        )}
+
+                        {/* Col 6: Teams (Strictly aligned 2-line or straight horizontal pairing) */}
                         <div className="gb-col-teams">
                           <div className={`gb-team-line ${winSide === 'a' ? 'is-winner' : winSide === 'b' ? 'is-loser' : ''}`}>
                             <span className="gb-team-name">
@@ -2353,7 +2589,7 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs }) {
                               {teamLabel(m, 'a')}
                             </span>
                             {seedA && <span className="seed-pill">{seedA}</span>}
-                            {m.teams.team_a.club && <span className="gb-team-club">{m.teams.team_a.club}</span>}
+                            {m.teams.team_a.club && <span className="gb-team-club">({m.teams.team_a.club})</span>}
                           </div>
                           <div className={`gb-team-line ${winSide === 'b' ? 'is-winner' : winSide === 'a' ? 'is-loser' : ''}`}>
                             <span className="gb-team-name">
@@ -2361,11 +2597,11 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs }) {
                               {teamLabel(m, 'b')}
                             </span>
                             {seedB && <span className="seed-pill">{seedB}</span>}
-                            {m.teams.team_b.club && <span className="gb-team-club">{m.teams.team_b.club}</span>}
+                            {m.teams.team_b.club && <span className="gb-team-club">({m.teams.team_b.club})</span>}
                           </div>
                         </div>
 
-                        {/* Col 4: Score & Duration */}
+                        {/* Col 7: Score & Duration */}
                         <div className="gb-col-score mono">
                           <div className={`gb-score-main ${sc.isLive ? 'live' : isFinished ? 'done' : 'idle'}`}>
                             {sc.main}
@@ -2376,27 +2612,31 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs }) {
                           </div>
                         </div>
 
-                        {/* Col 5: Status Badge & Quick Log Button */}
-                        <div className="gb-col-status" onClick={(e) => e.stopPropagation()}>
-                          <StatusBadge match={m} />
-                          <div className="gb-row-actions">
-                            <button
-                              type="button"
-                              className="gb-action-btn"
-                              onClick={() => onEdit?.(m)}
-                              title="Edit Pertandingan"
-                            >
-                              ✏️
-                            </button>
-                            <button
-                              type="button"
-                              className="gb-action-btn"
-                              onClick={() => onLogs?.(m.match_number)}
-                              title="Riwayat Log Poin"
-                            >
-                              📜
-                            </button>
+                        {/* Col 8: Status Badge (dihilangkan jika groupBy === 'status') */}
+                        {showStatus && (
+                          <div className="gb-col-status">
+                            <StatusBadge match={m} />
                           </div>
+                        )}
+
+                        {/* Col 9: Aksi Cepat Edit & Log */}
+                        <div className="gb-col-actions" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            className="gb-action-btn"
+                            onClick={() => onEdit?.(m)}
+                            title="Edit Pertandingan"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            className="gb-action-btn"
+                            onClick={() => onLogs?.(m.match_number)}
+                            title="Riwayat Log Poin"
+                          >
+                            📜
+                          </button>
                         </div>
                       </div>
                     );
