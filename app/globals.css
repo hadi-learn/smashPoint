@@ -1887,6 +1887,7 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   padding: 4px 7px;
   user-select: none;
   flex-shrink: 0;
+  animation: fadeIn 0.2s ease-out;
 }
 .rhs-wrap.compact {
   padding: 2px 4px;
@@ -1921,17 +1922,71 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   font-size: 9px;
   font-family: ui-monospace, Consolas, monospace;
 }
-.rhs-grid {
+
+.rhs-body-layout {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.rhs-team-labels {
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
   gap: 3px;
+  width: 68px;
+  max-width: 80px;
+  flex-shrink: 0;
 }
-.rhs-row {
+.rhs-wrap.compact .rhs-team-labels {
+  width: 50px;
+  max-width: 58px;
+}
+.rhs-team-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 48px;
+  padding: 0 5px;
+  background: rgba(15, 23, 42, 0.75);
+  border-radius: 4px;
+  border-left: 3px solid #64748b;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.rhs-wrap.compact .rhs-team-tag {
+  height: 36px;
+  padding: 0 3px;
+}
+.rhs-team-tag.team-a, .rhs-team-tag.top { border-left-color: #3b82f6; }
+.rhs-team-tag.team-b, .rhs-team-tag.bottom { border-left-color: #ef4444; }
+.rhs-team-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.rhs-team-txt {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #f1f5f9;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.rhs-wrap.compact .rhs-team-txt {
+  font-size: 8.5px;
+}
+
+.rhs-cols-scroll {
   display: flex;
   align-items: center;
   gap: 3px;
+  overflow-x: auto;
 }
-.rhs-col-cell {
+.rhs-vertical-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   flex-shrink: 0;
 }
 

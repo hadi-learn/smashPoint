@@ -1,17 +1,21 @@
 'use client';
 import { useMemo } from 'react';
-import { getRecentRallies } from '@/lib/engine';
+import { getRecentRallies, teamLabel } from '@/lib/engine';
 
 /**
  * RallyHistoryStrip
- * Displays a 2-row horizontal history strip (top player row vs bottom player row)
- * for the last N serves/rallies (default 10).
+ * Displays dynamic recent rally/serve history boxes (up to N rallies).
  *
- * Rules:
- *  - Winning server: score highlighted in vibrant high-contrast gold with server badge (1st / 2nd serve).
- *  - Winning receiver (rally point break): score highlighted in vibrant green with side-out/transfer badge (⇄ / +1).
- *  - Losing team / neutral receiver: muted / grayed-out box with current score.
- *  - Empty slots: clean dashed placeholder cells ensuring layout stability.
+ * Requirements:
+ *  - Dynamic count: if there are 5 rallies, renders exactly 5 columns.
+ *    If 7 rallies, renders exactly 7 columns. Up to max `limit` (e.g. 10).
+ *    NO empty placeholder/dashed boxes! If 0 rallies, renders nothing.
+ *  - Strict vertical alignment (Top vs Bottom):
+ *    Top row corresponds to Top Team (e.g. Team A / Left Side).
+ *    Bottom row corresponds to Bottom Team (e.g. Team B / Right Side).
+ *  - In each vertical column, the rally winner is rendered with high-contrast vibrant color,
+ *    while the losing receiver/opponent is neutral/grayed-out, making rally progression instantly clear.
+ *  - Indicators: S1 (1st serve), S2 (2nd serve), ⇄ (Side-out / serve change), +1 (point gained).
  */
 export default function RallyHistoryStrip({
   match,
@@ -20,34 +24,22 @@ export default function RallyHistoryStrip({
   bottomSide = 'b',
   compact = false,
   showLabel = true,
-  title = '10 SERVIS TERAKHIR',
+  showTeamNames = true,
+  title = 'HISTORI RELI',
   className = '',
 }) {
   const rallies = useMemo(() => {
     return getRecentRallies(match, limit, false);
   }, [match?.live_state?.rally_history, limit]);
 
-  // Build fixed length array of columns
-  const cols = useMemo(() => {
-    const list = [];
-    for (let i = 0; i < limit; i += 1) {
-      list.push(rallies[i] || null);
-    }
-    return list;
-  }, [rallies, limit]);
+  if (!rallies || rallies.length === 0) {
+    return null; // Do not render if no rallies yet
+  }
+
+  const topName = teamLabel(match, topSide);
+  const bottomName = teamLabel(match, bottomSide);
 
   const renderCell = (r, team, isTopRow) => {
-    if (!r) {
-      return (
-        <div
-          className={`rhs-cell empty ${compact ? 'compact' : ''}`}
-          title="Menunggu reli berikutnya"
-        >
-          <span className="rhs-empty-dot">·</span>
-        </div>
-      );
-    }
-
     const winner = r.winner;
     const srv = r.server_side;
     const isServer = srv === team;
@@ -58,18 +50,16 @@ export default function RallyHistoryStrip({
     const isSideOut = r.side_out;
 
     // Determine visual style tone
-    let tone = 'neutral';
+    let tone = 'loser-receiver'; // Default neutral/grayed out
     if (isWinner && isServer) {
       tone = 'winner-server'; // High-contrast gold / yellow
     } else if (isWinner && !isServer) {
-      tone = 'winner-receiver'; // High-contrast green / cyan (pindah servis + poin)
+      tone = 'winner-receiver'; // High-contrast green (break / side-out + point)
     } else if (isServer && !isWinner) {
-      tone = 'loser-server'; // Server that lost the rally (side out to opponent)
-    } else {
-      tone = 'loser-receiver'; // Neutral grayed out
+      tone = 'loser-server'; // Server that lost the rally
     }
 
-    // Build badge indicator for serve 1, serve 2, side out, or point
+    // Badge indicator: S1, S2, ⇄, +1
     let badgeText = null;
     let badgeTitle = '';
 
@@ -92,7 +82,7 @@ export default function RallyHistoryStrip({
     return (
       <div
         className={`rhs-cell ${tone} ${compact ? 'compact' : ''} ${isWinner ? 'is-winner' : 'is-loser'}`}
-        title={`Reli #${r.rally_number} (Set ${r.set}): Tim ${team.toUpperCase()} Skor ${scoreVal}${badgeTitle ? ` · ${badgeTitle}` : ''}`}
+        title={`Reli #${r.rally_number} (Set ${r.set}): ${team.toUpperCase()} Skor ${scoreVal}${badgeTitle ? ` · ${badgeTitle}` : ''}`}
       >
         <span className="rhs-score">{scoreVal}</span>
         {badgeText && (
@@ -110,25 +100,34 @@ export default function RallyHistoryStrip({
         <div className="rhs-header">
           <span className="rhs-title">{title}</span>
           <span className="rhs-count-info">
-            {rallies.length > 0 ? `${rallies.length}/${limit}` : 'STANDBY'}
+            {rallies.length} Servis Terakhir
           </span>
         </div>
       )}
 
-      <div className="rhs-grid">
-        {/* Top Player Row */}
-        <div className="rhs-row top-row">
-          {cols.map((r, idx) => (
-            <div key={`top-${idx}`} className="rhs-col-cell">
-              {renderCell(r, topSide, true)}
+      <div className="rhs-body-layout">
+        {/* Optional Team Name Indicator Column on the Left for crystal clear Atas vs Bawah reading */}
+        {showTeamNames && (
+          <div className="rhs-team-labels">
+            <div className={`rhs-team-tag top team-${topSide}`} title={topName}>
+              <span className="rhs-team-dot" />
+              <span className="rhs-team-txt">{topName}</span>
             </div>
-          ))}
-        </div>
+            <div className={`rhs-team-tag bottom team-${bottomSide}`} title={bottomName}>
+              <span className="rhs-team-dot" />
+              <span className="rhs-team-txt">{bottomName}</span>
+            </div>
+          </div>
+        )}
 
-        {/* Bottom Player Row */}
-        <div className="rhs-row bottom-row">
-          {cols.map((r, idx) => (
-            <div key={`bot-${idx}`} className="rhs-col-cell">
+        {/* Dynamic Rally Columns (Only exact number of rallies, up to limit) */}
+        <div className="rhs-cols-scroll">
+          {rallies.map((r, idx) => (
+            <div key={`rally-col-${r.rally_number || idx}`} className="rhs-vertical-col">
+              {/* Top Cell */}
+              {renderCell(r, topSide, true)}
+
+              {/* Bottom Cell */}
               {renderCell(r, bottomSide, false)}
             </div>
           ))}

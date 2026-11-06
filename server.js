@@ -613,6 +613,10 @@ async function handleApi(req, res, url) {
       if (op === 'reset') return send(res, 200, { ok: true, match: store.adminReset(id) });
       if (op === 'reopen') return send(res, 200, { ok: true, match: store.adminReopen(id) });
       if (op === 'reset_override') return send(res, 200, { ok: true, match: store.adminResetOverride(id) });
+      if (op === 'toggle_history') {
+        const body = await readBody(req);
+        return send(res, 200, { ok: true, match: store.toggleOverlayHistory(id, body?.show) });
+      }
       if (op === 'export') {
         const m = store.mustGet(id);
         if (m.session_management.status !== 'finished') throw new StoreError('Hanya match berstatus selesai yang dapat diekspor');

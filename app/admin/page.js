@@ -900,7 +900,7 @@ function LogsModal({ id, onClose }) {
   );
 }
 
-function CourtGrid({ matches, courtCount, now, onUnlock }) {
+function CourtGrid({ matches, courtCount, now, onUnlock, onToggleHistory }) {
   const courts = useMemo(() => {
     const out = [];
     for (let c = 1; c <= courtCount; c += 1) {
@@ -966,11 +966,21 @@ function CourtGrid({ matches, courtCount, now, onUnlock }) {
                     <span className="muted">🔓 tanpa pengontrol</span>
                   )}
                 </div>
-                {m.session_management.locked && (
-                  <button className="btn btn-sm btn-red" onClick={() => onUnlock(m.match_number)}>
-                    Lepas Kunci
+                <div className="row" style={{ gap: '.3rem', marginTop: '.3rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${m.live_state?.show_rally_history ? 'btn-yellow' : 'btn-ghost'}`}
+                    onClick={() => onToggleHistory?.(m.match_number)}
+                    title="Aktifkan / Sembunyikan tampilan 10 servis terakhir pada overlay YouTube Lapangan ini"
+                  >
+                    📊 Histori OBS: {m.live_state?.show_rally_history ? 'ON' : 'OFF'}
                   </button>
-                )}
+                  {m.session_management.locked && (
+                    <button className="btn btn-sm btn-red" onClick={() => onUnlock(m.match_number)}>
+                      Lepas Kunci
+                    </button>
+                  )}
+                </div>
                 {extraActive > 0 && <div className="small" style={{ color: '#fbbf24' }}>⚠ {extraActive} match aktif lain di lapangan ini</div>}
               </>
             ) : (
@@ -2847,6 +2857,15 @@ export default function AdminPage() {
               if (!window.confirm(`Lepas paksa kunci sesi ${id}? Perangkat wasit akan dialihkan ke mode pantau.`)) return;
               const r = await api(`/api/matches/${encodeURIComponent(id)}/unlock`, { method: 'POST', pin: token });
               notify(r.ok ? { type: 'ok', text: `Kunci ${id} dilepas` } : { type: 'error', text: r.error });
+            }}
+            onToggleHistory={async (id) => {
+              const r = await api(`/api/matches/${encodeURIComponent(id)}/toggle_history`, { method: 'POST', pin: token });
+              if (r.ok) {
+                const isNow = r.match?.live_state?.show_rally_history;
+                notify({ type: 'ok', text: `Histori reli OBS ${id}: ${isNow ? 'TAMPIL (ON)' : 'SEMBUNYI (OFF)'}` });
+              } else {
+                notify({ type: 'error', text: r.error });
+              }
             }}
           />
 

@@ -515,3 +515,40 @@ M-202,Piala Walikota,Tunggal Putra Open,MS,rally_point,sets,21,11,Jonatan,,Tangk
   store.flush();
   fs.rmSync(syncTestDir, { recursive: true, force: true });
 });
+
+
+test('Operator On-Demand Toggle: OBS YouTube Rally History display control', () => {
+  const toggleDir = path.join(process.cwd(), 'tests', 'temp_toggle_history_test');
+  if (fs.existsSync(toggleDir)) fs.rmSync(toggleDir, { recursive: true, force: true });
+  fs.mkdirSync(toggleDir, { recursive: true });
+
+  const store = new Store({
+    dataDir: toggleDir,
+    courtCount: 15,
+    lockTimeoutMs: 1000,
+    masterPin: '1234',
+  });
+
+  const parsed = ingest(`match_number,tournament_name,category_name,discipline,scoring_method,scoring_type,win_point,interval_point,team_a_p1_name,team_a_p2_name,team_a_club,team_a_details,team_b_p1_name,team_b_p2_name,team_b_club,team_b_details,scheduled_date,court_number,scheduled_time
+M-301,Kejuaraan Nasional,Ganda Putra,MD,rally_point,sets,21,11,Fajar,Rian,SGS,,Leo,Daniel,Djarum,,2026-11-07,1,08:00 WIB`, { courtCount: 15 });
+  store.upsertMatches(parsed.matches);
+
+  // Default: show_rally_history must be false (not continuously visible on YouTube)
+  const m = store.get('M-301');
+  assert.equal(m.live_state.show_rally_history, false);
+
+  // Operator toggles history ON
+  const on = store.toggleOverlayHistory('M-301');
+  assert.equal(on.live_state.show_rally_history, true);
+
+  // Operator toggles history OFF
+  const off = store.toggleOverlayHistory('M-301');
+  assert.equal(off.live_state.show_rally_history, false);
+
+  // Operator forces state ON via adminUpdate patch
+  const patched = store.adminUpdate('M-301', { show_rally_history: true });
+  assert.equal(patched.live_state.show_rally_history, true);
+
+  store.flush();
+  fs.rmSync(toggleDir, { recursive: true, force: true });
+});

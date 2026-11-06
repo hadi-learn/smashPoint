@@ -55,7 +55,7 @@ function detectPointAlert(match) {
  * International Broadcast Scorebug (BWF / HSBC World Tour style).
  * Used both in the top-left of the OBS Overlay and as a live status widget.
  */
-function BroadcastScorebug({ match, now, compact = false }) {
+function BroadcastScorebug({ match, now, compact = false, showHistory = null }) {
   const st = match.live_state;
   const ss = st.service_status;
   const dbl = isDoubles(match);
@@ -65,6 +65,8 @@ function BroadcastScorebug({ match, now, compact = false }) {
   const alert = detectPointAlert(match);
   const footerAlert = alert && !alert.team ? alert : null;
   const duration = matchDurationText(match, now);
+  // Show history ONLY if triggered/enabled by operator or panitia
+  const isHistoryVisible = showHistory !== null ? Boolean(showHistory) : Boolean(st?.show_rally_history);
 
   // Order rows consistently: top = Team A (or left side), bottom = Team B (or right side)
   const rows = ['a', 'b'];
@@ -156,8 +158,8 @@ function BroadcastScorebug({ match, now, compact = false }) {
           })}
         </div>
 
-        {/* 10 Recent Serves / Rally History Strip placed directly beside the active score box */}
-        {!compact && (
+        {/* 10 Recent Serves / Rally History Strip: ONLY shown on-demand when operator/panitia toggles it */}
+        {!compact && isHistoryVisible && (
           <RallyHistoryStrip
             match={match}
             limit={10}
@@ -624,7 +626,7 @@ function ArenaTeamCard({ match, t, screen }) {
  * Places the BWF broadcast scorebug strictly at the top-left corner (`top: 28px; left: 36px`)
  * on a transparent (or chroma key green/blue) canvas so OBS Browser Source or Window Capture works out of the box.
  */
-function ObsOverlayView({ match, now, bgMode }) {
+function ObsOverlayView({ match, now, bgMode, showHistory = null }) {
   const st = match.live_state;
   const finished = match.session_management.status === 'finished' || st.phase === 'finished';
   const duration = matchDurationText(match, now);
@@ -633,7 +635,7 @@ function ObsOverlayView({ match, now, bgMode }) {
     <div className={`obs-canvas bg-${bgMode}`}>
       {/* Top-Left Corner Broadcast Scorebug */}
       <div className="obs-top-left">
-        <BroadcastScorebug match={match} now={now} />
+        <BroadcastScorebug match={match} now={now} showHistory={showHistory} />
       </div>
 
       {/* Optional Lower-Third Banner when Match Finished or Interval */}
@@ -888,6 +890,7 @@ function Display() {
 
   const [mode, setMode] = useState(initialMode);
   const [bgMode, setBgMode] = useState(initialBg);
+  const [showHistoryLocal, setShowHistoryLocal] = useState(false);
   const [courtCount, setCourtCount] = useState(15);
   const [menuOpen, setMenuOpen] = useState(false);
   const [match, setMatch] = useState(null);
@@ -896,6 +899,18 @@ function Display() {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState(null);
   const now = useNow(1000);
+
+  // Shortcut keyboard 'H' untuk toggle on-demand tampilan 10 servis terakhir di overlay YouTube
+  useEffect(() => {
+    const onKey = (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(e.target?.tagName)) return;
+      if (e.key === 'h' || e.key === 'H') {
+        setShowHistoryLocal((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     api('/api/config').then((c) => c?.court_count && setCourtCount(c.court_count));
@@ -1089,6 +1104,23 @@ function Display() {
               </button>
               <button
                 type="button"
+                className={`btn btn-sm ${showHistoryLocal || match?.live_state?.show_rally_history ? 'btn-yellow' : ''}`}
+                onClick={async () => {
+                  const nextVal = !(showHistoryLocal || match?.live_state?.show_rally_history);
+                  setShowHistoryLocal(nextVal);
+                  if (match?.match_number) {
+                    await api(`/api/matches/${encodeURIComponent(match.match_number)}/toggle_history`, {
+                      method: 'POST',
+                      body: { show: nextVal },
+                    });
+                  }
+                }}
+                title="Tekan H pada keyboard atau klik di sini untuk menampilkan/menyembunyikan 10 reli terakhir di overlay YouTube"
+              >
+                📊 Histori Reli: {showHistoryLocal || match?.live_state?.show_rally_history ? 'ON (Tampil)' : 'OFF (Sembunyi)'}
+              </button>
+              <button
+                type="button"
                 className="btn btn-sm"
                 onClick={() => {
                   if (document.fullscreenElement) document.exitFullscreen();
@@ -1121,7 +1153,12 @@ function Display() {
       {!error &&
         (match ? (
           isObs ? (
-            <ObsOverlayView match={match} now={now} bgMode={bgMode} />
+            <ObsOverlayView
+              match={match}
+              now={now}
+              bgMode={bgMode}
+              showHistory={showHistoryLocal || Boolean(match?.live_state?.show_rally_history)}
+            />
           ) : (
             <ArenaBoard match={match} now={now} previous={previous} upcoming={upcoming} />
           )
