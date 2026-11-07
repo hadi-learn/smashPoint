@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { breakCountdownInfo, detailsToInput, isDoubles, matchDurationText, playerName, teamLabel, teamSeedBadge } from '@/lib/engine';
+import { breakCountdownInfo, courtPositions, detailsToInput, isDoubles, matchDurationText, other, playerName, teamLabel, teamSeedBadge } from '@/lib/engine';
 import CourtMap from '../CourtMap';
 import { Shuttle } from '../Icons';
 
@@ -255,7 +255,41 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
   };
 
   let overlay = null;
+  let breakBanner = null;
   const breakTimer = breakCountdownInfo(match, now);
+
+  // Preview post-swap sides on CourtMap during interval_swap so referee immediately sees where Server & Receiver stand
+  const effectiveSides =
+    st.phase === 'interval' && st.interval_swap
+      ? { left: st.sides.right, right: st.sides.left }
+      : st.sides;
+  const effectiveCourtPositions =
+    st.phase === 'interval' && st.interval_swap
+      ? courtPositions(match, { ...st, sides: effectiveSides })
+      : st.court_positions;
+
+  const renderServeReceiveSummary = () => {
+    if (!ss.side || !ss.player_id) return null;
+    const srvTeam = ss.side;
+    const rcvTeam = other(srvTeam);
+    return (
+      <div className="ref-break-srv-cards">
+        <div className={`ref-break-srv-item server ${sideOutDbl && ss.turn === 2 ? 'serve-2' : 'serve-1'}`}>
+          <span className="ref-break-srv-role">
+            <Shuttle size={14} /> {sideOutDbl ? (ss.turn === 2 ? 'SERVIS KE-2 (2ND)' : 'SERVIS KE-1 (1ST)') : 'PEMAIN SERVIS'}
+          </span>
+          <span className="ref-break-srv-name">{ss.player_name || playerName(match, ss.player_id)}</span>
+          <span className="ref-break-srv-team">Tim {T(srvTeam)} · {teamLabel(match, srvTeam)}</span>
+        </div>
+        <div className="ref-break-srv-arrow">➔</div>
+        <div className="ref-break-srv-item receiver">
+          <span className="ref-break-srv-role">🎯 PENERIMA SERVIS</span>
+          <span className="ref-break-srv-name">{ss.receiver_name || playerName(match, ss.receiver_id) || '-'}</span>
+          <span className="ref-break-srv-team">Tim {T(rcvTeam)} · {teamLabel(match, rcvTeam)}</span>
+        </div>
+      </div>
+    );
+  };
 
   const renderBreakTimer = (bt) => {
     if (!bt) return null;
@@ -294,45 +328,62 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
       </div>
     );
   } else if (st.phase === 'interval') {
-    overlay = (
-      <div className="phase-overlay">
-        <h2>{st.interval_swap ? 'INTERVAL - TUKAR LAPANGAN' : 'INTERVAL ISTIRAHAT'}</h2>
-        <div className="muted">
-          Skor {st.score[L]} - {st.score[R]}. {st.interval_swap ? 'Pemain bertukar sisi lapangan.' : 'Istirahat singkat, tanpa tukar sisi.'}
-        </div>
-        {renderBreakTimer(breakTimer)}
-        {!readOnly && (
-          <div className="row">
-            <button className="btn btn-yellow btn-lg" disabled={!canAct} onClick={() => send('UNDO')}>
-              ↶ UNDO
-            </button>
-            <button className="btn btn-blue btn-lg" disabled={!canAct} onClick={() => send('CONFIRM_INTERVAL')}>
-              {st.interval_swap ? '⇄ Konfirmasi Tukar Posisi & Lanjut' : '▶ Selesai Interval & Lanjutkan'}
-            </button>
+    breakBanner = (
+      <div className="ref-break-panel">
+        <div className="ref-break-top">
+          <div>
+            <h3 className="ref-break-title">
+              {st.interval_swap ? '⇄ INTERVAL · TUKAR SISI LAPANGAN' : '⏸ INTERVAL ISTIRAHAT'}
+            </h3>
+            <div className="small muted">
+              Skor {st.score[L]} - {st.score[R]} ·{' '}
+              {st.interval_swap
+                ? `Posisi lapangan di bawah telah menampilkan sisi baru setelah tukar tempat (Kiri: Tim ${T(effectiveSides.left)}, Kanan: Tim ${T(effectiveSides.right)}).`
+                : 'Posisi servis & penerima tetap terlihat pada gambar lapangan di bawah.'}
+            </div>
           </div>
-        )}
+          {!readOnly && (
+            <div className="row" style={{ gap: '.5rem' }}>
+              <button className="btn btn-yellow" disabled={!canAct} onClick={() => send('UNDO')}>
+                ↶ UNDO
+              </button>
+              <button className="btn btn-blue btn-lg" disabled={!canAct} onClick={() => send('CONFIRM_INTERVAL')}>
+                {st.interval_swap ? '⇄ Konfirmasi Tukar Posisi & Lanjut' : '▶ Selesai Interval & Lanjutkan'}
+              </button>
+            </div>
+          )}
+        </div>
+        {renderServeReceiveSummary()}
+        {renderBreakTimer(breakTimer)}
       </div>
     );
   } else if (st.phase === 'set_break') {
     const last = st.set_history[st.set_history.length - 1];
-    overlay = (
-      <div className="phase-overlay">
-        <h2>SET {st.current_set} SELESAI · JEDA ANTAR SET</h2>
-        <div style={{ fontSize: '1.35rem', fontWeight: 800 }}>Pemenang Set {st.current_set}: {teamLabel(match, st.game_winner)}</div>
-        <div className="muted">
-          Skor set: {last?.a}-{last?.b} · Kedudukan Set {st.sets.a}-{st.sets.b} · Pemain bertukar sisi lapangan
-        </div>
-        {renderBreakTimer(breakTimer)}
-        {!readOnly && (
-          <div className="row">
-            <button className="btn btn-yellow btn-lg" disabled={!canAct} onClick={() => send('UNDO')}>
-              ↶ UNDO
-            </button>
-            <button className="btn btn-green btn-lg" disabled={!canAct} onClick={() => send('NEXT_SET')}>
-              ▶ Mulai Set {st.current_set + 1} (Ganti Tempat)
-            </button>
+    breakBanner = (
+      <div className="ref-break-panel">
+        <div className="ref-break-top">
+          <div>
+            <h3 className="ref-break-title">🏁 SET {st.current_set} SELESAI · JEDA ANTAR SET (GANTI TEMPAT)</h3>
+            <div className="small" style={{ fontWeight: 800, color: '#f8fafc' }}>
+              Pemenang Set {st.current_set}: <span style={{ color: 'var(--gold)' }}>{teamLabel(match, st.game_winner)}</span> ({last?.a}-{last?.b}) · Kedudukan Set {st.sets.a}-{st.sets.b}
+            </div>
+            <div className="small muted">
+              Pemain bertukar sisi lapangan. Tim <b>{teamLabel(match, st.game_winner)}</b> akan melakukan servis pertama di Set {st.current_set + 1}.
+            </div>
           </div>
-        )}
+          {!readOnly && (
+            <div className="row" style={{ gap: '.5rem' }}>
+              <button className="btn btn-yellow" disabled={!canAct} onClick={() => send('UNDO')}>
+                ↶ UNDO
+              </button>
+              <button className="btn btn-green btn-lg" disabled={!canAct} onClick={() => send('NEXT_SET')}>
+                ▶ Mulai Set {st.current_set + 1} (Ganti Tempat)
+              </button>
+            </div>
+          )}
+        </div>
+        {renderServeReceiveSummary()}
+        {renderBreakTimer(breakTimer)}
       </div>
     );
   } else if (st.phase === 'finished') {
@@ -427,24 +478,35 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
               </div>
               {ss.side && st.phase !== 'setup' && (
                 <div className={`ref-serve-banner ${sideOutDbl && ss.turn === 2 ? 'serve-2' : 'serve-1'}`}>
-                  <Shuttle size={16} />
-                  {sideOutDbl && ss.turn === 2 ? <Shuttle size={16} /> : null}
-                  <span>
-                    Servis: <b>{ss.player_name}</b>
-                    {sideOutDbl ? ` (${ss.turn === 2 ? 'SERVIS KE-2 / 2nd Serve' : 'SERVIS KE-1 / 1st Serve'})` : ''}
+                  <span className="ref-srv-part">
+                    <Shuttle size={16} />
+                    {sideOutDbl && ss.turn === 2 ? <Shuttle size={16} /> : null}
+                    <span>
+                      Servis: <b>{ss.player_name}</b>
+                      {sideOutDbl ? ` (${ss.turn === 2 ? '2nd Serve' : '1st Serve'})` : ''}
+                    </span>
                   </span>
+                  {ss.receiver_name && (
+                    <>
+                      <span className="ref-srv-arrow">➔</span>
+                      <span className="ref-rcv-part">
+                        🎯 Penerima: <b>{ss.receiver_name}</b>
+                      </span>
+                    </>
+                  )}
                 </div>
               )}
             </div>
             {!isStack && teamHeader(R, 'right', 'KANAN')}
           </div>
+          {breakBanner}
           <CourtMap
             match={match}
-            positions={st.court_positions}
+            positions={effectiveCourtPositions}
             serverId={st.phase === 'setup' ? null : ss.player_id}
             receiverId={st.phase === 'setup' ? null : ss.receiver_id}
             serveTurn={ss.turn}
-            spinKey={L}
+            spinKey={effectiveSides.left}
             overlay={overlay}
           />
           {/* Mode Portrait Kiri-Kanan: Tombol Pemenang Reli Kiri & Kanan berdampingan persis di bawah belahan lapangan masing-masing */}

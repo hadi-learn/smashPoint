@@ -119,7 +119,7 @@ export default function CourtMap({ match, positions, serverId, receiverId, serve
           </span>
         )}
         {receiving && !serving && <span className="rcv-pill">PENERIMA</span>}
-        <div className={`pname ${serving ? serveCls : 'neutral'}`}>{pid ? playerName(match, pid) : '—'}</div>
+        <div className={`pname ${serving ? serveCls : receiving ? 'receiving' : 'neutral'}`}>{pid ? playerName(match, pid) : '—'}</div>
         {showTags && <div className="tag">{SLOT_TAG[slot]}</div>}
         {renderActions && pid ? <div className="icons">{renderActions(pid, slot)}</div> : null}
       </div>

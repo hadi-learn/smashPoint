@@ -85,9 +85,12 @@ export default function SetupScreen({ match, send, pending, connected }) {
   const dbl = isDoubles(match);
   const [left, setLeft] = useState(st.sides.left);
   const [pos, setPos] = useState(dbl ? st.positions : { a: { even: 'a1', odd: null }, b: { even: 'b1', odd: null } });
-  const [server, setServer] = useState(null);
-  const [receiver, setReceiver] = useState(null);
   const suggested = st.current_set > 1 ? st.service_status.side : null;
+  const initialServer = suggested ? (dbl ? st.positions?.[suggested]?.even || `${suggested}1` : `${suggested}1`) : null;
+  const oppSuggested = suggested ? other(suggested) : null;
+  const initialReceiver = oppSuggested ? (dbl ? st.positions?.[oppSuggested]?.even || `${oppSuggested}1` : `${oppSuggested}1`) : null;
+  const [server, setServer] = useState(initialServer);
+  const [receiver, setReceiver] = useState(initialReceiver);
 
   const preview = useMemo(
     () => ({
@@ -104,11 +107,18 @@ export default function SetupScreen({ match, send, pending, connected }) {
     return p;
   };
   const pickServer = (pid) => {
+    const srvTeam = pid[0];
+    const rcvTeam = other(srvTeam);
     setServer(pid);
     if (dbl) {
-      setPos((p) => moveToEven(p, pid));
-      if (receiver && receiver[0] === pid[0]) setReceiver(null);
-    } else setReceiver(`${other(pid[0])}1`);
+      setPos((p) => {
+        const nextP = moveToEven(p, pid);
+        if (!receiver || receiver[0] === srvTeam) {
+          setReceiver(nextP[rcvTeam]?.even || `${rcvTeam}1`);
+        }
+        return nextP;
+      });
+    } else setReceiver(`${rcvTeam}1`);
   };
   const pickReceiver = (pid) => {
     if (!server || pid[0] === server[0]) return;
@@ -116,9 +126,13 @@ export default function SetupScreen({ match, send, pending, connected }) {
     setPos((p) => moveToEven(p, pid));
   };
   const swapTeam = (t) => {
-    setPos((p) => ({ ...p, [t]: { even: p[t].odd, odd: p[t].even } }));
-    if (server?.[0] === t) setServer(null);
-    if (receiver?.[0] === t) setReceiver(null);
+    setPos((p) => {
+      const nextEven = p[t].odd;
+      const nextOdd = p[t].even;
+      if (server?.[0] === t && nextEven) setServer(nextEven);
+      if (receiver?.[0] === t && nextEven) setReceiver(nextEven);
+      return { ...p, [t]: { even: nextEven, odd: nextOdd } };
+    });
   };
 
   const right = other(left);

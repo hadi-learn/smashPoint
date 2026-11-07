@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyAction, initialLiveState, courtPositions, getRecentRallies } from '../lib/engine.js';
+import { applyAction, breakCountdownInfo, initialLiveState, courtPositions, getRecentRallies } from '../lib/engine.js';
 
 function mk(discipline, scoring_method, scoring_type = 'sets', win_point = 21, interval_point = 11) {
   const dbl = ['MD', 'WD', 'XD'].includes(discipline);
@@ -81,15 +81,26 @@ test('side out doubles: opening serve starts at 2nd serve, then opponent gets 1s
   assert.equal(m.live_state.service_status.turn, 1);
 });
 
-test('interval at interval_point locks scoring and swaps on continuous', () => {
+test('interval at interval_point locks scoring and swaps on continuous (120s for continuous, 60s for sets)', () => {
   const m = mk('MS', 'rally_point', 'continuous', 30, 15);
   start(m);
   for (let i = 0; i < 15; i += 1) act(m, 'WIN_RALLY', { team: 'a' });
   assert.equal(m.live_state.phase, 'interval');
+  // Continuous interval must be 120 seconds (2 minutes)
+  const btCont = breakCountdownInfo(m);
+  assert.equal(btCont.targetSec, 120);
   assert.throws(() => act(m, 'WIN_RALLY', { team: 'a' }));
   act(m, 'CONFIRM_INTERVAL');
   assert.equal(m.live_state.sides.left, 'b');
   assert.equal(m.live_state.phase, 'live');
+
+  // Sets interval must be 60 seconds (1 minute)
+  const mSets = mk('MS', 'rally_point', 'sets', 21, 11);
+  start(mSets);
+  for (let i = 0; i < 11; i += 1) act(mSets, 'WIN_RALLY', { team: 'a' });
+  assert.equal(mSets.live_state.phase, 'interval');
+  const btSets = breakCountdownInfo(mSets);
+  assert.equal(btSets.targetSec, 60);
 });
 
 test('sets: deuce, set break, next set, finish', () => {

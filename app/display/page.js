@@ -467,13 +467,27 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
     );
   } else if (st.phase === 'interval') {
     const bt = breakCountdownInfo(match, now);
+    const isCont = match.rules.scoring_type === 'continuous';
     overlay = (
       <div className="tv-overlay">
-        <div className="tv-overlay-badge">MATCH INTERVAL (BWF 60s)</div>
+        <div className="tv-overlay-badge">
+          MATCH INTERVAL ({isCont ? '2 MENIT / 120s' : 'BWF 60s'})
+        </div>
         <h1>{st.interval_swap ? 'INTERVAL · TUKAR SISI LAPANGAN' : 'INTERVAL BREAK'}</h1>
         <h2>
           {st.score[L]} — {st.score[R]}
         </h2>
+        {ss.player_name && (
+          <div className="tv-break-serve-info">
+            <span className="tv-break-srv-chip">🏸 Servis: <strong>{ss.player_name}</strong></span>
+            {ss.receiver_name && (
+              <>
+                <span className="tv-break-arrow">➔</span>
+                <span className="tv-break-rcv-chip">🎯 Penerima: <strong>{ss.receiver_name}</strong></span>
+              </>
+            )}
+          </div>
+        )}
         {bt && (
           <div className={`tv-break-timer mono ${bt.isOvertime ? 'overtime' : bt.callWarning ? 'warning' : ''}`}>
             ⏱ {bt.isOvertime ? '00:00 · MULAI' : bt.formatted}
@@ -486,12 +500,12 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
     const bt = breakCountdownInfo(match, now);
     overlay = (
       <div className="tv-overlay">
-        <div className="tv-overlay-badge">END OF GAME {st.current_set} (BWF 120s)</div>
+        <div className="tv-overlay-badge">END OF GAME {st.current_set} (BWF 120s / 2 MENIT)</div>
         <h1>{teamLabel(match, st.game_winner)}</h1>
         <h2>
           Skor Set: {last?.a} - {last?.b} · Kedudukan Set {st.sets.a} - {st.sets.b}
         </h2>
-        <p>Pemain bertukar sisi lapangan</p>
+        <p>Pemain bertukar sisi lapangan · Servis pertama Set {st.current_set + 1}: <strong>{teamLabel(match, st.game_winner)}</strong></p>
         {bt && (
           <div className={`tv-break-timer mono ${bt.isOvertime ? 'overtime' : bt.callWarning ? 'warning' : ''}`}>
             ⏱ {bt.isOvertime ? '00:00 · MULAI' : bt.formatted}
@@ -521,7 +535,10 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
           {alert && <span className={`arena-alert-pill ${alert.tone}`}>{alert.type}</span>}
           {duration && (
             <div className="arena-duration-badge" title="Durasi Pertandingan">
-              <span className="arena-duration-label">⏱ DURASI</span>
+              <div className="arena-duration-meta">
+                <span className="arena-duration-icon">⏱</span>
+                <span className="arena-duration-label">DURASI</span>
+              </div>
               <span className="arena-duration-time mono">{duration}</span>
             </div>
           )}
@@ -581,20 +598,37 @@ function ArenaTeamCard({ match, t, screen }) {
         </div>
       )}
 
-      {/* Player Roster with Individual Server Highlight */}
+      {/* Player Roster with Individual Server AND Receiver Highlight */}
       <div className="arena-roster">
         {players.map((pid) => {
+          const activePhase = !['setup', 'finished'].includes(st.phase);
           const isServer = serving && ss.player_id === pid;
+          const isReceiver = activePhase && !serving && ss.receiver_id === pid;
           const name = pid[1] === '1' ? tm.p1 : tm.p2;
+          const rowStateCls = isServer
+            ? `active-server ${serveClass}`
+            : isReceiver
+            ? 'active-receiver'
+            : 'neutral';
+          const nameStateCls = isServer
+            ? `server ${serveClass}`
+            : isReceiver
+            ? 'receiver'
+            : 'neutral';
           return (
-            <div key={pid} className={`arena-player-row ${isServer ? `active-server ${serveClass}` : 'neutral'}`}>
+            <div key={pid} className={`arena-player-row ${rowStateCls}`}>
               <div className="arena-player-name-wrap">
-                <span className={`arena-player-name ${dbl ? 'doubles' : 'singles'} ${isServer ? `server ${serveClass}` : 'neutral'}`}>
+                <span className={`arena-player-name ${dbl ? 'doubles' : 'singles'} ${nameStateCls}`}>
                   {name}
                 </span>
                 {isServer && (
                   <span className={`tv-serve-label ${serveClass}`}>
                     {sideOut ? (isSecondServe ? '2ND SERVE' : '1ST SERVE') : 'SERVE'}
+                  </span>
+                )}
+                {isReceiver && (
+                  <span className="tv-rcv-label">
+                    PENERIMA
                   </span>
                 )}
               </div>
