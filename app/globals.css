@@ -1031,15 +1031,40 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   border-radius: 0.55vw; letter-spacing: 0.05em;
 }
 .arena-duration-badge {
-  background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(34, 211, 238, 0.45);
-  color: var(--cyan); font-size: 1.4vw; font-weight: 900; padding: 0.4vw 1vw;
-  border-radius: 0.55vw; letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7vw;
+  background: linear-gradient(180deg, rgba(8, 51, 68, 0.96) 0%, rgba(4, 28, 44, 0.98) 100%);
+  border: 0.16vw solid #22d3ee;
+  padding: 0.32vw 1.15vw;
+  border-radius: 0.65vw;
+  box-shadow: 0 0 1.4vw rgba(34, 211, 238, 0.35), 0 4px 16px rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+}
+.arena-duration-label {
+  font-size: 1.25vw;
+  font-weight: 900;
+  color: #67e8f9;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.arena-duration-time {
+  font-size: 2.35vw;
+  font-weight: 950;
+  color: #ffffff;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 1vw rgba(34, 211, 238, 0.65);
 }
 
 .arena-body {
   position: relative; flex: 1; display: grid;
   grid-template-columns: 1fr auto 1fr; min-height: 0;
   padding: 1.4vw 2vw 1.8vw; gap: 1.4vw;
+}
+.arena-body.no-center {
+  grid-template-columns: 1fr 1fr;
 }
 .arena-center-divider {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1400,9 +1425,9 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 /* Final Match Result Comparison Grid (Winner vs Opponent) on Arena TV */
 .tv-result-grid {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: 1fr 1fr;
   align-items: stretch;
-  gap: 1.2vw;
+  gap: 1.4vw;
   width: 100%;
 }
 .tv-result-card {
@@ -2206,6 +2231,8 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 .ls-history-container {
   display: flex;
   justify-content: center;
+  width: 100%;
+  overflow: hidden;
   padding: 4px 8px;
   background: rgba(2, 6, 23, 0.5);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -2215,6 +2242,12 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   border-left: none;
   background: transparent;
   padding: 0;
+  width: 100%;
+  align-items: center;
+}
+.ls-history-container .rhs-header {
+  width: 100%;
+  justify-content: center;
 }
 
 /* Bottom Sub-bar of Scorebug */

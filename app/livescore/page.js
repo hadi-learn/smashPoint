@@ -73,8 +73,8 @@ function LiveScoreCourtCard({
   const previous = snapshot?.previous || [];
   const compact = totalSlots >= 5; // 5..8 courts -> compact density
   const medium = totalSlots >= 3 && totalSlots <= 4;
-  // History limit scales dynamically based on court card size: 1 -> 12, 2 -> 10, 3-4 -> 8, 5-8 -> 5
-  const historyLimit = totalSlots === 1 ? 12 : totalSlots === 2 ? 10 : totalSlots <= 4 ? 8 : 5;
+  // History limit scales dynamically based on court card size (1 -> 40, 2 -> 25, 3-4 -> 18, 5-8 -> 12) + autoFit ResizeObserver
+  const historyLimit = totalSlots === 1 ? 40 : totalSlots === 2 ? 25 : totalSlots <= 4 ? 18 : 12;
 
   // Render Court Selector Header
   const renderCardHeader = () => {
@@ -352,18 +352,21 @@ function LiveScoreCourtCard({
       </div>
 
       {/* Dynamic Rally/Serve History Strip between Scorebar and CourtMap */}
-      <div className="ls-history-container">
-        <RallyHistoryStrip
-          match={match}
-          limit={historyLimit}
-          topSide={L}
-          bottomSide={R}
-          compact={compact}
-          showTeamNames={!compact}
-        />
-      </div>
+      {st.rally_history?.length > 0 && (
+        <div className="ls-history-container">
+          <RallyHistoryStrip
+            match={match}
+            limit={historyLimit}
+            autoFit
+            topSide={L}
+            bottomSide={R}
+            compact={compact}
+            showTeamNames={!compact}
+          />
+        </div>
+      )}
 
-      {/* Animated Badminton Court (same visual CourtMap as Referee page) */}
+      {/* Animated Badminton Court (same visual CourtMap as Referee page, without odd/even box tags) */}
       <div className="ls-court-wrap">
         <CourtMap
           match={match}
@@ -373,7 +376,7 @@ function LiveScoreCourtCard({
           serveTurn={ss.turn}
           spinKey={L}
           overlay={overlay}
-          showTags={!compact}
+          showTags={false}
         />
       </div>
 

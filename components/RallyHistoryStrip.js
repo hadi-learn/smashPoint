@@ -1,5 +1,5 @@
 'use client';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getRecentRallies, teamLabel } from '@/lib/engine';
 
 /**
@@ -8,8 +8,12 @@ import { getRecentRallies, teamLabel } from '@/lib/engine';
  *
  * Requirements:
  *  - Dynamic count: if there are 5 rallies, renders exactly 5 columns.
- *    If 7 rallies, renders exactly 7 columns. Up to max `limit` (e.g. 10).
+ *    If 7 rallies, renders exactly 7 columns. Up to max `effectiveLimit`.
  *    NO empty placeholder/dashed boxes! If 0 rallies, renders nothing.
+ *  - Auto-fit width (`autoFit={true}` for LiveScore multi-court):
+ *    Dynamically measures the available container width via ResizeObserver
+ *    so 1-court view can fit ~40+ rallies, 2-court view ~25+ rallies, etc.,
+ *    automatically adjusting when reaching max allowed card width.
  *  - Strict vertical alignment (Top vs Bottom):
  *    Top row corresponds to Top Team (e.g. Team A / Left Side).
  *    Bottom row corresponds to Bottom Team (e.g. Team B / Right Side).
@@ -24,6 +28,7 @@ import { getRecentRallies, teamLabel } from '@/lib/engine';
 export default function RallyHistoryStrip({
   match,
   limit = 10,
+  autoFit = false,
   topSide = 'a',
   bottomSide = 'b',
   compact = false,
@@ -32,9 +37,50 @@ export default function RallyHistoryStrip({
   title = null,
   className = '',
 }) {
+  const wrapRef = useRef(null);
+  const [measuredLimit, setMeasuredLimit] = useState(null);
+
+  const hasRallies = Boolean(match?.live_state?.rally_history?.length);
+
+  useEffect(() => {
+    if (!autoFit || !hasRallies) {
+      setMeasuredLimit(null);
+      return undefined;
+    }
+    const el = wrapRef.current;
+    if (!el) return undefined;
+    const host = el.parentElement || el;
+
+    const computeFit = () => {
+      const hostWidth = host.clientWidth || el.clientWidth || 0;
+      if (!hostWidth) return;
+      // Subtract container horizontal padding (~16px) and optional left team label column width
+      const innerWidth = Math.max(0, hostWidth - 18);
+      const teamLabelWidth = showTeamNames ? (compact ? 56 : 75) : 0;
+      const availableWidth = Math.max(0, innerWidth - teamLabelWidth);
+      const colWidth = compact ? 21 : 27;
+      const colGap = 3;
+      const cols = Math.floor((availableWidth + colGap) / (colWidth + colGap));
+      const clamped = Math.max(5, Math.min(60, cols));
+      setMeasuredLimit((prev) => (prev === clamped ? prev : clamped));
+    };
+
+    computeFit();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(computeFit);
+      ro.observe(host);
+      return () => ro.disconnect();
+    }
+    window.addEventListener('resize', computeFit);
+    return () => window.removeEventListener('resize', computeFit);
+  }, [autoFit, hasRallies, compact, showTeamNames]);
+
+  const effectiveLimit = autoFit && measuredLimit ? measuredLimit : limit;
+
   const rallies = useMemo(() => {
-    return getRecentRallies(match, limit, false);
-  }, [match?.live_state?.rally_history, limit]);
+    return getRecentRallies(match, effectiveLimit, false);
+  }, [match?.live_state?.rally_history, effectiveLimit]);
 
   if (!rallies || rallies.length === 0) {
     return null; // Do not render if no rallies yet
@@ -101,7 +147,7 @@ export default function RallyHistoryStrip({
   };
 
   return (
-    <div className={`rhs-wrap ${compact ? 'compact' : ''} ${className}`}>
+    <div ref={wrapRef} className={`rhs-wrap ${compact ? 'compact' : ''} ${autoFit ? 'auto-fit' : ''} ${className}`}>
       {showLabel && (
         <div className="rhs-header">
           <span className="rhs-title">📊 {dynamicTitle}</span>

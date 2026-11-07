@@ -397,8 +397,6 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
               </div>
             </div>
 
-            <div className="tv-result-vs">VS</div>
-
             <div className="tv-result-card opponent">
               <div className="tv-result-card-left">
                 <div className="row" style={{ gap: '0.5vw' }}>
@@ -521,17 +519,21 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
 
         <div className="arena-header-right">
           {alert && <span className={`arena-alert-pill ${alert.tone}`}>{alert.type}</span>}
-          {duration && <span className="arena-duration-badge mono">⏱ {duration}</span>}
+          {duration && (
+            <div className="arena-duration-badge" title="Durasi Pertandingan">
+              <span className="arena-duration-label">⏱ DURASI</span>
+              <span className="arena-duration-time mono">{duration}</span>
+            </div>
+          )}
           <span className="arena-match-badge">{match.match_number}</span>
         </div>
       </header>
 
       {/* Main Split Arena Cards (Left Court Side vs Right Court Side) */}
-      <div className={`arena-body ${anim ? 'tv-swap' : ''}`}>
+      <div className={`arena-body ${!isSets ? 'no-center' : ''} ${anim ? 'tv-swap' : ''}`}>
         <ArenaTeamCard match={match} t={L} screen="left" />
-        <div className="arena-center-divider">
-          <div className="arena-vs-circle">VS</div>
-          {isSets && (
+        {isSets && (
+          <div className="arena-center-divider">
             <div className="arena-set-summary">
               <div className="arena-set-label">SET {st.current_set}</div>
               <div className="arena-set-digits">
@@ -540,8 +542,8 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
                 <span>{st.sets[R]}</span>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
         <ArenaTeamCard match={match} t={R} screen="right" />
 
         {overlay}

@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { DISCIPLINE_LABEL, isDoubles, matchDurationText, teamSeedBadge, teamSeedText } from '@/lib/engine';
-import { api, getSocket, useNow } from '@/lib/client';
+import { api, getSocket, lsGet, lsSet, useNow } from '@/lib/client';
 
 export const STATUS_BADGE = {
   scheduled: ['Terjadwal', ''],
@@ -75,10 +75,12 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
   const [court, setCourt] = useState(null);
   const [list, setList] = useState(null);
   const [nameAlert, setNameAlert] = useState(false);
+  const [hideFinished, setHideFinished] = useState(false);
 
   const hasName = Boolean(String(label || '').trim());
 
   useEffect(() => {
+    setHideFinished(Boolean(lsGet('sp_ref_hide_finished', false)));
     api('/api/config').then((c) => {
       if (c.court_count) setCourtCount(c.court_count);
       if (c.active_profile) setActiveProfile(c.active_profile);
@@ -96,6 +98,14 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
     setList(null);
     api(`/api/matches?court=${court}`).then((r) => setList(r.matches || []));
   }, [court, activeProfile?.id]);
+
+  const toggleHideFinished = () => {
+    setHideFinished((prev) => {
+      const next = !prev;
+      lsSet('sp_ref_hide_finished', next);
+      return next;
+    });
+  };
 
   const tryOpen = (matchNumber) => {
     if (!hasName) {
@@ -182,7 +192,17 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
       </form>
 
       <div className="card col">
-        <h3>Atau pilih dari Jadwal Lapangan</h3>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: 0 }}>Atau pilih dari Jadwal Lapangan</h3>
+          <button
+            type="button"
+            className={`btn btn-sm ${hideFinished ? 'btn-yellow' : 'btn-ghost'}`}
+            onClick={toggleHideFinished}
+            title="Sembunyikan atau tampilkan pertandingan yang sudah selesai"
+          >
+            {hideFinished ? '👁️ Tampilkan Match Selesai' : '🙈 Sembunyikan Match Selesai'}
+          </button>
+        </div>
         <div className="court-links" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))' }}>
           {Array.from({ length: courtCount }, (_, i) => (
             <button key={i} className={`btn btn-sm ${court === i + 1 ? 'btn-primary' : ''}`} onClick={() => setCourt(i + 1)} type="button">
@@ -190,44 +210,73 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
             </button>
           ))}
         </div>
-        {court && (
-          <div className="col">
-            <div className="muted small">Jadwal Lapangan {court}</div>
-            {!list && <div className="muted">Memuat…</div>}
-            {list && !list.length && <div className="muted">Belum ada match di lapangan ini.</div>}
-            {list?.map((m) => (
-              <button
-                key={m.match_number}
-                className="list-item"
-                style={{ opacity: hasName ? 1 : 0.7 }}
-                onClick={() => tryOpen(m.match_number)}
-                type="button"
-              >
-                <div style={{ minWidth: 105 }}>
-                  <div style={{ fontWeight: 900, fontSize: '1.1rem' }}>{m.match_number}</div>
-                  {m.scheduled_date && <div className="small muted">{m.scheduled_date}</div>}
-                  <div className="small muted">{m.scheduled_time}</div>
+        {court && (() => {
+          const isMatchFinished = (m) => m.session_management?.status === 'finished' || m.live_state?.phase === 'finished';
+          const finishedCount = list ? list.filter(isMatchFinished).length : 0;
+          const visibleList = list ? (hideFinished ? list.filter((m) => !isMatchFinished(m)) : list) : null;
+
+          return (
+            <div className="col">
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="muted small">
+                  Jadwal Lapangan {court}
+                  {list ? ` · Menampilkan ${visibleList.length} dari ${list.length} pertandingan` : ''}
+                  {hideFinished && finishedCount > 0 ? ` (${finishedCount} selesai disembunyikan)` : ''}
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700 }}>
-                    {[m.teams.team_a.p1, m.teams.team_a.p2].filter(Boolean).join(' / ')}
-                    {teamSeedBadge(m, 'a') && <span className="seed-pill">{teamSeedBadge(m, 'a')}</span>}{' '}
-                    <span className="muted">vs</span>{' '}
-                    {[m.teams.team_b.p1, m.teams.team_b.p2].filter(Boolean).join(' / ')}
-                    {teamSeedBadge(m, 'b') && <span className="seed-pill">{teamSeedBadge(m, 'b')}</span>}
+                {list && finishedCount > 0 && (
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${hideFinished ? 'btn-blue' : 'btn-ghost'}`}
+                    onClick={toggleHideFinished}
+                  >
+                    {hideFinished ? `👁️ Lihat ${finishedCount} Match Selesai` : `🙈 Sembunyikan ${finishedCount} Selesai`}
+                  </button>
+                )}
+              </div>
+              {!list && <div className="muted">Memuat…</div>}
+              {list && !list.length && <div className="muted">Belum ada match di lapangan ini.</div>}
+              {list && list.length > 0 && visibleList.length === 0 && (
+                <div className="notice info small row" style={{ justifyContent: 'space-between' }}>
+                  <span>Semua pertandingan ({finishedCount} match) di Lapangan {court} sudah selesai.</span>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={toggleHideFinished}>
+                    Tampilkan Semua
+                  </button>
+                </div>
+              )}
+              {visibleList?.map((m) => (
+                <button
+                  key={m.match_number}
+                  className="list-item"
+                  style={{ opacity: hasName ? 1 : 0.7 }}
+                  onClick={() => tryOpen(m.match_number)}
+                  type="button"
+                >
+                  <div style={{ minWidth: 105 }}>
+                    <div style={{ fontWeight: 900, fontSize: '1.1rem' }}>{m.match_number}</div>
+                    {m.scheduled_date && <div className="small muted">{m.scheduled_date}</div>}
+                    <div className="small muted">{m.scheduled_time}</div>
                   </div>
-                  <div className="small muted">
-                    {m.category_name} · {m.discipline}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700 }}>
+                      {[m.teams.team_a.p1, m.teams.team_a.p2].filter(Boolean).join(' / ')}
+                      {teamSeedBadge(m, 'a') && <span className="seed-pill">{teamSeedBadge(m, 'a')}</span>}{' '}
+                      <span className="muted">vs</span>{' '}
+                      {[m.teams.team_b.p1, m.teams.team_b.p2].filter(Boolean).join(' / ')}
+                      {teamSeedBadge(m, 'b') && <span className="seed-pill">{teamSeedBadge(m, 'b')}</span>}
+                    </div>
+                    <div className="small muted">
+                      {m.category_name} · {m.discipline}
+                    </div>
                   </div>
-                </div>
-                <div className="col" style={{ alignItems: 'flex-end', gap: '.3rem' }}>
-                  <StatusBadge match={m} />
-                  {m.session_management.locked && <span className="badge red">🔒 {m.session_management.controller_label || m.session_management.controller_tag}</span>}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
+                  <div className="col" style={{ alignItems: 'flex-end', gap: '.3rem' }}>
+                    <StatusBadge match={m} />
+                    {m.session_management.locked && <span className="badge red">🔒 {m.session_management.controller_label || m.session_management.controller_tag}</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
