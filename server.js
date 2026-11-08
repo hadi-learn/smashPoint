@@ -382,7 +382,14 @@ async function handleApi(req, res, url) {
     return send(res, r.ok ? 200 : 409, r);
   }
 
-  // ---- exports (read-only)
+  if (pathname === '/api/export/google-apps-script.gs') {
+    const gsPath = path.join(ROOT, 'docs', 'google-apps-script.gs');
+    const code = fs.existsSync(gsPath) ? fs.readFileSync(gsPath, 'utf8') : '';
+    return send(res, 200, code, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': 'inline; filename="google-apps-script.gs"',
+    });
+  }
   if (pathname === '/api/export/results.csv') {
     const rows = Object.values(store.matches)
       .filter((m) => m.session_management.status === 'finished')

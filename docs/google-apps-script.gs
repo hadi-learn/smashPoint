@@ -85,48 +85,11 @@ function doPost(e) {
     lock.waitLock(20000);
     try {
       if (body.type === 'match_result' && body.result) {
+        // 1. Upsert baris hasil akhir ke sheet "Results" (otomatis menambah kolom baru seperti referee_name & shuttlecock_count)
         upsertRow_(ss, 'Results', body.result, 'match_number');
-        const logHeader = [
-          'log_id',
-          'match_number',
-          'timestamp',
-          'event_type',
-          'details',
-          'actor_id',
-          'referee_name',
-          'shuttlecock_count',
-          'score_a',
-          'score_b',
-          'set',
-        ];
-        const logSheet = getSheet_(ss, 'Logs', logHeader);
-        // Pastikan header sheet Logs memiliki kolom baru jika sheet sudah ada sebelumnya
-        const lastLogCol = Math.max(logSheet.getLastColumn(), logHeader.length);
-        let curLogHead = logSheet.getRange(1, 1, 1, lastLogCol).getValues()[0].map((h) => String(h).trim());
-        let logHeadChanged = false;
-        for (let i = 0; i < logHeader.length; i++) {
-          if (curLogHead.indexOf(logHeader[i]) === -1) {
-            curLogHead.push(logHeader[i]);
-            logHeadChanged = true;
-          }
-        }
-        if (logHeadChanged) {
-          logSheet.getRange(1, 1, 1, curLogHead.length).setValues([curLogHead]);
-        }
-        const existing = new Set(
-          logSheet.getLastRow() > 1
-            ? logSheet
-                .getRange(2, 1, logSheet.getLastRow() - 1, 1)
-                .getValues()
-                .map((r) => String(r[0]))
-            : []
-        );
-        const rows = (body.logs || [])
-          .filter((l) => !existing.has(String(l.log_id)))
-          .map((l) => curLogHead.map((h) => (l[h] === undefined || l[h] === null ? '' : l[h])));
-        if (rows.length) {
-          logSheet.getRange(logSheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
-        }
+
+        // 2. Sinkronisasi log audit ke sheet "Logs" (otomatis memperbarui header & mengisi kolom referee_name dan shuttlecock_count)
+        upsertLogs_(ss, 'Logs', body.logs || [], body.result);
       }
     } finally {
       lock.releaseLock();
@@ -153,9 +116,12 @@ function getSheet_(ss, name, header) {
 function upsertRow_(ss, name, obj, key) {
   const header = Object.keys(obj);
   const sh = getSheet_(ss, name, header);
-  const lastCol = Math.max(sh.getLastColumn(), header.length);
-  let head = sh.getRange(1, 1, 1, lastCol).getValues()[0].map((h) => String(h).trim());
-  // Jika ada kolom baru (mis. duration_min / duration_text), tambahkan ke kanan header
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  let head = sh.getRange(1, 1, 1, lastCol).getValues()[0].map((h) => String(h).trim()).filter(Boolean);
+  if (head.length === 0) {
+    head = header.slice();
+  }
+  // Jika ada kolom baru (mis. referee_name, shuttlecock_count, duration_min, duration_text), tambahkan ke header
   let headChanged = false;
   for (let i = 0; i < header.length; i++) {
     if (head.indexOf(header[i]) === -1) {
@@ -163,7 +129,7 @@ function upsertRow_(ss, name, obj, key) {
       headChanged = true;
     }
   }
-  if (headChanged) {
+  if (headChanged || sh.getLastColumn() < head.length) {
     sh.getRange(1, 1, 1, head.length).setValues([head]);
   }
   const row = head.map((h) => (obj[h] === undefined || obj[h] === null ? '' : obj[h]));
@@ -177,4 +143,88 @@ function upsertRow_(ss, name, obj, key) {
     }
   }
   sh.appendRow(row);
+}
+
+/**
+ * upsertLogs_: Menyimpan riwayat log pertandingan ke sheet "Logs" lengkap dengan
+ * kolom referee_name (Nama Wasit) dan shuttlecock_count (Jumlah Penggunaan Cock).
+ * Jika sheet "Logs" sudah dibuat dengan versi lama (tanpa kolom referee_name & shuttlecock_count),
+ * fungsi ini otomatis menambahkan kolom tersebut ke baris header dan mengisinya.
+ */
+function upsertLogs_(ss, name, logs, matchResult) {
+  const defaultLogHeader = [
+    'log_id',
+    'match_number',
+    'timestamp',
+    'event_type',
+    'details',
+    'actor_id',
+    'referee_name',
+    'shuttlecock_count',
+    'score_a',
+    'score_b',
+    'set',
+  ];
+  const sh = getSheet_(ss, name, defaultLogHeader);
+  const lastCol = Math.max(sh.getLastColumn(), 1);
+  let head = sh.getRange(1, 1, 1, lastCol).getValues()[0].map((h) => String(h).trim()).filter(Boolean);
+  if (head.length === 0) {
+    head = defaultLogHeader.slice();
+  }
+
+  // Pastikan seluruh kolom standar maupun kolom dinamis dari objek log ada pada header sheet "Logs"
+  const incomingKeys = defaultLogHeader.slice();
+  for (let i = 0; i < logs.length; i++) {
+    const keys = Object.keys(logs[i] || {});
+    for (let k = 0; k < keys.length; k++) {
+      if (incomingKeys.indexOf(keys[k]) === -1) incomingKeys.push(keys[k]);
+    }
+  }
+
+  let headChanged = false;
+  for (let i = 0; i < incomingKeys.length; i++) {
+    if (head.indexOf(incomingKeys[i]) === -1) {
+      head.push(incomingKeys[i]);
+      headChanged = true;
+    }
+  }
+  if (headChanged || sh.getLastColumn() < head.length) {
+    sh.getRange(1, 1, 1, head.length).setValues([head]);
+  }
+
+  if (!logs || !logs.length) return;
+
+  // Map log_id yang sudah ada di sheet agar dapat di-update jika diekspor ulang atau di-append jika baru
+  const logIdCol = head.indexOf('log_id') + 1;
+  const existingRowMap = {};
+  if (sh.getLastRow() > 1 && logIdCol > 0) {
+    const existingIds = sh.getRange(2, logIdCol, sh.getLastRow() - 1, 1).getValues();
+    for (let r = 0; r < existingIds.length; r++) {
+      const idStr = String(existingIds[r][0] || '').trim();
+      if (idStr) existingRowMap[idStr] = r + 2; // Nomor baris di Google Sheet (mulai dari baris 2)
+    }
+  }
+
+  const fallbackReferee = (matchResult && matchResult.referee_name) ? matchResult.referee_name : '';
+  const fallbackCock = (matchResult && matchResult.shuttlecock_count !== undefined) ? matchResult.shuttlecock_count : 0;
+
+  const newRows = [];
+  for (let i = 0; i < logs.length; i++) {
+    const l = logs[i] || {};
+    const enriched = Object.assign({}, l, {
+      referee_name: (l.referee_name !== undefined && l.referee_name !== '') ? l.referee_name : fallbackReferee,
+      shuttlecock_count: (l.shuttlecock_count !== undefined && l.shuttlecock_count !== '') ? l.shuttlecock_count : fallbackCock,
+    });
+    const rowValues = head.map((h) => (enriched[h] === undefined || enriched[h] === null ? '' : enriched[h]));
+    const existingRowNumber = existingRowMap[String(l.log_id || '').trim()];
+    if (existingRowNumber) {
+      sh.getRange(existingRowNumber, 1, 1, rowValues.length).setValues([rowValues]);
+    } else {
+      newRows.push(rowValues);
+    }
+  }
+
+  if (newRows.length > 0) {
+    sh.getRange(sh.getLastRow() + 1, 1, newRows.length, head.length).setValues(newRows);
+  }
 }

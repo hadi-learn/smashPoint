@@ -1489,6 +1489,8 @@ function ExportCard({ pin, exporter, setExporter, notify }) {
   const [webhookSecret, setWebhookSecret] = useState('');
   const [busy, setBusy] = useState(false);
   const [testMsg, setTestMsg] = useState(null);
+  const [showScriptModal, setShowScriptModal] = useState(false);
+  const [scriptText, setScriptText] = useState('');
 
   useEffect(() => {
     if (exporter?.webhook_url !== undefined) {
@@ -1496,6 +1498,34 @@ function ExportCard({ pin, exporter, setExporter, notify }) {
       setTestMsg(null);
     }
   }, [exporter?.webhook_url]);
+
+  const openScriptModal = async () => {
+    setShowScriptModal(true);
+    if (!scriptText) {
+      try {
+        const res = await fetch('/api/export/google-apps-script.gs');
+        const txt = await res.text();
+        setScriptText(txt);
+      } catch {
+        setScriptText('// Gagal memuat kode dari server');
+      }
+    }
+  };
+
+  const copyScript = async () => {
+    try {
+      let txt = scriptText;
+      if (!txt) {
+        const res = await fetch('/api/export/google-apps-script.gs');
+        txt = await res.text();
+        setScriptText(txt);
+      }
+      await navigator.clipboard.writeText(txt);
+      notify({ type: 'ok', text: '📋 Kode Google Apps Script terbaru berhasil disalin! Silakan Paste ke editor Apps Script & Deploy versi baru.' });
+    } catch {
+      openScriptModal();
+    }
+  };
 
   const saveWebhook = async (withTest = false) => {
     setBusy(true);
@@ -1532,6 +1562,9 @@ function ExportCard({ pin, exporter, setExporter, notify }) {
         <a className="btn" href="/api/export/logs.csv">
           ⬇ Semua Log (CSV)
         </a>
+        <button type="button" className="btn btn-yellow" onClick={openScriptModal} title="Lihat & salin kode terbaru Google Apps Script (mendukung kolom referee_name & shuttlecock_count)">
+          📜 Kode Google Apps Script Terbaru
+        </button>
       </div>
 
       {/* Konfigurasi Langsung Webhook Google Apps Script */}
@@ -1610,8 +1643,44 @@ function ExportCard({ pin, exporter, setExporter, notify }) {
         </button>
       </div>
       <p className="small muted" style={{ margin: 0 }}>
-        Hasil match berstatus <b>finished</b> otomatis ditulis ke <span className="mono">exports/</span> dan dikirim ke Google Sheets tab <b>Results</b> &amp; <b>Logs</b>.
+        Hasil match berstatus <b>finished</b> otomatis ditulis ke <span className="mono">exports/</span> dan dikirim ke Google Sheets tab <b>Results</b> &amp; <b>Logs</b> (termasuk kolom <b>referee_name</b> &amp; <b>shuttlecock_count</b>).
       </p>
+
+      {showScriptModal && (
+        <div className="modal-bg" onClick={() => setShowScriptModal(false)}>
+          <div className="modal col" style={{ width: 'min(920px, 100%)' }} onClick={(e) => e.stopPropagation()}>
+            <div className="row">
+              <h2 style={{ margin: 0 }}>📜 Kode Google Apps Script Terbaru (Results &amp; Logs + Wasit &amp; Cock)</h2>
+              <div className="spacer" />
+              <button type="button" className="btn btn-sm btn-green" onClick={copyScript}>
+                📋 Salin Seluruh Kode
+              </button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setShowScriptModal(false)}>
+                ✕
+              </button>
+            </div>
+            <div className="notice warn small">
+              <b>⚠️ PENTING — Cara Update di Google Spreadsheet agar Kolom Baru Muncul:</b>
+              <ol style={{ margin: '.35rem 0 0 1.2rem', padding: 0 }}>
+                <li>Buka Google Spreadsheet Anda → klik menu <b>Extensions (Ekstensi) → Apps Script</b>.</li>
+                <li>Hapus seluruh kode lama, lalu <b>Paste (Tempel)</b> kode terbaru di bawah ini dan tekan <b>Ctrl+S (Simpan)</b>.</li>
+                <li>
+                  Klik tombol biru <b>Deploy (Terapkan)</b> di kanan atas → pilih <b>Manage deployments (Kelola deployment)</b> → klik ikon <b>Pensil (Edit)</b> → pada bagian <b>Version (Versi)</b> pilih <b>&quot;New version (Versi baru)&quot;</b> → klik <b>Deploy</b>.
+                  <br />
+                  <span className="muted">(Atau pilih <b>Deploy → New deployment</b> lalu salin Web App URL barunya ke SmashPoint). Tanpa membuat <b>New version</b>, Google Apps Script akan tetap menjalankan kode versi lama!</span>
+                </li>
+              </ol>
+            </div>
+            <textarea
+              className="input mono"
+              style={{ fontSize: '.78rem', lineHeight: 1.45, minHeight: 360 }}
+              readOnly
+              value={scriptText}
+              onClick={(e) => e.target.select()}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
