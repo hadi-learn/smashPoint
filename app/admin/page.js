@@ -1,7 +1,7 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { api, emitAck, getSocket, useNow } from '@/lib/client';
+import { api, emitAck, getSocket, lsGet, lsSet, useNow } from '@/lib/client';
 import {
   DISCIPLINES,
   DISCIPLINE_LABEL,
@@ -1110,13 +1110,17 @@ function compareByCol(col, x, y, now) {
   }
 }
 
-function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
-  const [q, setQ] = useState('');
-  const [status, setStatus] = useState('');
-  const [court, setCourt] = useState('');
-  const [category, setCategory] = useState('');
-  // Multi-sort criteria: array of { col, dir: 'asc' | 'desc' }
-  const [sorts, setSorts] = useState([]);
+function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify, prefs, setPrefs }) {
+  const { q, status, court, category, sorts } = prefs;
+  const setQ = (val) => setPrefs((p) => ({ ...p, q: val }));
+  const setStatus = (val) => setPrefs((p) => ({ ...p, status: val }));
+  const setCourt = (val) => setPrefs((p) => ({ ...p, court: val }));
+  const setCategory = (val) => setPrefs((p) => ({ ...p, category: val }));
+  const setSorts = (updater) =>
+    setPrefs((p) => ({
+      ...p,
+      sorts: typeof updater === 'function' ? updater(p.sorts || []) : updater,
+    }));
   const [addSortCol, setAddSortCol] = useState('');
 
   const categories = useMemo(() => {
@@ -2377,11 +2381,12 @@ function TournamentProfileBar({ token, activeProfile, profiles = [], onSwitched,
  *  - 'discipline': Per-Disiplin (MS, WS, MD, WD, XD)
  *  - 'status': Per-Status Pertandingan (Live, Setup, Terjadwal, Selesai)
  */
-function GroupedMatchBoard({ matches, now, onEdit, onLogs }) {
-  const [groupBy, setGroupBy] = useState('court'); // 'court' | 'category' | 'date' | 'discipline' | 'status'
-  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'active_upcoming' | 'in_progress' | 'scheduled' | 'finished'
-  const [cols, setCols] = useState(2); // 1 | 2 | 3 | 4 columns of cards
-  const [q, setQ] = useState('');
+function GroupedMatchBoard({ matches, now, onEdit, onLogs, prefs, setPrefs }) {
+  const { groupBy, statusFilter, cols, q } = prefs;
+  const setGroupBy = (val) => setPrefs((p) => ({ ...p, groupBy: val }));
+  const setStatusFilter = (val) => setPrefs((p) => ({ ...p, statusFilter: val }));
+  const setCols = (val) => setPrefs((p) => ({ ...p, cols: val }));
+  const setQ = (val) => setPrefs((p) => ({ ...p, q: val }));
 
   const filteredMatches = useMemo(() => {
     return matches.filter((m) => {
@@ -2777,7 +2782,20 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs }) {
 export default function AdminPage() {
   const [token, setToken] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'users'
+  const [activeTab, setActiveTabState] = useState('dashboard'); // 'dashboard' | 'board' | 'users'
+  const [boardPrefs, setBoardPrefsState] = useState({
+    groupBy: 'court', // 'court' | 'category' | 'date' | 'discipline' | 'status'
+    statusFilter: 'all', // 'all' | 'active_upcoming' | 'in_progress' | 'scheduled' | 'finished'
+    cols: 2, // 1 | 2 | 3
+    q: '',
+  });
+  const [tablePrefs, setTablePrefsState] = useState({
+    q: '',
+    status: '',
+    court: '',
+    category: '',
+    sorts: [],
+  });
   const [activeProfile, setActiveProfile] = useState(null);
   const [profiles, setProfiles] = useState([]);
   const [matches, setMatches] = useState([]);
@@ -2790,6 +2808,27 @@ export default function AdminPage() {
   const [notice, setNotice] = useState(null);
   const now = useNow(1000);
 
+  const setActiveTab = useCallback((tab) => {
+    setActiveTabState(tab);
+    lsSet('sp_admin_active_tab', tab);
+  }, []);
+
+  const setBoardPrefs = useCallback((updater) => {
+    setBoardPrefsState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      lsSet('sp_admin_board_prefs', next);
+      return next;
+    });
+  }, []);
+
+  const setTablePrefs = useCallback((updater) => {
+    setTablePrefsState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      lsSet('sp_admin_table_prefs', next);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const savedTok = sessionStorage.getItem('sp_admin_token') || sessionStorage.getItem('sp_admin_pin');
     const savedUsr = sessionStorage.getItem('sp_admin_user');
@@ -2798,6 +2837,27 @@ export default function AdminPage() {
       try {
         setCurrentUser(JSON.parse(savedUsr));
       } catch { /* ignore */ }
+    }
+    const savedTab = lsGet('sp_admin_active_tab', 'dashboard');
+    if (['dashboard', 'board', 'users'].includes(savedTab)) setActiveTabState(savedTab);
+    const savedBoard = lsGet('sp_admin_board_prefs', null);
+    if (savedBoard && typeof savedBoard === 'object') {
+      setBoardPrefsState((prev) => ({
+        groupBy: ['court', 'category', 'date', 'discipline', 'status'].includes(savedBoard.groupBy) ? savedBoard.groupBy : prev.groupBy,
+        statusFilter: ['all', 'active_upcoming', 'in_progress', 'scheduled', 'finished'].includes(savedBoard.statusFilter) ? savedBoard.statusFilter : prev.statusFilter,
+        cols: [1, 2, 3].includes(Number(savedBoard.cols)) ? Number(savedBoard.cols) : prev.cols,
+        q: typeof savedBoard.q === 'string' ? savedBoard.q : prev.q,
+      }));
+    }
+    const savedTable = lsGet('sp_admin_table_prefs', null);
+    if (savedTable && typeof savedTable === 'object') {
+      setTablePrefsState((prev) => ({
+        q: typeof savedTable.q === 'string' ? savedTable.q : prev.q,
+        status: typeof savedTable.status === 'string' ? savedTable.status : prev.status,
+        court: typeof savedTable.court === 'string' ? savedTable.court : prev.court,
+        category: typeof savedTable.category === 'string' ? savedTable.category : prev.category,
+        sorts: Array.isArray(savedTable.sorts) ? savedTable.sorts : prev.sorts,
+      }));
     }
     api('/api/config').then((c) => c.court_count && setCourtCount(c.court_count));
   }, []);
@@ -2959,7 +3019,14 @@ export default function AdminPage() {
           notify={notify}
         />
       ) : activeTab === 'board' ? (
-        <GroupedMatchBoard matches={matches} now={now} onEdit={setEditMatch} onLogs={setLogsFor} />
+        <GroupedMatchBoard
+          matches={matches}
+          now={now}
+          onEdit={setEditMatch}
+          onLogs={setLogsFor}
+          prefs={boardPrefs}
+          setPrefs={setBoardPrefs}
+        />
       ) : (
         <>
           <CourtGrid
@@ -2987,7 +3054,17 @@ export default function AdminPage() {
             <ExportCard pin={token} exporter={exporter} setExporter={setExporter} notify={notify} />
           </div>
 
-          <MatchTable matches={matches} pin={token} courtCount={courtCount} now={now} onEdit={setEditMatch} onLogs={setLogsFor} notify={notify} />
+          <MatchTable
+            matches={matches}
+            pin={token}
+            courtCount={courtCount}
+            now={now}
+            onEdit={setEditMatch}
+            onLogs={setLogsFor}
+            notify={notify}
+            prefs={tablePrefs}
+            setPrefs={setTablePrefs}
+          />
         </>
       )}
 
