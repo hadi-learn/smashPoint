@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyAction, breakCountdownInfo, initialLiveState, courtPositions, getRecentRallies } from '../lib/engine.js';
+import { applyAction, breakCountdownInfo, formatLocalDateTime, initialLiveState, courtPositions, getRecentRallies } from '../lib/engine.js';
 
 function mk(discipline, scoring_method, scoring_type = 'sets', win_point = 21, interval_point = 11) {
   const dbl = ['MD', 'WD', 'XD'].includes(discipline);
@@ -223,4 +223,32 @@ test('Side-Out Doubles: records 2nd serve and side out correctly in rally histor
   assert.equal(r3.second_serve, true);
   assert.equal(r3.event, 'SIDE_OUT_2ND');
   assert.deepEqual(r3.score, { a: 0, b: 1 });
+});
+
+test('Shuttlecock usage counter & local date time formatting', () => {
+  const m = mk('MD', 'rally_point', 'sets', 21, 11);
+  assert.equal(m.live_state.shuttlecock_count, 0);
+
+  // Starting the match initializes shuttlecock_count to 1
+  start(m);
+  assert.equal(m.live_state.shuttlecock_count, 1);
+
+  // Referee increments shuttlecock usage (+1)
+  const addRes = act(m, 'SHUTTLECOCK', { delta: 1 });
+  assert.equal(addRes.event_type, 'SHUTTLECOCK_ADD');
+  assert.equal(m.live_state.shuttlecock_count, 2);
+
+  // Referee decrements shuttlecock usage (-1)
+  const subRes = act(m, 'SHUTTLECOCK', { delta: -1 });
+  assert.equal(subRes.event_type, 'SHUTTLECOCK_SUB');
+  assert.equal(m.live_state.shuttlecock_count, 1);
+
+  // Direct count via OVERRIDE
+  act(m, 'OVERRIDE', { shuttlecock_count: 5 });
+  assert.equal(m.live_state.shuttlecock_count, 5);
+
+  // Format local date time produces standard YYYY-MM-DD HH:mm:ss
+  const formatted = formatLocalDateTime('2026-11-08T04:54:19.000Z');
+  assert.match(formatted, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  assert.equal(formatLocalDateTime(''), '');
 });

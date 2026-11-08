@@ -89,6 +89,7 @@ export default function RallyHistoryStrip({
   const topName = teamLabel(match, topSide);
   const bottomName = teamLabel(match, bottomSide);
   const dynamicTitle = title || `${rallies.length} RALLY TERAKHIR`;
+  const isSideOutMode = match?.rules?.scoring_method === 'side_out';
 
   const renderCell = (r, team, isTopRow) => {
     const winner = r.winner;
@@ -109,39 +110,43 @@ export default function RallyHistoryStrip({
       tone = 'loser-server'; // Server that lost the rally
     }
 
-    // Pure symbols for serves: 1 dot for 1st serve, 2 dots for 2nd serve, ⇄ for side-out
+    // Pure symbols for serves: ONLY shown in side_out mode (never in rally_point mode)
     let symbol = null;
-    if (isServer) {
-      if (isSecondServe) {
+    if (isSideOutMode) {
+      if (isServer) {
+        if (isSecondServe) {
+          symbol = (
+            <span className="rhs-dot-sym serve-2" title="Servis ke-2">
+              ● ●
+            </span>
+          );
+        } else {
+          symbol = (
+            <span className="rhs-dot-sym serve-1" title="Servis ke-1">
+              ●
+            </span>
+          );
+        }
+      } else if (isWinner && isSideOut) {
         symbol = (
-          <span className="rhs-dot-sym serve-2" title="Servis ke-2">
-            ● ●
-          </span>
-        );
-      } else {
-        symbol = (
-          <span className="rhs-dot-sym serve-1" title="Servis ke-1">
-            ●
+          <span className="rhs-dot-sym sideout" title="Pindah Servis">
+            ⇄
           </span>
         );
       }
-    } else if (isWinner && isSideOut) {
-      symbol = (
-        <span className="rhs-dot-sym sideout" title="Pindah Servis">
-          ⇄
-        </span>
-      );
     }
 
     return (
       <div
-        className={`rhs-cell ${tone} ${compact ? 'compact' : ''} ${isWinner ? 'is-winner' : 'is-loser'}`}
-        title={`Reli #${r.rally_number} (Set ${r.set}): ${team.toUpperCase()} Skor ${scoreVal}${isServer ? (isSecondServe ? ' · Servis ke-2' : ' · Servis ke-1') : isWinner ? ' · Pindah Servis' : ''}`}
+        className={`rhs-cell ${tone} ${compact ? 'compact' : ''} ${isSideOutMode ? 'with-symbols' : 'no-symbols'} ${isWinner ? 'is-winner' : 'is-loser'}`}
+        title={`Reli #${r.rally_number} (Set ${r.set}): ${team.toUpperCase()} Skor ${scoreVal}${isSideOutMode ? (isServer ? (isSecondServe ? ' · Servis ke-2' : ' · Servis ke-1') : isWinner ? ' · Pindah Servis' : '') : ''}`}
       >
         <span className="rhs-score">{scoreVal}</span>
-        <div className="rhs-symbol-slot">
-          {symbol || <span className="rhs-symbol-spacer" />}
-        </div>
+        {isSideOutMode && (
+          <div className="rhs-symbol-slot">
+            {symbol || <span className="rhs-symbol-spacer" />}
+          </div>
+        )}
       </div>
     );
   };

@@ -440,6 +440,90 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   border-radius: 999px;
 }
 
+/* Elegant Referee Shuttlecock Usage Counter Widget */
+.ref-shuttle-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .22rem .35rem .22rem .65rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(15, 27, 56, 0.96) 0%, rgba(8, 16, 36, 0.98) 100%);
+  border: 1.5px solid rgba(250, 204, 21, 0.45);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  margin-top: .1rem;
+}
+.ref-shuttle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: .28rem;
+  font-size: calc(.72rem * var(--ref-scale, 1));
+  font-weight: 900;
+  letter-spacing: .05em;
+  color: var(--gold);
+  white-space: nowrap;
+}
+.ref-shuttle-val {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .2rem;
+  font-size: calc(1.05rem * var(--ref-scale, 1));
+  font-weight: 900;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  padding: .1rem .55rem;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.ref-shuttle-val small {
+  font-size: .7em;
+  font-weight: 800;
+  color: #cbd5e1;
+  text-transform: uppercase;
+}
+.ref-shuttle-btn {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  font-size: calc(.78rem * var(--ref-scale, 1));
+  font-weight: 900;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .12s, filter .12s, background .12s;
+  white-space: nowrap;
+}
+.ref-shuttle-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.ref-shuttle-btn:disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
+.ref-shuttle-btn.minus {
+  width: calc(1.75rem * var(--ref-scale, 1));
+  height: calc(1.75rem * var(--ref-scale, 1));
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.45);
+  font-size: calc(1rem * var(--ref-scale, 1));
+  line-height: 1;
+}
+.ref-shuttle-btn.minus:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.32);
+}
+.ref-shuttle-btn.plus {
+  padding: .24rem .68rem;
+  background: linear-gradient(135deg, #fde047 0%, #eab308 100%);
+  color: #090d16;
+  border-color: #fef08a;
+  box-shadow: 0 2px 8px rgba(250, 204, 21, 0.35);
+}
+.ref-shuttle-btn.plus:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
 /* Referee Break Panel (placed above CourtMap so server & receiver on CourtMap remain 100% visible) */
 .ref-break-panel {
   display: flex;

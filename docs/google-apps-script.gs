@@ -86,7 +86,33 @@ function doPost(e) {
     try {
       if (body.type === 'match_result' && body.result) {
         upsertRow_(ss, 'Results', body.result, 'match_number');
-        const logSheet = getSheet_(ss, 'Logs', ['log_id', 'match_number', 'timestamp', 'event_type', 'details', 'actor_id', 'score_a', 'score_b', 'set']);
+        const logHeader = [
+          'log_id',
+          'match_number',
+          'timestamp',
+          'event_type',
+          'details',
+          'actor_id',
+          'referee_name',
+          'shuttlecock_count',
+          'score_a',
+          'score_b',
+          'set',
+        ];
+        const logSheet = getSheet_(ss, 'Logs', logHeader);
+        // Pastikan header sheet Logs memiliki kolom baru jika sheet sudah ada sebelumnya
+        const lastLogCol = Math.max(logSheet.getLastColumn(), logHeader.length);
+        let curLogHead = logSheet.getRange(1, 1, 1, lastLogCol).getValues()[0].map((h) => String(h).trim());
+        let logHeadChanged = false;
+        for (let i = 0; i < logHeader.length; i++) {
+          if (curLogHead.indexOf(logHeader[i]) === -1) {
+            curLogHead.push(logHeader[i]);
+            logHeadChanged = true;
+          }
+        }
+        if (logHeadChanged) {
+          logSheet.getRange(1, 1, 1, curLogHead.length).setValues([curLogHead]);
+        }
         const existing = new Set(
           logSheet.getLastRow() > 1
             ? logSheet
@@ -97,7 +123,7 @@ function doPost(e) {
         );
         const rows = (body.logs || [])
           .filter((l) => !existing.has(String(l.log_id)))
-          .map((l) => [l.log_id, l.match_number, l.timestamp, l.event_type, l.details, l.actor_id, l.score_a, l.score_b, l.set]);
+          .map((l) => curLogHead.map((h) => (l[h] === undefined || l[h] === null ? '' : l[h])));
         if (rows.length) {
           logSheet.getRange(logSheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
         }

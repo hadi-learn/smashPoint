@@ -13,7 +13,7 @@ import { Server } from 'socket.io';
 import { Store, StoreError } from './lib/server/store.js';
 import { AdminAuth } from './lib/server/auth.js';
 import { ProfileManager } from './lib/server/profiles.js';
-import { SheetsExporter, RESULT_HEADER, LOG_HEADER, resultRow } from './lib/server/sheetsExporter.js';
+import { SheetsExporter, RESULT_HEADER, LOG_HEADER, resultRow, formatLogRow } from './lib/server/sheetsExporter.js';
 import { ingest, toCsv, COLUMNS, OPTIONAL_COLUMNS } from './lib/server/ingest.js';
 
 const prod = process.argv.includes('--prod') || process.env.NODE_ENV === 'production';
@@ -391,7 +391,8 @@ async function handleApi(req, res, url) {
   }
   if (pathname === '/api/export/logs.csv') {
     const id = searchParams.get('match');
-    const logs = id ? store.getLogs(id.toUpperCase()) : Object.values(store.logs).flat().sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    const rawLogs = id ? store.getLogs(id.toUpperCase()) : Object.values(store.logs).flat().sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+    const logs = rawLogs.map((l) => formatLogRow(l, store.get(l.match_number)));
     return send(res, 200, `\uFEFF${toCsv(LOG_HEADER, logs)}`, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="smashpoint-logs${id ? `-${id}` : ''}.csv"` });
   }
 

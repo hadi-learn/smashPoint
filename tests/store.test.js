@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Store, StoreError } from '../lib/server/store.js';
 import { AdminAuth } from '../lib/server/auth.js';
 import { ProfileManager } from '../lib/server/profiles.js';
-import { SheetsExporter } from '../lib/server/sheetsExporter.js';
+import { SheetsExporter, resultRow, formatLogRow, RESULT_HEADER, LOG_HEADER } from '../lib/server/sheetsExporter.js';
 import { ingest } from '../lib/server/ingest.js';
 import {
   breakCountdownInfo,
@@ -551,4 +551,99 @@ M-301,Kejuaraan Nasional,Ganda Putra,MD,rally_point,sets,21,11,Fajar,Rian,SGS,,L
 
   store.flush();
   fs.rmSync(toggleDir, { recursive: true, force: true });
+});
+
+test('Shuttlecock Counter, Referee Name & Local Time Format in Google Sheets Export', () => {
+  const cockDir = path.join(process.cwd(), 'tests', 'temp_cock_export_test');
+  if (fs.existsSync(cockDir)) fs.rmSync(cockDir, { recursive: true, force: true });
+  fs.mkdirSync(cockDir, { recursive: true });
+
+  const store = new Store({
+    dataDir: cockDir,
+    courtCount: 15,
+    lockTimeoutMs: 1000,
+    masterPin: '1234',
+  });
+
+  const parsed = ingest(`match_number,tournament_name,category_name,discipline,scoring_method,scoring_type,win_point,interval_point,team_a_p1_name,team_a_p2_name,team_a_club,team_a_details,team_b_p1_name,team_b_p2_name,team_b_club,team_b_details,scheduled_date,court_number,scheduled_time
+M-401,Pak Pele Cup,Ganda Putra,MD,rally_point,continuous,2,1,Fajar,Rian,SGS,,Leo,Daniel,Djarum,,2026-11-08,1,10:00 WIB`, { courtCount: 15 });
+  store.upsertMatches(parsed.matches);
+
+  const dev = 'uuid-ref-cock-test';
+  const locked = store.lock('M-401', dev, 'Wasit Budi Santoso');
+  let lastId = locked.match.last_log_id;
+
+  // Start match -> shuttlecock_count starts at 1
+  const started = store.action('M-401', dev, {
+    type: 'SETUP_START',
+    last_log_id: lastId,
+    payload: {
+      left: 'a',
+      positions: { a: { even: 'a1', odd: 'a2' }, b: { even: 'b1', odd: 'b2' } },
+      server_id: 'a1',
+      receiver_id: 'b1',
+    },
+  });
+  lastId = started.match.last_log_id;
+  assert.equal(started.match.live_state.shuttlecock_count, 1);
+
+  // Score 1-0 -> interval
+  const r1 = store.action('M-401', dev, {
+    type: 'WIN_RALLY',
+    last_log_id: lastId,
+    payload: { side: 'left' },
+  });
+  lastId = r1.match.last_log_id;
+
+  // Referee adds 2 shuttlecocks during match -> does not break score UNDO
+  const c1 = store.action('M-401', dev, {
+    type: 'SHUTTLECOCK',
+    last_log_id: lastId,
+    payload: { delta: 1 },
+  });
+  lastId = c1.match.last_log_id;
+  const c2 = store.action('M-401', dev, {
+    type: 'SHUTTLECOCK',
+    last_log_id: lastId,
+    payload: { delta: 1 },
+  });
+  lastId = c2.match.last_log_id;
+  assert.equal(c2.match.live_state.shuttlecock_count, 3);
+
+  // If referee clicks UNDO now, it undoes the rally point (back to 0-0), while preserving shuttlecock_count = 3
+  const undone = store.action('M-401', dev, {
+    type: 'UNDO',
+    last_log_id: lastId,
+  });
+  lastId = undone.match.last_log_id;
+  assert.equal(undone.match.live_state.score.a, 0);
+  assert.equal(undone.match.live_state.shuttlecock_count, 3);
+
+  // Finish the match: score 1-0 -> confirm interval -> score 2-0 -> confirm finish
+  const p1 = store.action('M-401', dev, { type: 'WIN_RALLY', last_log_id: lastId, payload: { team: 'a' } });
+  const iv = store.action('M-401', dev, { type: 'CONFIRM_INTERVAL', last_log_id: p1.match.last_log_id });
+  const p2 = store.action('M-401', dev, { type: 'WIN_RALLY', last_log_id: iv.match.last_log_id, payload: { team: 'a' } });
+  const fin = store.action('M-401', dev, { type: 'CONFIRM_FINISH', last_log_id: p2.match.last_log_id });
+  assert.equal(fin.match.session_management.status, 'finished');
+
+  // Check exported resultRow & logs
+  const m = store.get('M-401');
+  const row = resultRow(m);
+  assert.ok(RESULT_HEADER.includes('referee_name'));
+  assert.ok(RESULT_HEADER.includes('shuttlecock_count'));
+  assert.equal(row.referee_name, 'Wasit Budi Santoso');
+  assert.equal(row.shuttlecock_count, 3);
+  assert.match(row.started_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  assert.match(row.finished_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+
+  const logs = store.getLogs('M-401').map((l) => formatLogRow(l, m));
+  assert.ok(LOG_HEADER.includes('referee_name'));
+  assert.ok(LOG_HEADER.includes('shuttlecock_count'));
+  const finishLog = logs[logs.length - 1];
+  assert.equal(finishLog.referee_name, 'Wasit Budi Santoso');
+  assert.equal(finishLog.shuttlecock_count, 3);
+  assert.match(finishLog.timestamp, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+
+  store.flush();
+  fs.rmSync(cockDir, { recursive: true, force: true });
 });

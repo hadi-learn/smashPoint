@@ -294,6 +294,8 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
   const [scoreB, setScoreB] = useState(String(st.score?.b ?? 0));
   const [setsA, setSetsA] = useState(String(st.sets?.a ?? 0));
   const [setsB, setSetsB] = useState(String(st.sets?.b ?? 0));
+  const [shuttlecockCount, setShuttlecockCount] = useState(String(st.shuttlecock_count ?? 0));
+  const [refereeName, setRefereeName] = useState(sm.controller_label || '');
   const [winner, setWinner] = useState(st.winner || '');
   const [setHistory, setSetHistory] = useState(
     st.set_history?.length
@@ -429,6 +431,8 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
       status,
       score: { a: parseInt(scoreA, 10) || 0, b: parseInt(scoreB, 10) || 0 },
       sets: { a: parseInt(setsA, 10) || 0, b: parseInt(setsB, 10) || 0 },
+      shuttlecock_count: Math.max(0, parseInt(shuttlecockCount, 10) || 0),
+      referee_name: refereeName.trim(),
       set_history: setHistory.map((s, idx) => ({
         set: idx + 1,
         a: parseInt(s.a, 10) || 0,
@@ -753,6 +757,14 @@ function EditMatchModal({ match, pin, courtCount, onClose, notify }) {
                 </label>
               </>
             )}
+            <label className="field">
+              🏸 Jumlah Penggunaan Cock
+              <input className="input" type="number" min={0} max={999} value={shuttlecockCount} onChange={(e) => setShuttlecockCount(e.target.value)} />
+            </label>
+            <label className="field">
+              👤 Nama Wasit Bertugas
+              <input className="input" value={refereeName} onChange={(e) => setRefereeName(e.target.value)} placeholder="Nama wasit" />
+            </label>
           </div>
 
           {/* Riwayat Skor Per Set */}
@@ -877,6 +889,8 @@ function LogsModal({ id, onClose }) {
                 <th>Waktu</th>
                 <th>Event</th>
                 <th>Detail</th>
+                <th>Wasit</th>
+                <th>Cock</th>
                 <th>Aktor</th>
               </tr>
             </thead>
@@ -885,9 +899,11 @@ function LogsModal({ id, onClose }) {
                 <tr key={l.log_id}>
                   <td className="mono small">{tm(l.timestamp)}</td>
                   <td>
-                    <span className={`badge ${l.event_type === 'UNDO' ? 'gold' : l.event_type.startsWith('SIDE_OUT') ? 'blue' : l.event_type.includes('TAKEOVER') ? 'red' : ''}`}>{l.event_type}</span>
+                    <span className={`badge ${l.event_type === 'UNDO' ? 'gold' : l.event_type.startsWith('SIDE_OUT') ? 'blue' : l.event_type.includes('TAKEOVER') ? 'red' : l.event_type.startsWith('SHUTTLECOCK') ? 'cyan' : ''}`}>{l.event_type}</span>
                   </td>
                   <td className="small">{l.details}</td>
+                  <td className="small">{l.referee_name || <span className="muted">-</span>}</td>
+                  <td className="mono small">{l.shuttlecock_count ?? 0}</td>
                   <td className="mono small">{String(l.actor_id).slice(-6)}</td>
                 </tr>
               ))}
@@ -939,6 +955,9 @@ function CourtGrid({ matches, courtCount, now, onUnlock, onToggleHistory }) {
                       ⏱ {matchDurationText(m, now)}
                     </span>
                   )}
+                  <span className="badge gold mono" title="Jumlah Penggunaan Shuttlecock">
+                    🏸 {st.shuttlecock_count ?? 0} Cock
+                  </span>
                 </div>
                 <div className="cteam">
                   {teamLabel(m, 'a')}
@@ -1034,6 +1053,7 @@ const SORT_OPTIONS = [
   ['rules', 'Aturan Skor'],
   ['score', 'Skor Pertandingan'],
   ['duration', 'Durasi Pertandingan'],
+  ['shuttlecock', 'Penggunaan Cock'],
   ['controller', 'Pengontrol / Wasit'],
 ];
 
@@ -1077,9 +1097,12 @@ function compareByCol(col, x, y, now) {
       const dy = matchDurationSec(y, now) ?? -1;
       return dx - dy;
     }
+    case 'shuttlecock': {
+      return (x.live_state?.shuttlecock_count ?? 0) - (y.live_state?.shuttlecock_count ?? 0);
+    }
     case 'controller': {
-      const cx = x.session_management.locked ? x.session_management.controller_label || x.session_management.controller_tag || '1' : 'zzzz';
-      const cy = y.session_management.locked ? y.session_management.controller_label || y.session_management.controller_tag || '1' : 'zzzz';
+      const cx = x.session_management.controller_label || x.session_management.controller_tag || 'zzzz';
+      const cy = y.session_management.controller_label || y.session_management.controller_tag || 'zzzz';
       return cmpStr(cx, cy);
     }
     default:
@@ -1316,8 +1339,11 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
               <th className="sortable-th" onClick={() => toggleSort('duration')} title="Klik untuk menambah/mengubah urutan Durasi">
                 Durasi {sortIndicator('duration')}
               </th>
+              <th className="sortable-th" onClick={() => toggleSort('shuttlecock')} title="Klik untuk menambah/mengubah urutan Penggunaan Shuttlecock">
+                Cock {sortIndicator('shuttlecock')}
+              </th>
               <th className="sortable-th" onClick={() => toggleSort('controller')} title="Klik untuk menambah/mengubah urutan Pengontrol / Wasit">
-                Pengontrol {sortIndicator('controller')}
+                Wasit / Pengontrol {sortIndicator('controller')}
               </th>
               <th>Aksi</th>
             </tr>
@@ -1398,7 +1424,24 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify }) {
                       <span className="muted">-</span>
                     )}
                   </td>
-                  <td className="small">{sm.locked ? `🔒 ${sm.controller_label || `…${sm.controller_tag}`}` : <span className="muted">-</span>}</td>
+                  <td className="mono small">
+                    {(st.shuttlecock_count ?? 0) > 0 || sm.status !== 'scheduled' ? (
+                      <span className="badge gold" title="Jumlah penggunaan shuttlecock">
+                        🏸 {st.shuttlecock_count ?? 0}
+                      </span>
+                    ) : (
+                      <span className="muted">-</span>
+                    )}
+                  </td>
+                  <td className="small">
+                    {sm.locked ? (
+                      `🔒 ${sm.controller_label || `…${sm.controller_tag}`}`
+                    ) : sm.controller_label ? (
+                      <span>👤 {sm.controller_label}</span>
+                    ) : (
+                      <span className="muted">-</span>
+                    )}
+                  </td>
                   <td>
                     <div className="row" style={{ gap: '.3rem', flexWrap: 'nowrap' }}>
                       <button className="btn btn-sm btn-yellow" onClick={() => onEdit(m)} title="Edit lengkap (pemain, club, skor, status, diskualifikasi/WO)">
@@ -2611,7 +2654,7 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs }) {
                           </div>
                         </div>
 
-                        {/* Col 7: Score & Duration */}
+                        {/* Col 7: Score, Duration & Shuttlecock Count */}
                         <div className="gb-col-score mono">
                           <div className={`gb-score-main ${sc.isLive ? 'live' : isFinished ? 'done' : 'idle'}`}>
                             {sc.main}
@@ -2619,6 +2662,7 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs }) {
                           <div className="gb-score-sub">
                             {sc.sub}
                             {dur ? ` · ⏱${dur}` : ''}
+                            {(st.shuttlecock_count ?? 0) > 0 ? ` · 🏸${st.shuttlecock_count}` : ''}
                           </div>
                         </div>
 

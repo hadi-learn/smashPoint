@@ -31,6 +31,7 @@ function OverrideModal({ match, onClose, send, pending }) {
   const [server, setServer] = useState(st.service_status.player_id || 'a1');
   const [pos, setPos] = useState(st.positions);
   const [court, setCourt] = useState(String(match.court_number));
+  const [cockCount, setCockCount] = useState(String(st.shuttlecock_count ?? 0));
   const [err, setErr] = useState(null);
 
   const submit = async (payload) => {
@@ -178,8 +179,12 @@ function OverrideModal({ match, onClose, send, pending }) {
               Nomor Lapangan (TV lapangan baru akan otomatis menampilkan match ini)
               <input className="input" type="number" min={1} value={court} onChange={(e) => setCourt(e.target.value)} />
             </label>
-            <button className="btn btn-red btn-lg" disabled={pending} onClick={() => submit({ court_number: court })}>
-              Pindahkan Lapangan
+            <label className="field">
+              Jumlah Penggunaan Shuttlecock (Cock)
+              <input className="input" type="number" min={0} max={999} value={cockCount} onChange={(e) => setCockCount(e.target.value)} />
+            </label>
+            <button className="btn btn-red btn-lg" disabled={pending} onClick={() => submit({ court_number: court, shuttlecock_count: cockCount })}>
+              Simpan Lapangan &amp; Jumlah Cock
             </button>
           </div>
         )}
@@ -323,6 +328,7 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
         <div className="muted">
           {st.set_history.map((s) => `${s.a}-${s.b}`).join('  ·  ')}
           {duration ? `  ·  ⏱ ${duration}` : ''}
+          {`  ·  🏸 ${st.shuttlecock_count ?? 0} Cock`}
         </div>
         {match.export_status && <span className="badge cyan">Ekspor: {match.export_status.message}</span>}
       </div>
@@ -394,6 +400,7 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
         <div className="muted">
           {st.set_history.map((s) => `${s.a}-${s.b}`).join('  ·  ')}
           {duration ? `  ·  ⏱ ${duration}` : ''}
+          {`  ·  🏸 ${st.shuttlecock_count ?? 0} Cock`}
         </div>
         {!readOnly && (
           <div className="row">
@@ -493,6 +500,40 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
                         🎯 Penerima: <b>{ss.receiver_name}</b>
                       </span>
                     </>
+                  )}
+                </div>
+              )}
+
+              {/* Kontrol Elegan Penggunaan Shuttlecock (Cock) oleh Wasit */}
+              {st.phase !== 'setup' && (
+                <div className="ref-shuttle-counter" title="Jumlah penggunaan shuttlecock selama pertandingan berlangsung">
+                  <span className="ref-shuttle-label">
+                    <Shuttle size={15} /> SHUTTLECOCK
+                  </span>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="ref-shuttle-btn minus"
+                      disabled={!canAct || (st.shuttlecock_count ?? 0) <= 0}
+                      onClick={() => send('SHUTTLECOCK', { delta: -1 })}
+                      title="Kurangi 1 shuttlecock"
+                    >
+                      −
+                    </button>
+                  )}
+                  <span className="ref-shuttle-val mono">
+                    {st.shuttlecock_count ?? 0} <small>Cock</small>
+                  </span>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="ref-shuttle-btn plus"
+                      disabled={!canAct}
+                      onClick={() => send('SHUTTLECOCK', { delta: 1 })}
+                      title="Tambah 1 penggunaan shuttlecock (Ganti Cock Baru)"
+                    >
+                      + Ganti Cock
+                    </button>
                   )}
                 </div>
               )}

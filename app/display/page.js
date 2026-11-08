@@ -204,9 +204,6 @@ function BroadcastScorebug({ match, now, compact = false, showHistory = null }) 
             ⏱ DURASI: <strong>{duration}</strong>
           </span>
         )}
-        <span className="bwf-rule-tag">
-          {isSets ? `SET ${st.current_set}` : `TARGET ${match.rules.win_point}`} · {sideOut ? 'SIDE-OUT' : 'RALLY'}
-        </span>
         {servingSideBadge(match)}
         {footerAlert && (
           <span className={`bwf-alert-badge ${footerAlert.tone}`}>
