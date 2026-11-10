@@ -14,7 +14,7 @@ import { Store, StoreError } from './lib/server/store.js';
 import { AdminAuth } from './lib/server/auth.js';
 import { ProfileManager } from './lib/server/profiles.js';
 import { SheetsExporter, RESULT_HEADER, LOG_HEADER, resultRow, formatLogRow } from './lib/server/sheetsExporter.js';
-import { ingest, toCsv, COLUMNS, OPTIONAL_COLUMNS } from './lib/server/ingest.js';
+import { ingest, parseDelimited, toCsv, COLUMNS, OPTIONAL_COLUMNS } from './lib/server/ingest.js';
 
 const prod = process.argv.includes('--prod') || process.env.NODE_ENV === 'production';
 nextEnv.loadEnvConfig(process.cwd(), !prod);
@@ -65,6 +65,28 @@ const sheetsExporter = new SheetsExporter({
 // Event listener: status -> finished triggers export (PRD 8.3)
 store.on('finished', (match, logs) => {
   sheetsExporter.pushResults(match, logs).catch((e) => console.error('[exporter]', e));
+});
+
+// Auto-sync live match state snapshot to Google Sheets `SmashPoint_State` (debounced 2.5s) when webhook is configured
+let cloudStateSyncTimer = null;
+const dirtyStateMatches = new Set();
+store.on('change', (m) => {
+  if (!sheetsExporter.webhookUrl || !m?.match_number) return;
+  dirtyStateMatches.add(m.match_number);
+  if (cloudStateSyncTimer) return;
+  cloudStateSyncTimer = setTimeout(async () => {
+    cloudStateSyncTimer = null;
+    if (!sheetsExporter.webhookUrl || !dirtyStateMatches.size) return;
+    const ids = Array.from(dirtyStateMatches);
+    dirtyStateMatches.clear();
+    const list = ids.map((id) => store.get(id)).filter(Boolean);
+    if (!list.length) return;
+    try {
+      await sheetsExporter.pushStateSnapshot(list);
+    } catch {
+      // Quietly ignore transient network errors; full sync or finished export will retry
+    }
+  }, 2500);
 });
 
 // ------------------------------------------------------------------ HTTP helpers
@@ -218,12 +240,79 @@ function switchTournamentProfile(targetId) {
   return profileManager.activeProfile(store);
 }
 
+/**
+ * Fetch optional remote progress (`Results` and `SmashPoint_State` tabs) from a standard Google Sheets URL
+ * or configured Google Apps Script Web App URL so that pulling schedule on any laptop also restores progress.
+ */
+async function fetchRemoteProgressFromSheets(rawUrl) {
+  const remote = { results: [], states: [], logs: [] };
+  const cb = `_t=${Date.now()}`;
+
+  // 1. If a Google Apps Script Webhook URL is configured, query its doGet (which returns results, states, and logs in one JSON call)
+  const webhook = sheetsExporter.webhookUrl || (/script\.google\.com\/macros\/s\//i.test(rawUrl) ? rawUrl : '');
+  if (webhook && /script\.google\.com\/macros\/s\//i.test(webhook)) {
+    try {
+      const sep = webhook.includes('?') ? '&' : '?';
+      const r = await fetch(`${webhook}${sep}mode=full&${cb}`, { redirect: 'follow' });
+      if (r.ok) {
+        const txt = await r.text();
+        if (/^\s*\{/.test(txt)) {
+          const j = JSON.parse(txt);
+          if (Array.isArray(j.results)) remote.results = j.results;
+          if (Array.isArray(j.states)) remote.states = j.states;
+          if (Array.isArray(j.logs)) remote.logs = j.logs;
+          if (remote.results.length || remote.states.length) return remote;
+        }
+      }
+    } catch { /* fallback to gviz below */ }
+  }
+
+  // 2. If rawUrl is a standard Google Sheets URL (/spreadsheets/d/<ID>), read "SmashPoint_State" and "Results" tabs via gviz CSV
+  const m = String(rawUrl || '').match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (m && !/\/d\/e\//.test(rawUrl)) {
+    const id = m[1];
+    // Fetch "Results" tab
+    try {
+      const resUrl = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('Results')}&${cb}`;
+      const r = await fetch(resUrl, { redirect: 'follow' });
+      if (r.ok) {
+        const csvText = await r.text();
+        if (!/^\s*<(!doctype|html)/i.test(csvText)) {
+          const rows = parseDelimited(csvText);
+          // Verify that the returned sheet actually has result columns (e.g. set_scores or winner) and didn't just fallback to first sheet
+          if (rows.length > 0 && ('set_scores' in rows[0] || 'winner' in rows[0] || 'sets_a' in rows[0])) {
+            remote.results = rows;
+          }
+        }
+      }
+    } catch { /* ignore */ }
+
+    // Fetch "SmashPoint_State" tab
+    try {
+      const stUrl = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent('SmashPoint_State')}&${cb}`;
+      const r = await fetch(stUrl, { redirect: 'follow' });
+      if (r.ok) {
+        const csvText = await r.text();
+        if (!/^\s*<(!doctype|html)/i.test(csvText)) {
+          const rows = parseDelimited(csvText);
+          if (rows.length > 0 && 'match_json' in rows[0]) {
+            remote.states = rows;
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  return remote;
+}
+
 async function fetchAndIngestUrl(rawUrl, { dryRun = false, sheetName } = {}) {
   const targetSheet = String(sheetName || sheetSync.sheetName || 'Jadwal').trim();
   const candidates = buildSheetsCandidateUrls(rawUrl, targetSheet);
   let lastParsed = null;
   let lastFetchError = null;
   let usedSheetSource = targetSheet;
+  let embeddedRemoteProgress = null;
 
   for (let i = 0; i < candidates.length; i += 1) {
     const target = candidates[i];
@@ -257,6 +346,13 @@ async function fetchAndIngestUrl(rawUrl, { dryRun = false, sheetName } = {}) {
         const j = JSON.parse(text);
         input = Array.isArray(j) ? j : j.rows || j.matches || text;
         if (j.sheet) usedSheetSource = j.sheet;
+        if (Array.isArray(j.results) || Array.isArray(j.states)) {
+          embeddedRemoteProgress = {
+            results: j.results || [],
+            states: j.states || [],
+            logs: j.logs || [],
+          };
+        }
       } catch { /* fallback to CSV */ }
     }
 
@@ -290,11 +386,18 @@ async function fetchAndIngestUrl(rawUrl, { dryRun = false, sheetName } = {}) {
     };
   }
   const result = store.upsertMatches(lastParsed.matches);
+
+  // Restore any finished or live match progress from Google Sheets (`Results` & `SmashPoint_State`) so opening on another laptop continues seamlessly!
+  const remoteProgress = embeddedRemoteProgress || (await fetchRemoteProgressFromSheets(rawUrl));
+  const restored = store.applyRemoteProgress(remoteProgress);
+
   return {
     ok: true,
     sheet_name: usedSheetSource,
     total: lastParsed.total,
     ...result,
+    restored_from_state: restored.restored_from_state,
+    restored_from_results: restored.restored_from_results,
     errors: lastParsed.errors,
   };
 }
@@ -534,6 +637,58 @@ async function handleApi(req, res, url) {
   if (pathname === '/api/admin/export/retry' && method === 'POST') {
     await sheetsExporter.flush();
     return send(res, 200, { ok: true, exporter: sheetsExporter.status() });
+  }
+  if (pathname === '/api/admin/export/push-state' && method === 'POST') {
+    try {
+      const resSync = await sheetsExporter.pushStateSnapshot(store.matches);
+      emitAdmin();
+      return send(res, 200, { ok: true, ...resSync, exporter: sheetsExporter.status() });
+    } catch (e) {
+      sheetsExporter.lastError = e.message;
+      emitAdmin();
+      return send(res, 400, { ok: false, error: e.message, exporter: sheetsExporter.status() });
+    }
+  }
+  if (pathname === '/api/admin/backup/export' && method === 'GET') {
+    const activeProf = profileManager.activeProfile(store);
+    const bundle = store.exportStateBundle({
+      profile: activeProf,
+      sync: {
+        url: sheetSync.url,
+        sheetName: sheetSync.sheetName,
+        intervalSec: sheetSync.intervalSec,
+        webhookUrl: sheetsExporter.webhookUrl,
+      },
+    });
+    const safeName = String(activeProf?.id || 'turnamen').replace(/[^a-z0-9_-]/gi, '_');
+    return send(res, 200, JSON.stringify(bundle, null, 2), {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="smashpoint-state-${safeName}.json"`,
+    });
+  }
+  if (pathname === '/api/admin/backup/import' && method === 'POST') {
+    const b = await readBody(req, 20 * 1024 * 1024);
+    const bundle = b.bundle || b;
+    const resRestore = store.importStateBundle(bundle, { merge: Boolean(b.merge) });
+    if (bundle.sync && typeof bundle.sync === 'object') {
+      if (bundle.sync.url && !sheetSync.url) sheetSync.url = bundle.sync.url;
+      if (bundle.sync.sheetName) sheetSync.sheetName = bundle.sync.sheetName;
+      if (bundle.sync.webhookUrl && !sheetsExporter.webhookUrl) {
+        sheetsExporter.setConfig({ webhookUrl: bundle.sync.webhookUrl });
+      }
+      saveSyncConfig();
+    }
+    for (let c = 1; c <= COURT_COUNT; c += 1) emitCourt(c);
+    emitAdmin();
+    return send(res, 200, {
+      ok: true,
+      ...resRestore,
+      matches: store.list().map((m) => store.toPublic(m)),
+      active_profile: profileManager.activeProfile(store),
+      profiles: profileManager.list(store),
+      exporter: sheetsExporter.status(),
+      sync: syncStatus(),
+    });
   }
   if (pathname === '/api/admin/export/config' && method === 'POST') {
     const b = await readBody(req);

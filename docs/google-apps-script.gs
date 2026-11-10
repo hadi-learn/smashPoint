@@ -1,20 +1,22 @@
 /**
- * SmashPoint <-> Google Sheets Two-Way Integration (Google Apps Script)
+ * SmashPoint <-> Google Sheets Two-Way Integration & Cloud Tournament State Sync (Google Apps Script)
  *
  * Fitur:
- * 1. INSTANT LIVE SCHEDULE READ (doGet):
- *    Membaca tab jadwal ("Jadwal") secara langsung (0 detik delay cache CDN) jika URL Web App
- *    atau URL Google Sheets dimasukkan ke kolom URL Import di halaman Admin SmashPoint.
- * 2. AUTO-EXPORT HASIL & AUDIT LOG PERTANDINGAN (doPost):
- *    Menerima hasil akhir dari SmashPoint secara otomatis ke sheet "Results" & "Logs".
+ * 1. INSTANT LIVE SCHEDULE READ & CLOUD PROGRESS SYNC (doGet):
+ *    - Membaca tab jadwal ("Jadwal") secara langsung (0 detik delay cache CDN).
+ *    - Menyertakan baris hasil yang sudah selesai dari tab "Results" dan snapshot live dari tab "SmashPoint_State"
+ *      sehingga saat dibuka dari laptop/PC manapun dan menarik data, progres turnamen otomatis dilanjutkan dari state terakhir!
+ * 2. AUTO-EXPORT HASIL, AUDIT LOG & LIVE STATE SNAPSHOT (doPost):
+ *    - Menerima hasil akhir dari SmashPoint secara otomatis ke sheet "Results" & "Logs".
+ *    - Menyimpan snapshot progres turnamen real-time ke sheet "SmashPoint_State" untuk sinkronisasi antar-laptop.
  *
  * Cara Setup (Hanya 2 Menit):
  * 1. Buka Google Spreadsheet Jadwal Panitia -> Pastikan nama tab/sheet jadwal adalah "Jadwal".
  * 2. Klik menu Extensions (Ekstensi) -> Apps Script.
  * 3. Hapus semua kode bawaan, lalu tempel (Paste) seluruh isi file ini dan tekan Ctrl+S (Simpan).
- * 4. Klik tombol biru "Deploy" (Terapkan) di kanan atas -> pilih "New deployment" (Deployment baru):
+ * 4. Klik tombol biru "Deploy" (Terapkan) di kanan atas -> pilih "New deployment" (Deployment baru) atau "Manage deployments" -> "New version":
  *    - Klik ikon roda gigi (Select type) -> pilih "Web app" (Aplikasi web).
- *    - Description: SmashPoint Webhook
+ *    - Description: SmashPoint Webhook & Cloud Sync
  *    - Execute as (Jalankan sebagai): "Me" (Saya)
  *    - Who has access (Siapa yang memiliki akses): WAJIB pilih "Anyone" (Siapa saja)
  *    - Klik "Deploy" -> Klik "Authorize access" -> Pilih akun Google Anda -> Klik "Advanced" -> Klik "Go to Untitled project (unsafe)" -> Klik "Allow".
@@ -24,27 +26,17 @@
 const SECRET = ''; // Opsional: kosongkan agar langsung bekerja, atau isi jika memakai GOOGLE_SHEETS_WEBHOOK_SECRET
 const SCHEDULE_SHEET_NAME = 'Jadwal'; // Default membaca sheet bernama "Jadwal"
 
-/**
- * doGet: Mengirimkan seluruh baris jadwal dari sheet "Jadwal" secara LIVE (JSON).
- */
-function doGet(e) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const requestedSheet = (e && e.parameter && e.parameter.sheet) ? String(e.parameter.sheet).trim() : SCHEDULE_SHEET_NAME;
-  let sh = requestedSheet ? ss.getSheetByName(requestedSheet) : null;
-  if (!sh && SCHEDULE_SHEET_NAME) sh = ss.getSheetByName(SCHEDULE_SHEET_NAME);
-  if (!sh) sh = ss.getSheets()[0];
-
-  if (!sh || sh.getLastRow() < 2) {
-    return ContentService.createTextOutput(JSON.stringify({ ok: true, sheet: sh ? sh.getName() : null, rows: [] })).setMimeType(ContentService.MimeType.JSON);
-  }
+function readSheetObjects_(sh, preferMatchHeader) {
+  if (!sh || sh.getLastRow() < 2) return [];
   const values = sh.getDataRange().getDisplayValues();
-  // Cari baris header (baris yang memiliki kolom 'match_number' atau baris pertama yang tidak kosong)
   let headerRowIdx = 0;
-  for (let i = 0; i < Math.min(15, values.length); i++) {
-    const normalized = values[i].map((h) => String(h).trim().toLowerCase().replace(/[\s\-]+/g, '_'));
-    if (normalized.indexOf('match_number') >= 0 || normalized.indexOf('no_partai') >= 0) {
-      headerRowIdx = i;
-      break;
+  if (preferMatchHeader) {
+    for (let i = 0; i < Math.min(15, values.length); i++) {
+      const normalized = values[i].map((h) => String(h).trim().toLowerCase().replace(/[\s\-]+/g, '_'));
+      if (normalized.indexOf('match_number') >= 0 || normalized.indexOf('no_partai') >= 0) {
+        headerRowIdx = i;
+        break;
+      }
     }
   }
   const headers = values[headerRowIdx].map((h) => String(h).trim());
@@ -58,7 +50,40 @@ function doGet(e) {
     }
     rows.push(obj);
   }
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, sheet: sh.getName(), rows })).setMimeType(ContentService.MimeType.JSON);
+  return rows;
+}
+
+/**
+ * doGet: Mengirimkan seluruh baris jadwal dari sheet "Jadwal" secara LIVE (JSON),
+ * sekaligus menyertakan progres dari sheet "Results", "SmashPoint_State", dan "Logs"
+ * agar laptop lain dapat langsung melanjutkan progres turnamen tanpa mengulang dari awal.
+ */
+function doGet(e) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const mode = (e && e.parameter && e.parameter.mode) ? String(e.parameter.mode).trim() : '';
+  const requestedSheet = (e && e.parameter && e.parameter.sheet) ? String(e.parameter.sheet).trim() : SCHEDULE_SHEET_NAME;
+  let sh = requestedSheet ? ss.getSheetByName(requestedSheet) : null;
+  if (!sh && SCHEDULE_SHEET_NAME) sh = ss.getSheetByName(SCHEDULE_SHEET_NAME);
+  if (!sh) sh = ss.getSheets()[0];
+
+  const rows = readSheetObjects_(sh, true);
+  const resultsSh = ss.getSheetByName('Results');
+  const results = resultsSh ? readSheetObjects_(resultsSh, true) : [];
+  const stateSh = ss.getSheetByName('SmashPoint_State');
+  const states = stateSh ? readSheetObjects_(stateSh, false) : [];
+  const logsSh = (mode === 'full' || (e && e.parameter && e.parameter.include_logs === '1')) ? ss.getSheetByName('Logs') : null;
+  const logs = logsSh ? readSheetObjects_(logsSh, false) : [];
+
+  return ContentService.createTextOutput(
+    JSON.stringify({
+      ok: true,
+      sheet: sh ? sh.getName() : null,
+      rows: rows,
+      results: results,
+      states: states,
+      logs: logs,
+    })
+  ).setMimeType(ContentService.MimeType.JSON);
 }
 
 function doPost(e) {
@@ -90,6 +115,19 @@ function doPost(e) {
 
         // 2. Sinkronisasi log audit ke sheet "Logs" (otomatis memperbarui header & mengisi kolom referee_name dan shuttlecock_count)
         upsertLogs_(ss, 'Logs', body.logs || [], body.result);
+
+        // 3. Simpan juga state lengkap match ke "SmashPoint_State" jika disertakan
+        if (body.match_state) {
+          upsertStateSnapshot_(ss, 'SmashPoint_State', [body.match_state]);
+        }
+      } else if (body.type === 'state_sync' && Array.isArray(body.states)) {
+        // Simpan snapshot progres seluruh match (live, setup, finished, maupun editan panitia) ke sheet "SmashPoint_State"
+        upsertStateSnapshot_(ss, 'SmashPoint_State', body.states);
+        if (Array.isArray(body.results)) {
+          for (let i = 0; i < body.results.length; i++) {
+            upsertRow_(ss, 'Results', body.results[i], 'match_number');
+          }
+        }
       }
     } finally {
       lock.releaseLock();
@@ -97,6 +135,31 @@ function doPost(e) {
     return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(err && err.message ? err.message : err) })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+/**
+ * upsertStateSnapshot_: Menyimpan JSON state setiap match ke sheet "SmashPoint_State"
+ * agar laptop/PC lain dapat memulihkan progres turnamen (skor live, set, histori reli, wasit, cock, selesai) secara utuh.
+ */
+function upsertStateSnapshot_(ss, name, stateItems) {
+  if (!stateItems || !stateItems.length) return;
+  const header = ['match_number', 'status', 'updated_at', 'match_json'];
+  const sh = getSheet_(ss, name, header);
+  for (let i = 0; i < stateItems.length; i++) {
+    const item = stateItems[i];
+    if (!item || !item.match_number) continue;
+    upsertRow_(
+      ss,
+      name,
+      {
+        match_number: item.match_number,
+        status: item.status || '',
+        updated_at: item.updated_at || new Date().toISOString(),
+        match_json: typeof item.match_json === 'string' ? item.match_json : JSON.stringify(item.match || item),
+      },
+      'match_number'
+    );
   }
 }
 

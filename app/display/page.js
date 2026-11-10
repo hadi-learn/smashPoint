@@ -89,8 +89,9 @@ function BroadcastScorebug({ match, now, compact = false, showHistory = null }) 
         )}
       </div>
 
-      {/* Main 2-Row Score Table + 10 Serves History Strip */}
+      {/* Main 2-Row Score Table + 10 Serves History Strip + Rightmost Current Score */}
       <div className="bwf-bug-body">
+        {/* Left Section: Player Names, Serve Icon, Previous Sets & Sets Won */}
         <div className="bwf-bug-table">
           {rows.map((t) => {
             const tm = match.teams[`team_${t}`];
@@ -154,17 +155,12 @@ function BroadcastScorebug({ match, now, compact = false, showHistory = null }) 
                     {st.sets[t]}
                   </div>
                 )}
-
-                {/* Active Game Points */}
-                <div className={`bwf-points ${serving ? `serving ${serveCls}` : ''}`}>
-                  {st.score[t]}
-                </div>
               </div>
             );
           })}
         </div>
 
-        {/* Dynamic Rally History Strip: EXACT height & vertical alignment with bwf-points (no redundant names/labels) */}
+        {/* Middle Section (when enabled): Dynamic Rally History Strip so progression flows left-to-right into Current Score */}
         {!compact && isHistoryVisible && (
           <RallyHistoryStrip
             match={match}
@@ -176,7 +172,21 @@ function BroadcastScorebug({ match, now, compact = false, showHistory = null }) 
           />
         )}
 
-        {/* External Right-Side Match Point / Game Point Callout (placed after history strip) */}
+        {/* Rightmost Section: Active Game Points (always at the far right of the scorebug) */}
+        <div className="bwf-points-col">
+          {rows.map((t) => {
+            const serving = ss.side === t && !['setup', 'finished'].includes(st.phase);
+            const isSecond = serving && sideOut && ss.turn === 2;
+            const serveCls = isSecond ? 'serve-2' : 'serve-1';
+            return (
+              <div key={t} className={`bwf-points ${serving ? `serving ${serveCls}` : ''}`}>
+                {st.score[t]}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* External Right-Side Match Point / Game Point Callout (placed after rightmost score) */}
         {rows.map((t) => {
           const teamPointAlert = getTeamPointAlert(match, t);
           if (!teamPointAlert) return null;
@@ -196,24 +206,25 @@ function BroadcastScorebug({ match, now, compact = false, showHistory = null }) 
         })}
       </div>
 
-      {/* Bottom Dynamic Status / Point Alert Sub-bar */}
-      <div className="bwf-bug-footer">
-        <span className="bwf-match-id">{match.match_number}</span>
-        {duration && (
-          <span className="bwf-duration">
-            ⏱ DURASI: <strong>{duration}</strong>
-          </span>
-        )}
-        {servingSideBadge(match)}
-        {footerAlert && (
-          <span className={`bwf-alert-badge ${footerAlert.tone}`}>
-            {footerAlert.type}
-          </span>
-        )}
-        {st.phase === 'interval' && <span className="bwf-alert-badge gold">INTERVAL</span>}
-        {st.phase === 'set_break' && <span className="bwf-alert-badge cyan">SET BREAK</span>}
-        {finished && <span className="bwf-alert-badge green">FINAL</span>}
-      </div>
+      {/* Bottom Dynamic Status / Point Alert Sub-bar (Match number hidden on OBS per user request) */}
+      {(duration || servingSideBadge(match) || footerAlert || ['interval', 'set_break'].includes(st.phase) || finished) && (
+        <div className="bwf-bug-footer">
+          {duration && (
+            <span className="bwf-duration">
+              ⏱ DURASI: <strong>{duration}</strong>
+            </span>
+          )}
+          {servingSideBadge(match)}
+          {footerAlert && (
+            <span className={`bwf-alert-badge ${footerAlert.tone}`}>
+              {footerAlert.type}
+            </span>
+          )}
+          {st.phase === 'interval' && <span className="bwf-alert-badge gold">INTERVAL</span>}
+          {st.phase === 'set_break' && <span className="bwf-alert-badge cyan">SET BREAK</span>}
+          {finished && <span className="bwf-alert-badge green">FINAL</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -743,7 +754,7 @@ function Idle({ court, previous = [], upcoming = [], isObs, bgMode }) {
             </div>
             <div style={{ padding: '12px 18px', color: '#cbd5e1', fontWeight: 700, fontSize: 14 }}>
               {upcoming?.[0]
-                ? `NEXT: ${upcoming[0].match_number} · ${upcoming[0].team_a} vs ${upcoming[0].team_b}`
+                ? `NEXT: ${upcoming[0].team_a} vs ${upcoming[0].team_b}`
                 : 'MENUNGGU PERTANDINGAN BERIKUTNYA...'}
             </div>
           </div>

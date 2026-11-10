@@ -239,7 +239,11 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
             <div className={`notice ${result.errors?.length ? 'warn' : 'ok'}`}>
               {result.dry_run
                 ? `Validasi${result.sheet_name ? ` (Sheet "${result.sheet_name}")` : ''}: ${result.valid}/${result.total} baris valid.`
-                : `Sinkron selesai${result.sheet_name ? ` dari Sheet "${result.sheet_name}"` : ''}: ${result.created} baru, ${result.updated} diperbarui dari ${result.total} baris.`}
+                : `Sinkron selesai${result.sheet_name ? ` dari Sheet "${result.sheet_name}"` : ''}: ${result.created} baru, ${result.updated} diperbarui dari ${result.total} baris.${
+                    (result.restored_from_state || 0) + (result.restored_from_results || 0) > 0
+                      ? ` 🔄 Progres dipulihkan: ${result.restored_from_state || 0} dari Cloud State & ${result.restored_from_results || 0} dari sheet Results!`
+                      : ''
+                  }`}
               {result.errors?.length ? ` ${result.errors.length} baris ditolak.` : ''}
             </div>
           )}
@@ -1488,10 +1492,12 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify, pre
   );
 }
 
-function ExportCard({ pin, exporter, setExporter, notify }) {
+function ExportCard({ pin, exporter, setExporter, notify, onRestored }) {
   const [webhookUrl, setWebhookUrl] = useState('');
   const [webhookSecret, setWebhookSecret] = useState('');
   const [busy, setBusy] = useState(false);
+  const [busyPushState, setBusyPushState] = useState(false);
+  const [busyBackup, setBusyBackup] = useState(false);
   const [testMsg, setTestMsg] = useState(null);
   const [showScriptModal, setShowScriptModal] = useState(false);
   const [scriptText, setScriptText] = useState('');
@@ -1547,7 +1553,7 @@ function ExportCard({ pin, exporter, setExporter, notify }) {
     if (r.exporter) setExporter(r.exporter);
     if (r.ok) {
       const msg = withTest
-        ? `✅ Koneksi Webhook Berhasil! ${r.test?.message || 'Siap mengunggah hasil & log ke Google Sheets.'}`
+        ? `✅ Koneksi Webhook Berhasil! ${r.test?.message || 'Siap mengunggah hasil, log & progres state ke Google Sheets.'}`
         : '✅ Konfigurasi Webhook Google Sheets disimpan.';
       setTestMsg({ type: 'ok', text: msg });
       notify({ type: 'ok', text: msg });
@@ -1556,9 +1562,86 @@ function ExportCard({ pin, exporter, setExporter, notify }) {
     }
   };
 
+  const pushCloudStateNow = async () => {
+    setBusyPushState(true);
+    const r = await api('/api/admin/export/push-state', { method: 'POST', pin });
+    setBusyPushState(false);
+    if (r.exporter) setExporter(r.exporter);
+    if (r.ok) {
+      notify({
+        type: 'ok',
+        text: `☁️ Progres turnamen (${r.synced_matches || 0} match & ${r.synced_results || 0} hasil selesai) berhasil disimpan ke Cloud Google Sheets! Siap dibuka di laptop manapun.`,
+      });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal mengunggah progres turnamen ke Google Sheets' });
+    }
+  };
+
+  const downloadBackupBundle = async () => {
+    setBusyBackup(true);
+    try {
+      const res = await fetch('/api/admin/backup/export', {
+        headers: { 'x-admin-token': pin, 'x-admin-pin': pin },
+      });
+      if (!res.ok) throw new Error('Gagal mengunduh file backup state turnamen');
+      const blob = await res.blob();
+      const cd = res.headers.get('content-disposition') || '';
+      const fnMatch = cd.match(/filename="([^"]+)"/i);
+      const filename = fnMatch ? fnMatch[1] : `smashpoint-state-${new Date().toISOString().slice(0, 10)}.json`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      notify({ type: 'ok', text: `💾 File State Turnamen (${filename}) berhasil diunduh!` });
+    } catch (e) {
+      notify({ type: 'error', text: e.message || 'Gagal mengunduh backup' });
+    } finally {
+      setBusyBackup(false);
+    }
+  };
+
+  const onRestoreFile = (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!window.confirm(`Pulihkan (Restore) progres turnamen dari file "${f.name}"?\n\nSeluruh skor, status pertandingan, riwayat reli, dan log pada profil aktif akan dilanjutkan sesuai isi file ini.`)) {
+      return;
+    }
+    const rd = new FileReader();
+    rd.onload = async () => {
+      try {
+        const bundle = JSON.parse(String(rd.result || '{}'));
+        setBusyBackup(true);
+        const r = await api('/api/admin/backup/import', {
+          method: 'POST',
+          pin,
+          body: { bundle, merge: false },
+        });
+        setBusyBackup(false);
+        if (r.ok) {
+          onRestored?.(r);
+          notify({
+            type: 'ok',
+            text: `✅ Berhasil memulihkan progres ${r.restored_matches || 0} pertandingan dari file "${f.name}"!`,
+          });
+        } else {
+          notify({ type: 'error', text: r.error || 'Gagal memulihkan file state turnamen' });
+        }
+      } catch {
+        setBusyBackup(false);
+        notify({ type: 'error', text: 'File JSON backup tidak valid' });
+      }
+    };
+    rd.readAsText(f);
+  };
+
   return (
     <div className="card col">
-      <h3 style={{ margin: 0 }}>📤 Ekspor & Sinkronisasi Hasil</h3>
+      <h3 style={{ margin: 0 }}>📤 Ekspor, Cloud Sync &amp; Pindah Laptop</h3>
       <div className="row">
         <a className="btn" href="/api/export/results.csv">
           ⬇ Hasil (CSV)
@@ -1566,9 +1649,46 @@ function ExportCard({ pin, exporter, setExporter, notify }) {
         <a className="btn" href="/api/export/logs.csv">
           ⬇ Semua Log (CSV)
         </a>
-        <button type="button" className="btn btn-yellow" onClick={openScriptModal} title="Lihat & salin kode terbaru Google Apps Script (mendukung kolom referee_name & shuttlecock_count)">
+        <button type="button" className="btn btn-yellow" onClick={openScriptModal} title="Lihat & salin kode terbaru Google Apps Script (mendukung Cloud State Sync antar-laptop + kolom referee_name & shuttlecock_count)">
           📜 Kode Google Apps Script Terbaru
         </button>
+      </div>
+
+      {/* Fitur Pindah Laptop / Multi-PC Sync (Cloud via Google Sheets + File Backup JSON) */}
+      <div className="col" style={{ background: 'rgba(14, 116, 144, 0.14)', padding: '.7rem .85rem', borderRadius: 10, border: '1px solid rgba(34, 211, 238, 0.35)' }}>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="small" style={{ fontWeight: 900, color: 'var(--cyan)' }}>
+            💻 Lanjutkan Progres Turnamen di Laptop / PC Lain:
+          </span>
+          <span className="badge cyan">Auto-Restore Aktif</span>
+        </div>
+        <p className="small muted" style={{ margin: 0 }}>
+          Saat Anda menarik jadwal dari Google Sheets di laptop lain, aplikasi otomatis membaca tab <b>Results</b> &amp; <b>SmashPoint_State</b> agar pertandingan yang sudah selesai atau sedang berjalan tidak mengulang dari awal.
+        </p>
+        <div className="row" style={{ gap: '.45rem', marginTop: '.2rem' }}>
+          <button
+            type="button"
+            className="btn btn-sm btn-green"
+            disabled={!exporter?.webhook_configured || busyPushState}
+            onClick={pushCloudStateNow}
+            title="Simpan seluruh progres skor, status pertandingan, dan hasil saat ini ke Google Sheets (tab SmashPoint_State & Results) agar bisa langsung ditarik di laptop lain"
+          >
+            {busyPushState ? '☁️ Menyimpan ke Cloud…' : '☁️ Simpan Progres ke Cloud Sheet Sekarang'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-blue"
+            disabled={busyBackup}
+            onClick={downloadBackupBundle}
+            title="Unduh seluruh database progres turnamen (.json) untuk dipindahkan via Flashdisk / WhatsApp ke laptop lain"
+          >
+            💾 Backup Progres (.json)
+          </button>
+          <label className="btn btn-sm" style={{ cursor: 'pointer', margin: 0 }} title="Muat file Backup Progres (.json) dari laptop sebelumnya">
+            📂 Restore dari File (.json)
+            <input type="file" accept=".json" style={{ display: 'none' }} onChange={onRestoreFile} />
+          </label>
+        </div>
       </div>
 
       {/* Konfigurasi Langsung Webhook Google Apps Script */}
@@ -3050,8 +3170,8 @@ export default function AdminPage() {
           />
 
           <div className="setup-grid">
-            <ImportPanel pin={token} sync={sync} onSyncChange={setSync} onDone={() => notify({ type: 'ok', text: 'Import selesai' })} />
-            <ExportCard pin={token} exporter={exporter} setExporter={setExporter} notify={notify} />
+            <ImportPanel pin={token} sync={sync} onSyncChange={setSync} onDone={() => notify({ type: 'ok', text: 'Import & sinkronisasi progres selesai' })} />
+            <ExportCard pin={token} exporter={exporter} setExporter={setExporter} notify={notify} onRestored={applyProfileResponse} />
           </div>
 
           <MatchTable

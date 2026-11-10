@@ -2098,14 +2098,23 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 }
 
 /* Current Game Score Box (Rightmost High-Contrast Box) */
+.bwf-points-col {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  flex-shrink: 0;
+}
 .bwf-points {
-  width: 60px; align-self: stretch; flex-shrink: 0;
-  margin-left: auto;
+  width: 60px; flex: 1; min-height: 54px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   background: #ffffff; color: #090d16;
   border-left: 2px solid #020617;
+  border-bottom: 1px solid rgba(2, 6, 23, 0.25);
   font-size: 26px; font-weight: 900; font-variant-numeric: tabular-nums;
   transition: background 0.2s, color 0.2s;
+}
+.bwf-points:last-child {
+  border-bottom: none;
 }
 .bwf-points.serving.serve-1 {
   background: linear-gradient(180deg, #fde047 0%, #eab308 100%);
