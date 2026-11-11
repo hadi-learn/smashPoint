@@ -54,14 +54,30 @@ export default function RallyHistoryStrip({
     const computeFit = () => {
       const hostWidth = host.clientWidth || el.clientWidth || 0;
       if (!hostWidth) return;
-      // Subtract container horizontal padding (~16px) and optional left team label column width
-      const innerWidth = Math.max(0, hostWidth - 18);
-      const teamLabelWidth = showTeamNames ? (compact ? 56 : 75) : 0;
+
+      // Measure actual horizontal padding of host + wrapper if available
+      const hostStyle = typeof window !== 'undefined' ? window.getComputedStyle(host) : null;
+      const hostPadX = hostStyle
+        ? (parseFloat(hostStyle.paddingLeft) || 0) + (parseFloat(hostStyle.paddingRight) || 0)
+        : 18;
+      const innerWidth = Math.max(0, hostWidth - Math.max(18, hostPadX));
+
+      // Measure actual rendered left team label column width (e.g. 11vw on Arena TV dock)
+      const labelEl = el.querySelector('.rhs-team-labels');
+      const teamLabelWidth = showTeamNames
+        ? (labelEl?.offsetWidth ? labelEl.offsetWidth + 8 : compact ? 56 : 75)
+        : 0;
       const availableWidth = Math.max(0, innerWidth - teamLabelWidth);
-      const colWidth = compact ? 21 : 27;
-      const colGap = 3;
+
+      // Measure actual rendered cell width & column gap (e.g. 2.35vw on Arena TV dock)
+      const sampleCell = el.querySelector('.rhs-cell');
+      const scrollEl = el.querySelector('.rhs-cols-scroll');
+      const scrollStyle = scrollEl && typeof window !== 'undefined' ? window.getComputedStyle(scrollEl) : null;
+      const colWidth = sampleCell?.offsetWidth || (compact ? 21 : 27);
+      const colGap = scrollStyle ? parseFloat(scrollStyle.columnGap || scrollStyle.gap) || 3 : 3;
+
       const cols = Math.floor((availableWidth + colGap) / (colWidth + colGap));
-      const clamped = Math.max(5, Math.min(60, cols));
+      const clamped = Math.max(4, Math.min(60, cols));
       setMeasuredLimit((prev) => (prev === clamped ? prev : clamped));
     };
 

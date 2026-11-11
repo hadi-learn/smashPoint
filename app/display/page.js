@@ -18,23 +18,29 @@ const ARENA_THEMES = [
     id: 'bwf_rows',
     name: '2. BWF World Tour Rows',
     badge: '🌍 BWF Horizontal',
-    desc: 'Layout papan skor resmi BWF / HSBC World Tour (2 baris horizontal: Pemain, Skor Set 1-3, dan Skor Aktif di kanan).',
+    desc: 'Layout papan skor resmi BWF / HSBC World Tour (2 baris horizontal: Pemain, Skor Set 1-3, dan Skor Raksasa di kanan).',
+  },
+  {
+    id: 'bwf_led',
+    name: '3. BWF Horizontal LED Ultra-Kontras',
+    badge: '⚡ BWF LED Kontras',
+    desc: 'Layout 2 baris BWF Horizontal dengan latar hitam pekat #000000 & angka kuning-putih solid khusus TV kontras rendah.',
   },
   {
     id: 'pbsi_court',
-    name: '3. PBSI Sirnas Emerald',
+    name: '4. PBSI Sirnas Emerald',
     badge: '🇮🇩 PBSI Emerald',
     desc: 'Tema hijau karpet turnamen nasional dengan kartu putih bersih & aksen Merah-Putih berdaya baca tinggi.',
   },
   {
     id: 'led_matrix',
-    name: '4. High-Contrast LED Matrix',
-    badge: '⚡ LED Ultra-Kontras',
-    desc: 'Khusus TV kontras rendah / GOR sangat terang: latar hitam pekat #000000 dengan teks & angka kuning-putih solid tanpa efek bias.',
+    name: '5. High-Contrast LED Matrix (Split)',
+    badge: '⚡ Split LED Kontras',
+    desc: 'Layout Split Kiri-Kanan dengan latar hitam pekat #000000 & teks kuning-putih solid tanpa efek bias.',
   },
   {
     id: 'broadcast_pro',
-    name: '5. Broadcast Pro Arena',
+    name: '6. Broadcast Pro Arena',
     badge: '🏆 Broadcast Gold',
     desc: 'Layout panggung turnamen Final: skor raksasa berhadapan di tengah dengan kartu tim di kiri-kanan.',
   },
@@ -589,7 +595,7 @@ function ArenaBoard({ match, now, previous = [], upcoming = [], theme = 'classic
       </header>
 
       {/* Main Arena Body: Switches layout based on selected theme */}
-      {validTheme === 'bwf_rows' ? (
+      {validTheme === 'bwf_rows' || validTheme === 'bwf_led' ? (
         <div className={`arena-body bwf-rows-layout ${anim ? 'tv-swap' : ''}`}>
           <ArenaBwfRowsBoard match={match} topTeam={L} bottomTeam={R} />
           {overlay}
@@ -656,9 +662,9 @@ function ArenaBoard({ match, now, previous = [], upcoming = [], theme = 'classic
 }
 
 /**
- * Layout 2: BWF World Tour Horizontal Rows Scoreboard (for Courtside TV).
+ * Layout 2 & 3: BWF World Tour Horizontal Rows Scoreboard (for Courtside TV).
  * 2-row horizontal layout inspired by official BWF / HSBC World Tour stadium boards:
- * Left: Side Tag + Seed/Club + Crisp Player Names (Server & Receiver highlighted)
+ * Left: Seed/Club + Crisp Player Names (Server & Receiver highlighted)
  * Center-Right: Shuttlecock Indicator + Completed Set Scores + Sets Won
  * Far Right: Giant High-Contrast Active Score Box
  */
@@ -669,14 +675,11 @@ function ArenaBwfRowsBoard({ match, topTeam, bottomTeam }) {
   const isSets = match.rules.scoring_type === 'sets';
   const sideOut = match.rules.scoring_method === 'side_out';
   const activePhase = !['setup', 'finished'].includes(st.phase);
-  const rows = [
-    { t: topTeam, posLabel: 'KIRI' },
-    { t: bottomTeam, posLabel: 'KANAN' },
-  ];
+  const rows = [{ t: topTeam }, { t: bottomTeam }];
 
   return (
     <div className="arena-bwf-board">
-      {rows.map(({ t, posLabel }, rowIdx) => {
+      {rows.map(({ t }, rowIdx) => {
         const tm = match.teams[`team_${t}`];
         const serving = ss.side === t && activePhase;
         const isSecondServe = serving && sideOut && ss.turn === 2;
@@ -695,16 +698,17 @@ function ArenaBwfRowsBoard({ match, topTeam, bottomTeam }) {
 
             {/* Team Identity & Players */}
             <div className="arena-bwf-identity">
-              <div className="arena-bwf-meta-line">
-                <span className={`arena-bwf-side-tag ${rowIdx === 0 ? 'left' : 'right'}`}>SISI {posLabel}</span>
-                {seed && <span className="arena-seed-badge">{seed}</span>}
-                {tm.club && <span className="arena-club-badge">{tm.club}</span>}
-                {teamAlert && (
-                  <span className={`arena-bwf-point-pill ${teamAlert.tone}`}>
-                    {teamAlert.type}
-                  </span>
-                )}
-              </div>
+              {(seed || tm.club || teamAlert) && (
+                <div className="arena-bwf-meta-line">
+                  {seed && <span className="arena-seed-badge">{seed}</span>}
+                  {tm.club && <span className="arena-club-badge">{tm.club}</span>}
+                  {teamAlert && (
+                    <span className={`arena-bwf-point-pill ${teamAlert.tone}`}>
+                      {teamAlert.type}
+                    </span>
+                  )}
+                </div>
+              )}
 
               <div className="arena-bwf-players">
                 {players.map((pid) => {
@@ -777,7 +781,7 @@ function ArenaBwfRowsBoard({ match, topTeam, bottomTeam }) {
 }
 
 /**
- * Layout 5: Broadcast Pro Center-Duel Arena (for Courtside TV).
+ * Layout 6: Broadcast Pro Center-Duel Arena (for Courtside TV).
  * Places Left Team Roster on the left, Right Team Roster on the right,
  * and brings both Giant Scores face-to-face in the center stage.
  */
@@ -799,11 +803,12 @@ function ArenaBroadcastProBoard({ match, leftTeam, rightTeam }) {
 
     return (
       <div className={`arena-pro-wing ${screen} team-${t} ${serving ? `serving-panel ${serveClass}` : ''}`}>
-        <div className="arena-pro-wing-top">
-          <span className={`arena-bwf-side-tag ${screen}`}>SISI {screen === 'left' ? 'KIRI' : 'KANAN'}</span>
-          {seed && <span className="arena-seed-badge">{seed}</span>}
-          {tm.club && <span className="arena-club-badge">{tm.club}</span>}
-        </div>
+        {(seed || tm.club) && (
+          <div className="arena-pro-wing-top">
+            {seed && <span className="arena-seed-badge">{seed}</span>}
+            {tm.club && <span className="arena-club-badge">{tm.club}</span>}
+          </div>
+        )}
 
         <div className="arena-pro-roster">
           {players.map((pid) => {
@@ -1238,7 +1243,7 @@ function Picker() {
 
       {viewMode === 'arena' && (
         <div className="card col">
-          <h3>2. Pilih Layout & Tema Layar Lapangan (5 Pilihan)</h3>
+          <h3>2. Pilih Layout & Tema Layar Lapangan (6 Pilihan)</h3>
           <div className="arena-theme-picker-grid">
             {ARENA_THEMES.map((t) => {
               const active = arenaTheme === t.id;
@@ -1320,7 +1325,7 @@ function Display() {
     lsSet('sp_arena_theme', nextTheme);
   };
 
-  // Shortcut keyboard 'H' untuk toggle on-demand tampilan histori reli, dan angka '1'-'5' untuk ganti layout Arena TV
+  // Shortcut keyboard 'H' untuk toggle on-demand tampilan histori reli, dan angka '1'-'6' untuk ganti layout Arena TV
   useEffect(() => {
     const onKey = (e) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName)) return;
@@ -1330,7 +1335,7 @@ function Display() {
           lsSet('sp_arena_show_history', next);
           return next;
         });
-      } else if (['1', '2', '3', '4', '5'].includes(e.key) && mode === 'arena') {
+      } else if (['1', '2', '3', '4', '5', '6'].includes(e.key) && mode === 'arena') {
         const idx = Number(e.key) - 1;
         if (ARENA_THEMES[idx]) {
           selectArenaTheme(ARENA_THEMES[idx].id);
@@ -1569,10 +1574,10 @@ function Display() {
               </button>
             </div>
 
-            {/* 3. Arena TV Layout & Theme Selector Row (5 Official Scoreboard Styles) */}
+            {/* 3. Arena TV Layout & Theme Selector Row (6 Official Scoreboard Styles) */}
             {!isObs && (
               <div className="tv-toolbar-section">
-                <span className="tv-toolbar-lbl">🎨 Tema & Layout Layar (1-5):</span>
+                <span className="tv-toolbar-lbl">🎨 Tema & Layout Layar (1-6):</span>
                 <div className="tv-theme-chips">
                   {ARENA_THEMES.map((t, idx) => (
                     <button

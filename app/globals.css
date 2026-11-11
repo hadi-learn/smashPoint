@@ -2071,12 +2071,23 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.6);
   z-index: 6;
   flex-shrink: 0;
+  overflow: hidden;
 }
 .arena-history-dock .rhs-wrap {
   width: 100%;
   border-left: none;
   background: transparent;
   padding: 0;
+  overflow: hidden;
+}
+.arena-history-dock .rhs-cols-scroll,
+.ls-history-container .rhs-cols-scroll {
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+.arena-history-dock .rhs-cols-scroll::-webkit-scrollbar,
+.ls-history-container .rhs-cols-scroll::-webkit-scrollbar {
+  display: none;
 }
 .arena-history-dock .rhs-header {
   font-size: 0.85vw;
@@ -2298,13 +2309,13 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
 }
 
 .arena-bwf-score-col {
-  width: 17.5vw;
+  width: 21.5vw;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #ffffff;
   color: #090d16;
-  border-left: 0.25vw solid #020617;
+  border-left: 0.28vw solid #020617;
   flex-shrink: 0;
 }
 .arena-bwf-score-col.serving.serve-1 {
@@ -2316,10 +2327,115 @@ label.field { display: flex; flex-direction: column; gap: .3rem; font-size: .85r
   color: #ffffff;
 }
 .arena-bwf-score-num {
-  font-size: 11.5vw;
+  font-size: 16.5vw;
   font-weight: 950;
-  line-height: 0.9;
+  line-height: 0.85;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+}
+.arena-tv.with-history .arena-bwf-score-num {
+  font-size: 14vw;
+}
+
+/* ---------------- LAYOUT 3: BWF HORIZONTAL LED ULTRA-KONTRAS (.theme-bwf_led) ----------------
+   Exact same 2-row BWF Horizontal layout, engineered with pitch-black #000000 background,
+   solid thick borders, zero gradients/blur, and ultra-contrasting yellow/white/orange digits. */
+.arena-tv.theme-bwf_led {
+  background: #000000 !important;
+}
+.arena-tv.theme-bwf_led .arena-header {
+  background: #000000 !important;
+  border-bottom: 0.28vw solid #ffe600;
+  box-shadow: none;
+}
+.arena-tv.theme-bwf_led .arena-duration-badge {
+  background: #000000;
+  border: 0.22vw solid #00ffff;
+  box-shadow: none;
+}
+.arena-tv.theme-bwf_led .arena-duration-time {
+  color: #00ffff;
+  text-shadow: none !important;
+}
+.arena-tv.theme-bwf_led .arena-bwf-row {
+  background: #000000 !important;
+  border: 0.28vw solid #ffffff;
+  box-shadow: none !important;
+}
+.arena-tv.theme-bwf_led .arena-bwf-row.serving-row.serve-1 {
+  background: #000000 !important;
+  border: 0.36vw solid #ffe600;
+}
+.arena-tv.theme-bwf_led .arena-bwf-row.serving-row.serve-2 {
+  background: #000000 !important;
+  border: 0.36vw solid #ff6600;
+}
+.arena-tv.theme-bwf_led .arena-bwf-player-item {
+  background: #080808;
+  border: 0.18vw solid #475569;
+}
+.arena-tv.theme-bwf_led .arena-bwf-player-item.active-server.serve-1 {
+  background: #1a1600;
+  border: 0.24vw solid #ffe600;
+}
+.arena-tv.theme-bwf_led .arena-bwf-player-item.active-server.serve-2 {
+  background: #220d00;
+  border: 0.24vw solid #ff6600;
+}
+.arena-tv.theme-bwf_led .arena-bwf-player-item.active-receiver {
+  background: #001a1a;
+  border: 0.24vw solid #00ffff;
+}
+.arena-tv.theme-bwf_led .arena-player-name {
+  text-shadow: none !important;
+  font-weight: 950;
+}
+.arena-tv.theme-bwf_led .arena-player-name.neutral {
+  color: #ffffff !important;
+}
+.arena-tv.theme-bwf_led .arena-player-name.server.serve-1 {
+  color: #ffe600 !important;
+}
+.arena-tv.theme-bwf_led .arena-player-name.server.serve-2 {
+  color: #ff8800 !important;
+}
+.arena-tv.theme-bwf_led .arena-player-name.receiver {
+  color: #00ffff !important;
+}
+.arena-tv.theme-bwf_led .arena-bwf-prev-set,
+.arena-tv.theme-bwf_led .arena-bwf-sets-won {
+  background: #000000 !important;
+  border-left: 0.22vw solid #475569;
+}
+.arena-tv.theme-bwf_led .arena-bwf-prev-set.won .arena-bwf-set-val {
+  color: #ffe600 !important;
+}
+.arena-tv.theme-bwf_led .arena-bwf-sets-val {
+  color: #00ffff !important;
+}
+.arena-tv.theme-bwf_led .arena-bwf-score-col {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border-left: 0.3vw solid #ffffff;
+}
+.arena-tv.theme-bwf_led .arena-bwf-score-col.serving.serve-1 {
+  background: #ffe600 !important;
+  color: #000000 !important;
+  border-left-color: #ffe600;
+}
+.arena-tv.theme-bwf_led .arena-bwf-score-col.serving.serve-2 {
+  background: #ff6600 !important;
+  color: #ffffff !important;
+  border-left-color: #ff6600;
+}
+.arena-tv.theme-bwf_led .arena-bwf-score-num {
+  text-shadow: none !important;
+}
+.arena-tv.theme-bwf_led .arena-history-dock,
+.arena-tv.theme-led_matrix .arena-history-dock {
+  background: #000000 !important;
+  border-top: 0.22vw solid #ffe600;
+  box-shadow: none;
 }
 
 /* ---------------- LAYOUT 3: PBSI SIRNAS EMERALD COURT THEME (.theme-pbsi_court) ---------------- */
