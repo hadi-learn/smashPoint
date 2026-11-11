@@ -3,9 +3,42 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { breakCountdownInfo, DISCIPLINE_LABEL, isDoubles, matchDurationText, teamLabel, teamSeedBadge, teamSeedText } from '@/lib/engine';
-import { api, emitAck, getSocket, useNow } from '@/lib/client';
+import { api, emitAck, getSocket, lsGet, lsSet, useNow } from '@/lib/client';
 import { Shuttle } from '@/components/Icons';
 import RallyHistoryStrip from '@/components/RallyHistoryStrip';
+
+const ARENA_THEMES = [
+  {
+    id: 'classic',
+    name: '1. Classic Split Arena',
+    badge: '🏟️ Split Kiri-Kanan',
+    desc: 'Layout 2 panel raksasa sesuai sisi lapangan (Kiri vs Kanan) dengan kontras tinggi tajam.',
+  },
+  {
+    id: 'bwf_rows',
+    name: '2. BWF World Tour Rows',
+    badge: '🌍 BWF Horizontal',
+    desc: 'Layout papan skor resmi BWF / HSBC World Tour (2 baris horizontal: Pemain, Skor Set 1-3, dan Skor Aktif di kanan).',
+  },
+  {
+    id: 'pbsi_court',
+    name: '3. PBSI Sirnas Emerald',
+    badge: '🇮🇩 PBSI Emerald',
+    desc: 'Tema hijau karpet turnamen nasional dengan kartu putih bersih & aksen Merah-Putih berdaya baca tinggi.',
+  },
+  {
+    id: 'led_matrix',
+    name: '4. High-Contrast LED Matrix',
+    badge: '⚡ LED Ultra-Kontras',
+    desc: 'Khusus TV kontras rendah / GOR sangat terang: latar hitam pekat #000000 dengan teks & angka kuning-putih solid tanpa efek bias.',
+  },
+  {
+    id: 'broadcast_pro',
+    name: '5. Broadcast Pro Arena',
+    badge: '🏆 Broadcast Gold',
+    desc: 'Layout panggung turnamen Final: skor raksasa berhadapan di tengah dengan kartu tim di kiri-kanan.',
+  },
+];
 
 /** DetectSpecialPoint: Game Point, Match Point, Set Point, Deuce */
 function getTeamPointAlert(match, t) {
@@ -287,9 +320,9 @@ function renderPreviousScore(p) {
 
 /**
  * Full-Screen Arena LED Scoreboard (for Courtside Smart TV / Big Monitor).
- * Redesigned with broadcast-grade horizontal rows + massive court-side split panels.
+ * Supports 5 selectable broadcast & tournament layouts/themes + optional Rally History dock.
  */
-function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
+function ArenaBoard({ match, now, previous = [], upcoming = [], theme = 'classic', showHistory = false }) {
   const st = match.live_state;
   const ss = st.service_status;
   const L = st.sides.left;
@@ -309,9 +342,10 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
 
   const finished = match.session_management.status === 'finished' || st.phase === 'finished';
   const isSets = match.rules.scoring_type === 'sets';
-  const sideOut = match.rules.scoring_method === 'side_out';
   const alert = detectPointAlert(match);
   const duration = matchDurationText(match, now);
+  const isHistoryVisible = Boolean(showHistory) && Boolean(st?.rally_history?.length) && !finished;
+  const validTheme = ARENA_THEMES.some((item) => item.id === theme) ? theme : 'classic';
 
   let overlay = null;
   if (finished) {
@@ -524,7 +558,7 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
   }
 
   return (
-    <div className="arena-tv">
+    <div className={`arena-tv theme-${validTheme} ${isHistoryVisible ? 'with-history' : ''}`}>
       {/* Top Broadcast Header Bar (Clean: Tournament & Match Identity Only) */}
       <header className="arena-header">
         <div className="arena-header-left">
@@ -554,31 +588,316 @@ function ArenaBoard({ match, now, previous = [], upcoming = [] }) {
         </div>
       </header>
 
-      {/* Main Split Arena Cards (Left Court Side vs Right Court Side) */}
-      <div className={`arena-body ${!isSets ? 'no-center' : ''} ${anim ? 'tv-swap' : ''}`}>
-        <ArenaTeamCard match={match} t={L} screen="left" />
+      {/* Main Arena Body: Switches layout based on selected theme */}
+      {validTheme === 'bwf_rows' ? (
+        <div className={`arena-body bwf-rows-layout ${anim ? 'tv-swap' : ''}`}>
+          <ArenaBwfRowsBoard match={match} topTeam={L} bottomTeam={R} />
+          {overlay}
+          {st.phase === 'setup' && !finished && (
+            <div className="tv-overlay setup-banner">
+              <div className="tv-overlay-badge">PERSIAPAN PERTANDINGAN</div>
+              <p>{[match.scheduled_date, match.scheduled_time].filter(Boolean).join(' · ')}</p>
+            </div>
+          )}
+        </div>
+      ) : validTheme === 'broadcast_pro' ? (
+        <div className={`arena-body broadcast-pro-layout ${anim ? 'tv-swap' : ''}`}>
+          <ArenaBroadcastProBoard match={match} leftTeam={L} rightTeam={R} />
+          {overlay}
+          {st.phase === 'setup' && !finished && (
+            <div className="tv-overlay setup-banner">
+              <div className="tv-overlay-badge">PERSIAPAN PERTANDINGAN</div>
+              <p>{[match.scheduled_date, match.scheduled_time].filter(Boolean).join(' · ')}</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className={`arena-body ${!isSets ? 'no-center' : ''} ${anim ? 'tv-swap' : ''}`}>
+          <ArenaTeamCard match={match} t={L} screen="left" />
+          {isSets && (
+            <div className="arena-center-divider">
+              <div className="arena-set-summary">
+                <div className="arena-set-label">SET {st.current_set}</div>
+                <div className="arena-set-digits">
+                  <span>{st.sets[L]}</span>
+                  <span>:</span>
+                  <span>{st.sets[R]}</span>
+                </div>
+              </div>
+            </div>
+          )}
+          <ArenaTeamCard match={match} t={R} screen="right" />
+
+          {overlay}
+          {st.phase === 'setup' && !finished && (
+            <div className="tv-overlay setup-banner">
+              <div className="tv-overlay-badge">PERSIAPAN PERTANDINGAN</div>
+              <p>{[match.scheduled_date, match.scheduled_time].filter(Boolean).join(' · ')}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Optional Bottom Rally History Dock (Toggleable via Toolbar / H Shortcut / Admin) */}
+      {isHistoryVisible && (
+        <footer className="arena-history-dock">
+          <RallyHistoryStrip
+            match={match}
+            autoFit={true}
+            topSide={L}
+            bottomSide={R}
+            showLabel={true}
+            showTeamNames={true}
+          />
+        </footer>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Layout 2: BWF World Tour Horizontal Rows Scoreboard (for Courtside TV).
+ * 2-row horizontal layout inspired by official BWF / HSBC World Tour stadium boards:
+ * Left: Side Tag + Seed/Club + Crisp Player Names (Server & Receiver highlighted)
+ * Center-Right: Shuttlecock Indicator + Completed Set Scores + Sets Won
+ * Far Right: Giant High-Contrast Active Score Box
+ */
+function ArenaBwfRowsBoard({ match, topTeam, bottomTeam }) {
+  const st = match.live_state;
+  const ss = st.service_status;
+  const dbl = isDoubles(match);
+  const isSets = match.rules.scoring_type === 'sets';
+  const sideOut = match.rules.scoring_method === 'side_out';
+  const activePhase = !['setup', 'finished'].includes(st.phase);
+  const rows = [
+    { t: topTeam, posLabel: 'KIRI' },
+    { t: bottomTeam, posLabel: 'KANAN' },
+  ];
+
+  return (
+    <div className="arena-bwf-board">
+      {rows.map(({ t, posLabel }, rowIdx) => {
+        const tm = match.teams[`team_${t}`];
+        const serving = ss.side === t && activePhase;
+        const isSecondServe = serving && sideOut && ss.turn === 2;
+        const serveClass = isSecondServe ? 'serve-2' : 'serve-1';
+        const seed = teamSeedText(tm.details);
+        const players = dbl ? [`${t}1`, `${t}2`] : [`${t}1`];
+        const teamAlert = getTeamPointAlert(match, t);
+
+        return (
+          <div
+            key={t}
+            className={`arena-bwf-row side-${rowIdx === 0 ? 'top' : 'bottom'} team-${t} ${serving ? `serving-row ${serveClass}` : ''}`}
+          >
+            {/* Left Accent Bar */}
+            <div className={`arena-bwf-accent team-${t} ${serving ? serveClass : ''}`} />
+
+            {/* Team Identity & Players */}
+            <div className="arena-bwf-identity">
+              <div className="arena-bwf-meta-line">
+                <span className={`arena-bwf-side-tag ${rowIdx === 0 ? 'left' : 'right'}`}>SISI {posLabel}</span>
+                {seed && <span className="arena-seed-badge">{seed}</span>}
+                {tm.club && <span className="arena-club-badge">{tm.club}</span>}
+                {teamAlert && (
+                  <span className={`arena-bwf-point-pill ${teamAlert.tone}`}>
+                    {teamAlert.type}
+                  </span>
+                )}
+              </div>
+
+              <div className="arena-bwf-players">
+                {players.map((pid) => {
+                  const isServer = serving && ss.player_id === pid;
+                  const isReceiver = activePhase && !serving && ss.receiver_id === pid;
+                  const name = pid[1] === '1' ? tm.p1 : tm.p2;
+                  const rowStateCls = isServer
+                    ? `active-server ${serveClass}`
+                    : isReceiver
+                    ? 'active-receiver'
+                    : 'neutral';
+                  const nameStateCls = isServer
+                    ? `server ${serveClass}`
+                    : isReceiver
+                    ? 'receiver'
+                    : 'neutral';
+                  return (
+                    <div key={pid} className={`arena-bwf-player-item ${rowStateCls}`}>
+                      <span className={`arena-player-name ${dbl ? 'doubles' : 'singles'} ${nameStateCls}`}>
+                        {name}
+                      </span>
+                      {isServer && (
+                        <span className={`tv-serve-label ${serveClass}`}>
+                          {sideOut ? (isSecondServe ? '2ND SERVE' : '1ST SERVE') : 'SERVE'}
+                        </span>
+                      )}
+                      {isReceiver && <span className="tv-rcv-label">PENERIMA</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Shuttlecock Active Serve Column */}
+            <div className="arena-bwf-shuttle-col">
+              {serving && (
+                <div key={`bwf-sh-${ss.side}-${ss.turn}-${ss.player_id}`} className={`arena-bwf-shuttles ${serveClass}`}>
+                  <Shuttle className="tv-shuttle-icon" size="100%" />
+                  {isSecondServe && <Shuttle className="tv-shuttle-icon" size="100%" />}
+                </div>
+              )}
+            </div>
+
+            {/* Previous Completed Sets Columns */}
+            {isSets &&
+              st.set_history.map((s) => (
+                <div key={s.set} className={`arena-bwf-prev-set ${s.winner === t ? 'won' : ''}`}>
+                  <span className="arena-bwf-set-hdr">SET {s.set}</span>
+                  <span className="arena-bwf-set-val">{s[t]}</span>
+                </div>
+              ))}
+
+            {/* Sets Won Column */}
+            {isSets && (
+              <div className="arena-bwf-sets-won">
+                <span className="arena-bwf-set-hdr">SET</span>
+                <span className="arena-bwf-sets-val">{st.sets[t]}</span>
+              </div>
+            )}
+
+            {/* Giant Rightmost Active Score Box */}
+            <div className={`arena-bwf-score-col ${serving ? `serving ${serveClass}` : ''}`}>
+              <span className="arena-bwf-score-num">{st.score[t]}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Layout 5: Broadcast Pro Center-Duel Arena (for Courtside TV).
+ * Places Left Team Roster on the left, Right Team Roster on the right,
+ * and brings both Giant Scores face-to-face in the center stage.
+ */
+function ArenaBroadcastProBoard({ match, leftTeam, rightTeam }) {
+  const st = match.live_state;
+  const ss = st.service_status;
+  const isSets = match.rules.scoring_type === 'sets';
+  const sideOut = match.rules.scoring_method === 'side_out';
+  const activePhase = !['setup', 'finished'].includes(st.phase);
+
+  const renderProRoster = (t, screen) => {
+    const tm = match.teams[`team_${t}`];
+    const dbl = isDoubles(match);
+    const serving = ss.side === t && activePhase;
+    const isSecondServe = serving && sideOut && ss.turn === 2;
+    const serveClass = isSecondServe ? 'serve-2' : 'serve-1';
+    const seed = teamSeedText(tm.details);
+    const players = dbl ? [`${t}1`, `${t}2`] : [`${t}1`];
+
+    return (
+      <div className={`arena-pro-wing ${screen} team-${t} ${serving ? `serving-panel ${serveClass}` : ''}`}>
+        <div className="arena-pro-wing-top">
+          <span className={`arena-bwf-side-tag ${screen}`}>SISI {screen === 'left' ? 'KIRI' : 'KANAN'}</span>
+          {seed && <span className="arena-seed-badge">{seed}</span>}
+          {tm.club && <span className="arena-club-badge">{tm.club}</span>}
+        </div>
+
+        <div className="arena-pro-roster">
+          {players.map((pid) => {
+            const isServer = serving && ss.player_id === pid;
+            const isReceiver = activePhase && !serving && ss.receiver_id === pid;
+            const name = pid[1] === '1' ? tm.p1 : tm.p2;
+            const rowStateCls = isServer
+              ? `active-server ${serveClass}`
+              : isReceiver
+              ? 'active-receiver'
+              : 'neutral';
+            const nameStateCls = isServer
+              ? `server ${serveClass}`
+              : isReceiver
+              ? 'receiver'
+              : 'neutral';
+            return (
+              <div key={pid} className={`arena-player-row ${rowStateCls}`}>
+                <div className="arena-player-name-wrap">
+                  <span className={`arena-player-name ${dbl ? 'doubles' : 'singles'} ${nameStateCls}`}>
+                    {name}
+                  </span>
+                  {isServer && (
+                    <span className={`tv-serve-label ${serveClass}`}>
+                      {sideOut ? (isSecondServe ? '2ND SERVE' : '1ST SERVE') : 'SERVE'}
+                    </span>
+                  )}
+                  {isReceiver && <span className="tv-rcv-label">PENERIMA</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         {isSets && (
-          <div className="arena-center-divider">
+          <div className="arena-pro-wing-bottom">
+            <div className="tv-sets">
+              <span className={`pip ${st.sets[t] >= 1 ? 'won' : ''}`} />
+              <span className={`pip ${st.sets[t] >= 2 ? 'won' : ''}`} />
+            </div>
+            {st.set_history.length > 0 && (
+              <div className="arena-pro-prev-sets">
+                {st.set_history.map((s) => (
+                  <span key={s.set} className={`arena-pro-set-chip ${s.winner === t ? 'won' : ''}`}>
+                    S{s.set}: {s[t]}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderProScoreBox = (t, screen) => {
+    const serving = ss.side === t && activePhase;
+    const isSecondServe = serving && sideOut && ss.turn === 2;
+    const serveClass = isSecondServe ? 'serve-2' : 'serve-1';
+    return (
+      <div className={`arena-pro-score-card ${screen} ${serving ? `serving ${serveClass}` : ''}`}>
+        <div className={`arena-score-num ${serving ? `serving ${serveClass}` : ''}`}>
+          {st.score[t]}
+        </div>
+        {serving && (
+          <div key={`pro-sh-${ss.side}-${ss.turn}-${ss.player_id}`} className={`arena-pro-shuttles ${serveClass}`}>
+            <Shuttle className="tv-shuttle-icon" size="100%" />
+            {isSecondServe && <Shuttle className="tv-shuttle-icon" size="100%" />}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="arena-pro-board">
+      {renderProRoster(leftTeam, 'left')}
+      <div className="arena-pro-center-duel">
+        {renderProScoreBox(leftTeam, 'left')}
+        {isSets && (
+          <div className="arena-pro-mid-pillar">
             <div className="arena-set-summary">
               <div className="arena-set-label">SET {st.current_set}</div>
               <div className="arena-set-digits">
-                <span>{st.sets[L]}</span>
+                <span>{st.sets[leftTeam]}</span>
                 <span>:</span>
-                <span>{st.sets[R]}</span>
+                <span>{st.sets[rightTeam]}</span>
               </div>
             </div>
           </div>
         )}
-        <ArenaTeamCard match={match} t={R} screen="right" />
-
-        {overlay}
-        {st.phase === 'setup' && !finished && (
-          <div className="tv-overlay setup-banner">
-            <div className="tv-overlay-badge">PERSIAPAN PERTANDINGAN</div>
-            <p>{[match.scheduled_date, match.scheduled_time].filter(Boolean).join(' · ')}</p>
-          </div>
-        )}
+        {renderProScoreBox(rightTeam, 'right')}
       </div>
+      {renderProRoster(rightTeam, 'right')}
     </div>
   );
 }
@@ -858,14 +1177,28 @@ function Picker() {
   const [count, setCount] = useState(15);
   const [code, setCode] = useState('');
   const [viewMode, setViewMode] = useState('arena'); // arena | obs | chroma
+  const [arenaTheme, setArenaTheme] = useState(() => lsGet('sp_arena_theme', 'classic'));
+
   useEffect(() => {
     api('/api/config').then((c) => c.court_count && setCount(c.court_count));
   }, []);
 
-  const suffix = viewMode === 'obs' ? '&mode=obs' : viewMode === 'chroma' ? '&mode=obs&bg=green' : '';
+  const handleSelectTheme = (id) => {
+    setArenaTheme(id);
+    lsSet('sp_arena_theme', id);
+  };
+
+  const suffix =
+    viewMode === 'obs'
+      ? '&mode=obs'
+      : viewMode === 'chroma'
+      ? '&mode=obs&bg=green'
+      : arenaTheme && arenaTheme !== 'classic'
+      ? `&theme=${encodeURIComponent(arenaTheme)}`
+      : '';
 
   return (
-    <main className="container col" style={{ maxWidth: 820 }}>
+    <main className="container col" style={{ maxWidth: 880 }}>
       <h1>Court Display & YouTube OBS Overlay</h1>
       <p className="muted">
         Pilih mode tampilan untuk layar TV besar di pinggir lapangan atau mode <strong>YouTube / OBS Scorebug Overlay</strong> (pojok kiri atas).
@@ -903,8 +1236,34 @@ function Picker() {
         </div>
       </div>
 
+      {viewMode === 'arena' && (
+        <div className="card col">
+          <h3>2. Pilih Layout & Tema Layar Lapangan (5 Pilihan)</h3>
+          <div className="arena-theme-picker-grid">
+            {ARENA_THEMES.map((t) => {
+              const active = arenaTheme === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`arena-theme-card ${active ? 'active' : ''}`}
+                  onClick={() => handleSelectTheme(t.id)}
+                >
+                  <div className="arena-theme-card-top">
+                    <span className="arena-theme-badge">{t.badge}</span>
+                    {active && <span className="arena-theme-active-dot">✓ Dipilih</span>}
+                  </div>
+                  <div className="arena-theme-name">{t.name}</div>
+                  <div className="arena-theme-desc">{t.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="card col">
-        <h3>2. Buka berdasarkan Nomor Lapangan (Auto-Sync)</h3>
+        <h3>{viewMode === 'arena' ? '3.' : '2.'} Buka berdasarkan Nomor Lapangan (Auto-Sync)</h3>
         <div className="court-links">
           {Array.from({ length: count }, (_, i) => (
             <Link key={i} href={`/display?court=${i + 1}${suffix}`}>
@@ -938,10 +1297,15 @@ function Display() {
   const matchId = params.get('match');
   const initialMode = params.get('mode') === 'obs' ? 'obs' : 'arena';
   const initialBg = params.get('bg') || 'transparent'; // transparent | green | dark
+  const paramTheme = params.get('theme');
 
   const [mode, setMode] = useState(initialMode);
   const [bgMode, setBgMode] = useState(initialBg);
-  const [showHistoryLocal, setShowHistoryLocal] = useState(false);
+  const [arenaTheme, setArenaTheme] = useState(() => {
+    if (paramTheme && ARENA_THEMES.some((t) => t.id === paramTheme)) return paramTheme;
+    return lsGet('sp_arena_theme', 'classic');
+  });
+  const [showHistoryLocal, setShowHistoryLocal] = useState(() => Boolean(lsGet('sp_arena_show_history', false)));
   const [courtCount, setCourtCount] = useState(15);
   const [menuOpen, setMenuOpen] = useState(false);
   const [match, setMatch] = useState(null);
@@ -951,17 +1315,31 @@ function Display() {
   const [error, setError] = useState(null);
   const now = useNow(1000);
 
-  // Shortcut keyboard 'H' untuk toggle on-demand tampilan 10 servis terakhir di overlay YouTube
+  const selectArenaTheme = (nextTheme) => {
+    setArenaTheme(nextTheme);
+    lsSet('sp_arena_theme', nextTheme);
+  };
+
+  // Shortcut keyboard 'H' untuk toggle on-demand tampilan histori reli, dan angka '1'-'5' untuk ganti layout Arena TV
   useEffect(() => {
     const onKey = (e) => {
-      if (['INPUT', 'TEXTAREA'].includes(e.target?.tagName)) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName)) return;
       if (e.key === 'h' || e.key === 'H') {
-        setShowHistoryLocal((prev) => !prev);
+        setShowHistoryLocal((prev) => {
+          const next = !prev;
+          lsSet('sp_arena_show_history', next);
+          return next;
+        });
+      } else if (['1', '2', '3', '4', '5'].includes(e.key) && mode === 'arena') {
+        const idx = Number(e.key) - 1;
+        if (ARENA_THEMES[idx]) {
+          selectArenaTheme(ARENA_THEMES[idx].id);
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     api('/api/config').then((c) => c?.court_count && setCourtCount(c.court_count));
@@ -970,6 +1348,11 @@ function Display() {
   useEffect(() => {
     setMode(params.get('mode') === 'obs' ? 'obs' : 'arena');
     if (params.get('bg')) setBgMode(params.get('bg'));
+    const tParam = params.get('theme');
+    if (tParam && ARENA_THEMES.some((t) => t.id === tParam)) {
+      setArenaTheme(tParam);
+      lsSet('sp_arena_theme', tParam);
+    }
   }, [params]);
 
   const switchCourt = (nextCourt) => {
@@ -983,6 +1366,8 @@ function Display() {
     if (mode === 'obs') {
       q.set('mode', 'obs');
       if (bgMode && bgMode !== 'transparent') q.set('bg', bgMode);
+    } else if (arenaTheme && arenaTheme !== 'classic') {
+      q.set('theme', arenaTheme);
     }
     router.push(`/display?${q.toString()}`);
     setMenuOpen(false);
@@ -1159,6 +1544,7 @@ function Display() {
                 onClick={async () => {
                   const nextVal = !(showHistoryLocal || match?.live_state?.show_rally_history);
                   setShowHistoryLocal(nextVal);
+                  lsSet('sp_arena_show_history', nextVal);
                   if (match?.match_number) {
                     await api(`/api/matches/${encodeURIComponent(match.match_number)}/toggle_history`, {
                       method: 'POST',
@@ -1166,7 +1552,7 @@ function Display() {
                     });
                   }
                 }}
-                title="Tekan H pada keyboard atau klik di sini untuk menampilkan/menyembunyikan 10 reli terakhir di overlay YouTube"
+                title="Tekan H pada keyboard atau klik di sini untuk menampilkan/menyembunyikan Histori Reli di Layar Lapangan & Overlay YouTube"
               >
                 📊 Histori Reli: {showHistoryLocal || match?.live_state?.show_rally_history ? 'ON (Tampil)' : 'OFF (Sembunyi)'}
               </button>
@@ -1182,6 +1568,27 @@ function Display() {
                 ⛶ Fullscreen
               </button>
             </div>
+
+            {/* 3. Arena TV Layout & Theme Selector Row (5 Official Scoreboard Styles) */}
+            {!isObs && (
+              <div className="tv-toolbar-section">
+                <span className="tv-toolbar-lbl">🎨 Tema & Layout Layar (1-5):</span>
+                <div className="tv-theme-chips">
+                  {ARENA_THEMES.map((t, idx) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className={`tv-theme-chip ${arenaTheme === t.id ? 'active' : ''}`}
+                      onClick={() => selectArenaTheme(t.id)}
+                      title={`${t.name} — ${t.desc} (Shortcut tombol angka ${idx + 1})`}
+                    >
+                      <span className="tv-theme-num">{idx + 1}</span>
+                      <span>{t.badge}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1189,9 +1596,9 @@ function Display() {
           type="button"
           className={`tv-dock-trigger ${isObs ? 'obs-stealth' : ''} ${menuOpen ? 'active' : ''}`}
           onClick={() => setMenuOpen((v) => !v)}
-          title="Klik untuk membuka pengaturan Lapangan (Court) & Mode Layar"
+          title="Klik untuk membuka pengaturan Lapangan (Court), Tema Layout & Mode Layar"
         >
-          {menuOpen ? '✕ Tutup Panel' : `⚙️ Court ${activeCourtNum || '-'} · Pengaturan`}
+          {menuOpen ? '✕ Tutup Panel' : `⚙️ Court ${activeCourtNum || '-'} · Tema & Pengaturan`}
         </button>
       </div>
 
@@ -1211,7 +1618,14 @@ function Display() {
               showHistory={showHistoryLocal || Boolean(match?.live_state?.show_rally_history)}
             />
           ) : (
-            <ArenaBoard match={match} now={now} previous={previous} upcoming={upcoming} />
+            <ArenaBoard
+              match={match}
+              now={now}
+              previous={previous}
+              upcoming={upcoming}
+              theme={arenaTheme}
+              showHistory={showHistoryLocal || Boolean(match?.live_state?.show_rally_history)}
+            />
           )
         ) : (
           <Idle court={court || '-'} previous={previous} upcoming={upcoming} isObs={isObs} bgMode={bgMode} />
