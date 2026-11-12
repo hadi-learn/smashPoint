@@ -2719,16 +2719,46 @@ function CloseTournamentModal({ profile, matches, token, onClose, onSaved, onOpe
 
 /**
  * TournamentReportModal
- * Laporan Pelaksanaan Turnamen Komprehensif (Executive Summary s/d Detail Match & Reli).
+ * Executive Business Intelligence (BI) Tournament Report:
+ * KPI Cards, SVG Charts (Donut, Court Utilization, Duration Histogram, Category & Club Bars),
+ * Full Podiums, Club Leaderboard, Umpire Scorecard, BWF Fair Play Audit & Zero-Truncation Match Register.
+ * Dapat dilihat & di-regenerate kapan saja walaupun turnamen berstatus CLOSED.
  */
-function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, onOpenCloseModal }) {
-  const [reportTab, setReportTab] = useState('all'); // 'all' | 'champions' | 'clubs' | 'logistics' | 'matches'
+function TournamentReportModal({ profile, matches, token, now, onClose, onSelectMatch, onOpenCloseModal, onRegenerate, notify }) {
+  const [reportTab, setReportTab] = useState('all'); // 'all' | 'analytics' | 'champions' | 'logistics' | 'matches'
+  const [biTheme, setBiTheme] = useState('dark'); // 'dark' | 'paper'
+  const [regenerating, setRegenerating] = useState(false);
+  const [generatedAt, setGeneratedAt] = useState(() => formatLocalDateTime(new Date()));
+  const [matchSearch, setMatchSearch] = useState('');
+  const [matchStatusFilter, setMatchStatusFilter] = useState('all');
+  const [matchCatFilter, setMatchCatFilter] = useState('all');
+
+  const handleRegenerate = async () => {
+    if (regenerating) return;
+    setRegenerating(true);
+    try {
+      if (onRegenerate) {
+        await onRegenerate();
+      } else if (token) {
+        await emitAck('admin:watch', { token, pin: token });
+      }
+      setGeneratedAt(formatLocalDateTime(new Date()));
+      notify?.({
+        type: 'ok',
+        text: '🔄 Laporan Executive BI berhasil di-regenerate dari data server terbaru.',
+      });
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   const report = useMemo(() => {
     const totalMatches = matches.length;
     const finishedMatches = matches.filter((m) => m.session_management?.status === 'finished');
     const liveMatches = matches.filter((m) => m.session_management?.status === 'in_progress');
-    const scheduledMatches = matches.filter((m) => m.session_management?.status === 'scheduled' || m.session_management?.status === 'locked');
+    const scheduledMatches = matches.filter(
+      (m) => m.session_management?.status === 'scheduled' || m.session_management?.status === 'locked'
+    );
     const completionPct = totalMatches > 0 ? Math.round((finishedMatches.length / totalMatches) * 100) : 0;
 
     let totalSets = 0;
@@ -2741,6 +2771,16 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
     let fastestMatch = null;
     let highestCockMatch = null;
     let rubberSetCount = 0;
+    let straightSetCount = 0;
+    let continuousCount = 0;
+
+    const durationBuckets = [
+      { label: '< 15 mnt', min: 0, max: 15 * 60, count: 0 },
+      { label: '15–25 mnt', min: 15 * 60, max: 25 * 60, count: 0 },
+      { label: '25–35 mnt', min: 25 * 60, max: 35 * 60, count: 0 },
+      { label: '35–45 mnt', min: 35 * 60, max: 45 * 60, count: 0 },
+      { label: '> 45 mnt', min: 45 * 60, max: Infinity, count: 0 },
+    ];
 
     const categoryMap = new Map();
     const clubMap = new Map();
@@ -2783,13 +2823,18 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
       const ralliesLen = Array.isArray(st.rally_history) ? st.rally_history.length : 0;
       totalRallies += ralliesLen;
 
-      const setHist = Array.isArray(st.set_history) && st.set_history.length > 0
-        ? st.set_history
-        : isFin
-        ? [{ set: 1, a: st.score?.a || 0, b: st.score?.b || 0, winner: st.winner || 'a' }]
-        : [];
+      const setHist =
+        Array.isArray(st.set_history) && st.set_history.length > 0
+          ? st.set_history
+          : isFin
+          ? [{ set: 1, a: st.score?.a || 0, b: st.score?.b || 0, winner: st.winner || 'a' }]
+          : [];
       totalSets += setHist.length;
-      if (setHist.length >= 3) rubberSetCount += 1;
+      if (isFin) {
+        if (m.rules?.scoring_type === 'continuous') continuousCount += 1;
+        else if (setHist.length >= 3) rubberSetCount += 1;
+        else if (setHist.length > 0) straightSetCount += 1;
+      }
 
       const ptsA = setHist.reduce((acc, s) => acc + (Number(s.a) || 0), 0);
       const ptsB = setHist.reduce((acc, s) => acc + (Number(s.b) || 0), 0);
@@ -2801,9 +2846,10 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
         durationCount += 1;
         if (!longestMatch || durSec > longestMatch.durSec) longestMatch = { match: m, durSec };
         if (!fastestMatch || durSec < fastestMatch.durSec) fastestMatch = { match: m, durSec };
+        const bkt = durationBuckets.find((b) => durSec >= b.min && durSec < b.max);
+        if (bkt) bkt.count += 1;
       }
 
-      // Cards
       if (Array.isArray(st.cards)) {
         for (const c of st.cards) {
           allCards.push({
@@ -2817,7 +2863,6 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
         }
       }
 
-      // Category aggregation
       const catKey = `${m.category_name || 'Umum'}||${m.discipline || 'MD'}`;
       if (!categoryMap.has(catKey)) {
         categoryMap.set(catKey, {
@@ -2843,7 +2888,6 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
       }
       catObj.matches.push(m);
 
-      // Court aggregation
       const cNo = m.court_number || 1;
       if (!courtMap.has(cNo)) {
         courtMap.set(cNo, { court: cNo, total: 0, finished: 0, live: 0, cock: 0, durationSec: 0, rallies: 0 });
@@ -2859,7 +2903,6 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
         crt.live += 1;
       }
 
-      // Referee aggregation
       const refName = (sm.controller_label || '').trim();
       if (refName) {
         if (!refereeMap.has(refName)) {
@@ -2886,10 +2929,8 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
         }
       }
 
-      // Club standings (for finished matches)
       if (isFin && (st.winner === 'a' || st.winner === 'b')) {
         const winSide = st.winner;
-        const loseSide = winSide === 'a' ? 'b' : 'a';
         const clubA = ensureClub(m.teams?.team_a?.club);
         const clubB = ensureClub(m.teams?.team_b?.club);
 
@@ -2915,7 +2956,6 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
       }
     }
 
-    // Determine Category Champions / Final match per category
     const categories = Array.from(categoryMap.values()).map((c) => {
       const finList = c.matches
         .filter((m) => m.session_management?.status === 'finished')
@@ -2924,18 +2964,6 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
             (x.finished_at || x.updated_at || '').localeCompare(y.finished_at || y.updated_at || '') ||
             cmpStr(x.match_number, y.match_number)
         );
-      // Count wins per team within this category
-      const teamWins = new Map();
-      for (const m of finList) {
-        const w = m.live_state?.winner;
-        if (w === 'a' || w === 'b') {
-          const tName = teamLabel(m, w);
-          const tClub = m.teams?.[`team_${w}`]?.club || '';
-          const cur = teamWins.get(tName) || { name: tName, club: tClub, wins: 0 };
-          cur.wins += 1;
-          teamWins.set(tName, cur);
-        }
-      }
       const lastFin = finList[finList.length - 1] || null;
       let champion = null;
       let runnerUp = null;
@@ -2963,7 +2991,6 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
         ...c,
         champion,
         runnerUp,
-        topPerformers: Array.from(teamWins.values()).sort((a, b) => b.wins - a.wins).slice(0, 3),
       };
     });
 
@@ -2977,6 +3004,8 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
 
     const courts = Array.from(courtMap.values()).sort((a, b) => a.court - b.court);
     const referees = Array.from(refereeMap.values()).sort((a, b) => b.matches - a.matches || b.durationSec - a.durationSec);
+    const cleanMatches = Math.max(0, finishedMatches.length - new Set(allCards.map((c) => c.match_number)).size);
+    const fairPlayPct = finishedMatches.length > 0 ? Math.round((cleanMatches / finishedMatches.length) * 100) : 100;
 
     return {
       totalMatches,
@@ -2986,8 +3015,11 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
       completionPct,
       totalSets,
       rubberSetCount,
+      straightSetCount,
+      continuousCount,
       totalPoints,
       totalRallies,
+      avgRalliesPerMatch: finishedMatches.length > 0 ? (totalRallies / finishedMatches.length).toFixed(1) : '0.0',
       totalCock,
       avgCockPerMatch: finishedMatches.length > 0 ? (totalCock / finishedMatches.length).toFixed(1) : '0.0',
       totalDurationSec,
@@ -2995,43 +3027,105 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
       longestMatch,
       fastestMatch,
       highestCockMatch,
+      durationBuckets,
       categories,
       clubs,
       courts,
       referees,
       allCards,
+      fairPlayPct,
       dates: Array.from(dateSet),
     };
   }, [matches, now]);
 
   const isClosed = profile?.status === 'closed';
+  const filteredMatches = useMemo(() => {
+    const q = matchSearch.trim().toLowerCase();
+    return matches.filter((m) => {
+      const st = m.session_management?.status || 'scheduled';
+      if (matchStatusFilter !== 'all' && st !== matchStatusFilter) return false;
+      if (matchCatFilter !== 'all' && `${m.category_name}||${m.discipline}` !== matchCatFilter) return false;
+      if (!q) return true;
+      const hay = [
+        m.match_number,
+        m.category_name,
+        m.discipline,
+        teamLabel(m, 'a'),
+        teamLabel(m, 'b'),
+        m.teams?.team_a?.club,
+        m.teams?.team_b?.club,
+        m.session_management?.controller_label,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [matches, matchSearch, matchStatusFilter, matchCatFilter]);
+
+  // Helper for SVG Donut geometry
+  const donutSegments = (items, radius = 48) => {
+    const circ = 2 * Math.PI * radius;
+    const sum = items.reduce((a, b) => a + b.value, 0) || 1;
+    let offset = 0;
+    return items.map((it) => {
+      const len = (it.value / sum) * circ;
+      const seg = { ...it, dasharray: `${len} ${circ - len}`, dashoffset: -offset };
+      offset += len;
+      return seg;
+    });
+  };
+
+  const statusDonut = donutSegments([
+    { label: 'Selesai', value: report.finishedCount, color: '#22c55e' },
+    { label: 'Live', value: report.liveCount, color: '#38bdf8' },
+    { label: 'Terjadwal', value: report.scheduledCount, color: '#64748b' },
+  ]);
+
+  const formatDonut = donutSegments([
+    { label: 'Straight (2 Set)', value: report.straightSetCount, color: '#38bdf8' },
+    { label: 'Rubber (3 Set)', value: report.rubberSetCount, color: '#facc15' },
+    { label: 'Continuous', value: report.continuousCount, color: '#a855f7' },
+  ]);
+
+  const maxCourtMatches = Math.max(1, ...report.courts.map((c) => c.total));
+  const maxCourtCock = Math.max(1, ...report.courts.map((c) => c.cock));
+  const maxBucketCount = Math.max(1, ...report.durationBuckets.map((b) => b.count));
+  const maxClubWins = Math.max(1, ...report.clubs.map((c) => c.wins));
+  const topClubs = report.clubs.slice(0, 8);
 
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal col tr-report-modal" style={{ width: 'min(1380px, 100%)' }} onClick={(e) => e.stopPropagation()}>
-        {/* Report Header Banner */}
-        <div className="tr-report-header">
-          <div className="col" style={{ gap: '.3rem' }}>
-            <div className="row" style={{ gap: '.5rem' }}>
-              <span className={`badge ${isClosed ? 'gold' : 'green'}`} style={{ fontSize: '.82rem', padding: '.28rem .75rem' }}>
-                {isClosed ? '🏁 TURNAMEN SELESAI & DITUTUP RESMI (CLOSED)' : '🟢 TURNAMEN SEDANG BERLANGSUNG (ACTIVE)'}
-              </span>
-              <span className="badge blue">Progres: {report.finishedCount}/{report.totalMatches} Match ({report.completionPct}%)</span>
-              {report.dates.length > 0 && <span className="badge">📅 {report.dates.join(' s/d ')}</span>}
-            </div>
-            <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#fff' }}>
-              📑 Laporan Pelaksanaan Turnamen: <span style={{ color: 'var(--gold)' }}>{profile?.name || 'Turnamen Utama'}</span>
-            </h2>
-            <div className="row small muted" style={{ gap: '1rem' }}>
-              {profile?.description && <span>📌 {profile.description}</span>}
-              {profile?.venue && <span>🏟️ Venue: <b style={{ color: '#e2e8f0' }}>{profile.venue}</b></span>}
-              {profile?.chief_referee && <span>⚖️ Referee Utama: <b style={{ color: '#e2e8f0' }}>{profile.chief_referee}</b></span>}
-              {profile?.committee_head && <span>👔 Ketua Panitia: <b style={{ color: '#e2e8f0' }}>{profile.committee_head}</b></span>}
-              {profile?.closed_at && <span>🔒 Ditutup pada: <b className="mono">{formatLocalDateTime(profile.closed_at)}</b> oleh @{profile.closed_by}</span>}
-            </div>
+    <div className={`bi-overlay ${biTheme === 'paper' ? 'bi-theme-paper' : 'bi-theme-dark'}`} onClick={onClose}>
+      <div className="bi-shell" onClick={(e) => e.stopPropagation()}>
+        {/* Sticky Executive Toolbar */}
+        <div className="bi-toolbar tr-no-print">
+          <div className="bi-toolbar-left">
+            <span className="bi-brand-pill">SMASHPOINT BI</span>
+            <span className={`badge ${isClosed ? 'gold' : 'green'}`}>
+              {isClosed ? '🏁 CLOSED (FINAL)' : '🟢 ACTIVE'}
+            </span>
+            <span className="bi-gen-time">
+              Terakhir di-generate: <b className="mono">{generatedAt}</b>
+            </span>
           </div>
-
-          <div className="row tr-no-print" style={{ gap: '.45rem' }}>
+          <div className="bi-toolbar-actions">
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              disabled={regenerating}
+              onClick={handleRegenerate}
+              title="Hitung ulang & tarik data server terbaru (dapat dijalankan kapan saja meskipun turnamen sudah Closed)"
+            >
+              {regenerating ? '⏳ Generating…' : '🔄 Re-generate Laporan'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setBiTheme((t) => (t === 'dark' ? 'paper' : 'dark'))}
+              title="Ganti tampilan antara Executive Dark BI dan Executive Paper (Putih / Siap Cetak)"
+            >
+              {biTheme === 'dark' ? '☀️ Executive Paper' : '🌙 Executive Dark'}
+            </button>
             {!isClosed && (
               <button
                 type="button"
@@ -3041,198 +3135,480 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
                   onOpenCloseModal?.();
                 }}
               >
-                🏁 Lakukan Closing Turnamen
+                🏁 Closing Turnamen
               </button>
             )}
             <a className="btn btn-sm" href="/api/export/results.csv">
-              ⬇ CSV Hasil
+              ⬇ CSV
             </a>
             <button type="button" className="btn btn-sm btn-yellow" onClick={() => window.print()}>
-              🖨️ Cetak / Simpan PDF
+              🖨️ Cetak / PDF
             </button>
             <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-              ✕
+              ✕ Tutup
             </button>
           </div>
         </div>
 
-        {/* Navigation Section Filter Tabs */}
-        <div className="row tr-no-print" style={{ borderBottom: '1px solid var(--line)', paddingBottom: '.55rem', gap: '.4rem' }}>
+        {/* Executive Masthead Banner */}
+        <header className="bi-masthead">
+          <div className="bi-masthead-main">
+            <div className="bi-eyebrow">EXECUTIVE TOURNAMENT INTELLIGENCE &amp; PERFORMANCE REPORT</div>
+            <h1 className="bi-title">{profile?.name || 'Turnamen Utama'}</h1>
+            {profile?.description && <p className="bi-subtitle">{profile.description}</p>}
+            <p className="bi-narrative">
+              Laporan ini merangkum <b>{report.totalMatches} pertandingan</b> pada <b>{report.categories.length} kategori</b> yang diikuti oleh <b>{report.clubs.length} klub/PB</b>, dengan tingkat penyelesaian <b>{report.completionPct}%</b> ({report.finishedCount} selesai), total <b>{report.totalRallies.toLocaleString('id-ID')} reli</b>, konsumsi <b>{report.totalCock} shuttlecock</b>, dan indeks sportivitas Fair Play <b>{report.fairPlayPct}%</b>.
+            </p>
+          </div>
+          <div className="bi-masthead-meta">
+            <div className="bi-meta-row">
+              <span>Status Turnamen</span>
+              <b>{isClosed ? '🏁 Selesai & Ditutup Resmi' : '🟢 Aktif Berlangsung'}</b>
+            </div>
+            <div className="bi-meta-row">
+              <span>Tanggal Pelaksanaan</span>
+              <b>{report.dates.length > 0 ? report.dates.join(' — ') : '-'}</b>
+            </div>
+            <div className="bi-meta-row">
+              <span>Venue / GOR</span>
+              <b>{profile?.venue || '-'}</b>
+            </div>
+            <div className="bi-meta-row">
+              <span>Referee Utama</span>
+              <b>{profile?.chief_referee || '-'}</b>
+            </div>
+            <div className="bi-meta-row">
+              <span>Ketua Panitia</span>
+              <b>{profile?.committee_head || '-'}</b>
+            </div>
+            <div className="bi-meta-row">
+              <span>Report Generated</span>
+              <b className="mono">{generatedAt}</b>
+            </div>
+          </div>
+        </header>
+
+        {/* Section Filter Tabs */}
+        <nav className="bi-tabs tr-no-print">
           {[
-            ['all', '📊 Semua Bagian Laporan (Lengkap)'],
-            ['champions', '🏆 Juara & Hasil Per Kategori'],
-            ['clubs', '🏛️ Klasemen Klub / PB'],
-            ['logistics', '🏸 Logistik Cock, Lapangan, Wasit & Kartu'],
-            ['matches', '📋 Rekapitulasi Seluruh Pertandingan'],
+            ['all', '📊 Executive Overview (Lengkap)'],
+            ['analytics', '📈 Visual Analytics & Grafik'],
+            ['champions', '🏆 Podium Juara & Klasemen Klub'],
+            ['logistics', '🏟️ Operasional Lapangan, Wasit & Fair Play'],
+            ['matches', `📋 Register Pertandingan (${matches.length})`],
           ].map(([id, lbl]) => (
             <button
               key={id}
               type="button"
-              className={`btn btn-sm ${reportTab === id ? 'btn-primary' : ''}`}
+              className={`bi-tab ${reportTab === id ? 'active' : ''}`}
               onClick={() => setReportTab(id)}
             >
               {lbl}
             </button>
           ))}
-        </div>
+        </nav>
 
-        {/* Closing Notes / Berita Acara if present */}
+        {/* Closing Notes / Berita Acara */}
         {profile?.closing_notes && (
-          <div className="tr-closing-banner">
-            <div className="small" style={{ fontWeight: 900, color: 'var(--gold)', marginBottom: '.2rem' }}>
-              📜 BERITA ACARA &amp; CATATAN EVALUASI PENUTUPAN TURNAMEN:
+          <div className="bi-closing-note">
+            <div className="bi-closing-note-title">📜 BERITA ACARA &amp; CATATAN PENUTUPAN RESMI</div>
+            <div className="bi-closing-note-body">{profile.closing_notes}</div>
+            {profile?.closed_at && (
+              <div className="bi-closing-note-foot">
+                Disahkan pada <span className="mono">{formatLocalDateTime(profile.closed_at)}</span> oleh <b>@{profile.closed_by || 'admin'}</b>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 1. EXECUTIVE KPI SCORECARD (6 CARDS) */}
+        <section className="bi-kpi-grid">
+          <div className="bi-kpi-card accent-emerald">
+            <div className="bi-kpi-top">
+              <span>TINGKAT PENYELESAIAN</span>
+              <span className="bi-kpi-pill">{report.completionPct}%</span>
             </div>
-            <div style={{ fontSize: '.92rem', lineHeight: 1.5, color: '#f1f5f9' }}>{profile.closing_notes}</div>
+            <div className="bi-kpi-val mono">
+              {report.finishedCount} <small>/ {report.totalMatches} Laga</small>
+            </div>
+            <div className="bi-progress-track">
+              <div className="bi-progress-fill emerald" style={{ width: `${report.completionPct}%` }} />
+            </div>
+            <div className="bi-kpi-sub">{report.liveCount} Live · {report.scheduledCount} Antre</div>
           </div>
-        )}
 
-        {/* 1. EXECUTIVE SUMMARY KPI CARDS */}
-        <div className="tr-kpi-grid">
-          <div className="tr-kpi-card">
-            <span className="tr-kpi-lbl">TOTAL PERTANDINGAN</span>
-            <span className="tr-kpi-num mono">{report.finishedCount} <small>/ {report.totalMatches}</small></span>
-            <span className="tr-kpi-sub">{report.completionPct}% Selesai · {report.liveCount} Live · {report.scheduledCount} Antre</span>
+          <div className="bi-kpi-card accent-cyan">
+            <div className="bi-kpi-top">
+              <span>TOTAL SET &amp; RUBBER GAME</span>
+              <span className="bi-kpi-pill">{report.totalSets} Set</span>
+            </div>
+            <div className="bi-kpi-val mono">
+              {report.rubberSetCount} <small>Rubber (3 Set)</small>
+            </div>
+            <div className="bi-progress-track">
+              <div
+                className="bi-progress-fill cyan"
+                style={{
+                  width: `${report.finishedCount > 0 ? Math.min(100, Math.round((report.rubberSetCount / report.finishedCount) * 100)) : 0}%`,
+                }}
+              />
+            </div>
+            <div className="bi-kpi-sub">{report.straightSetCount} Straight Set · {report.continuousCount} Continuous</div>
           </div>
-          <div className="tr-kpi-card">
-            <span className="tr-kpi-lbl">TOTAL SET &amp; RUBBER GAME</span>
-            <span className="tr-kpi-num mono">{report.totalSets} <small>Set</small></span>
-            <span className="tr-kpi-sub">{report.rubberSetCount} Partai Rubber Game (3 Set)</span>
-          </div>
-          <div className="tr-kpi-card">
-            <span className="tr-kpi-lbl">TOTAL RELI &amp; POIN TERCIPTA</span>
-            <span className="tr-kpi-num mono" style={{ color: 'var(--cyan)' }}>{report.totalRallies.toLocaleString('id-ID')} <small>Reli</small></span>
-            <span className="tr-kpi-sub">Total {report.totalPoints.toLocaleString('id-ID')} angka dicetak</span>
-          </div>
-          <div className="tr-kpi-card">
-            <span className="tr-kpi-lbl">TOTAL DURASI BERMAIN</span>
-            <span className="tr-kpi-num mono">{formatDuration(report.totalDurationSec) || '00:00'}</span>
-            <span className="tr-kpi-sub">Rata-rata: {report.avgDurationSec ? `${formatDuration(report.avgDurationSec)} / laga` : '-'}</span>
-          </div>
-          <div className="tr-kpi-card">
-            <span className="tr-kpi-lbl">PENGGUNAAN SHUTTLECOCK</span>
-            <span className="tr-kpi-num mono" style={{ color: 'var(--gold)' }}>🏸 {report.totalCock} <small>Cock</small></span>
-            <span className="tr-kpi-sub">Rata-rata {report.avgCockPerMatch} cock / pertandingan</span>
-          </div>
-          <div className="tr-kpi-card">
-            <span className="tr-kpi-lbl">DISIPLIN &amp; FAIR PLAY (BWF)</span>
-            <span className="tr-kpi-num mono" style={{ color: report.allCards.length > 0 ? '#f87171' : '#4ade80' }}>
-              {report.allCards.length} <small>Kartu</small>
-            </span>
-            <span className="tr-kpi-sub">
-              🟨 {report.allCards.filter((c) => c.type === 'yellow').length} Kuning · 🟥 {report.allCards.filter((c) => c.type === 'red').length} Merah · ⬛ {report.allCards.filter((c) => c.type === 'black').length} Hitam
-            </span>
-          </div>
-        </div>
 
-        {/* Highlight Records Row (Fastest, Longest, Most Shuttlecocks) */}
-        {(report.longestMatch || report.fastestMatch || report.highestCockMatch) && (
-          <div className="tr-records-bar">
-            {report.longestMatch && (
-              <div className="tr-record-pill">
-                <span>⏳ <b>Partai Terlama (Marathon):</b></span>
-                <span>
-                  {report.longestMatch.match.match_number} ({teamLabel(report.longestMatch.match, 'a')} vs {teamLabel(report.longestMatch.match, 'b')}) — <b style={{ color: 'var(--cyan)' }}>{formatDuration(report.longestMatch.durSec)}</b>
-                </span>
-              </div>
-            )}
-            {report.fastestMatch && (
-              <div className="tr-record-pill">
-                <span>⚡ <b>Partai Tercepat:</b></span>
-                <span>
-                  {report.fastestMatch.match.match_number} ({teamLabel(report.fastestMatch.match, 'a')} vs {teamLabel(report.fastestMatch.match, 'b')}) — <b style={{ color: '#4ade80' }}>{formatDuration(report.fastestMatch.durSec)}</b>
-                </span>
-              </div>
-            )}
-            {report.highestCockMatch && (
-              <div className="tr-record-pill">
-                <span>🏸 <b>Konsumsi Cock Tertinggi:</b></span>
-                <span>
-                  {report.highestCockMatch.match_number} ({teamLabel(report.highestCockMatch, 'a')} vs {teamLabel(report.highestCockMatch, 'b')}) — <b style={{ color: 'var(--gold)' }}>{report.highestCockMatch.live_state?.shuttlecock_count || 0} Cock</b>
-                </span>
-              </div>
-            )}
+          <div className="bi-kpi-card accent-blue">
+            <div className="bi-kpi-top">
+              <span>INTENSITAS RELI &amp; POIN</span>
+              <span className="bi-kpi-pill">~{report.avgRalliesPerMatch}/laga</span>
+            </div>
+            <div className="bi-kpi-val mono">{report.totalRallies.toLocaleString('id-ID')} <small>Reli</small></div>
+            <div className="bi-kpi-sub">{report.totalPoints.toLocaleString('id-ID')} total poin tercetak</div>
           </div>
-        )}
 
-        {/* 2. CATEGORY & DISCIPLINE SUMMARY + PODIUM / FINAL WINNERS */}
-        {(reportTab === 'all' || reportTab === 'champions') && (
-          <section className="tr-section">
-            <h3 className="tr-sec-title">🏆 1. Rangkuman Kategori, Disiplin &amp; Pemenang Partai Puncak</h3>
-            <div className="tbl-wrap">
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    <th>Kategori</th>
-                    <th>Disiplin</th>
-                    <th style={{ textAlign: 'center' }}>Progres Match</th>
-                    <th>🏆 Pemenang Partai Terakhir / Juara</th>
-                    <th>🥈 Lawan / Runner-Up</th>
-                    <th style={{ textAlign: 'center' }}>Total Reli</th>
-                    <th style={{ textAlign: 'center' }}>Total Cock</th>
-                    <th style={{ textAlign: 'center' }}>Total Durasi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.categories.map((cat) => (
-                    <tr key={cat.key}>
-                      <td><b>{cat.category_name}</b></td>
-                      <td>
-                        <span className="badge blue">{cat.discipline}</span>{' '}
-                        <span className="small muted">{cat.discipline_label}</span>
-                      </td>
-                      <td className="mono" style={{ textAlign: 'center' }}>
-                        {cat.finished}/{cat.total} ({cat.total > 0 ? Math.round((cat.finished / cat.total) * 100) : 0}%)
-                      </td>
-                      <td>
-                        {cat.champion ? (
-                          <div>
-                            <b style={{ color: 'var(--gold)' }}>🏆 {cat.champion.name}</b>{' '}
-                            <span className="small muted">({cat.champion.club})</span>
-                            <div className="small muted mono">
-                              {cat.champion.match_number}: {cat.champion.score}
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="muted small">Belum selesai</span>
-                        )}
-                      </td>
-                      <td>
-                        {cat.runnerUp ? (
-                          <div>
-                            <b>{cat.runnerUp.name}</b>{' '}
-                            <span className="small muted">({cat.runnerUp.club})</span>
-                          </div>
-                        ) : (
-                          <span className="muted small">-</span>
-                        )}
-                      </td>
-                      <td className="mono" style={{ textAlign: 'center' }}>{cat.rallies}</td>
-                      <td className="mono" style={{ textAlign: 'center' }}>🏸 {cat.cock}</td>
-                      <td className="mono" style={{ textAlign: 'center' }}>{formatDuration(cat.durationSec) || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="bi-kpi-card accent-purple">
+            <div className="bi-kpi-top">
+              <span>TOTAL JAM BERMAIN</span>
+              <span className="bi-kpi-pill">Avg {report.avgDurationSec ? formatDuration(report.avgDurationSec) : '-'}</span>
+            </div>
+            <div className="bi-kpi-val mono">{formatDuration(report.totalDurationSec) || '00:00'}</div>
+            <div className="bi-kpi-sub">Akumulasi durasi efektif lapangan</div>
+          </div>
+
+          <div className="bi-kpi-card accent-gold">
+            <div className="bi-kpi-top">
+              <span>LOGISTIK SHUTTLECOCK</span>
+              <span className="bi-kpi-pill">~{report.avgCockPerMatch}/laga</span>
+            </div>
+            <div className="bi-kpi-val mono">🏸 {report.totalCock} <small>Cock</small></div>
+            <div className="bi-kpi-sub">
+              Estimasi {Math.ceil(report.totalCock / 12)} slop (isi 12) terpakai
+            </div>
+          </div>
+
+          <div className="bi-kpi-card accent-rose">
+            <div className="bi-kpi-top">
+              <span>INDEKS FAIR PLAY (BWF)</span>
+              <span className="bi-kpi-pill">{report.fairPlayPct}% Bersih</span>
+            </div>
+            <div className="bi-kpi-val mono">{report.allCards.length} <small>Kartu</small></div>
+            <div className="bi-kpi-sub">
+              🟨 {report.allCards.filter((c) => c.type === 'yellow').length} · 🟥 {report.allCards.filter((c) => c.type === 'red').length} · ⬛ {report.allCards.filter((c) => c.type === 'black').length}
+            </div>
+          </div>
+        </section>
+
+        {/* 2. VISUAL BI CHARTS GRID */}
+        {(reportTab === 'all' || reportTab === 'analytics') && (
+          <section className="bi-charts-grid">
+            {/* Chart 1: Dual Donut Charts (Status & Set Format) */}
+            <div className="bi-card">
+              <div className="bi-card-head">
+                <div>
+                  <h3>Komposisi Progres &amp; Format Set</h3>
+                  <p>Distribusi status pertandingan dan intensitas rubber game</p>
+                </div>
+              </div>
+              <div className="bi-donuts-pair">
+                <div className="bi-donut-box">
+                  <svg viewBox="0 0 120 120" className="bi-donut-svg">
+                    <circle cx="60" cy="60" r="48" className="bi-donut-track" />
+                    {statusDonut.map((seg) => (
+                      <circle
+                        key={seg.label}
+                        cx="60"
+                        cy="60"
+                        r="48"
+                        fill="none"
+                        stroke={seg.color}
+                        strokeWidth="13"
+                        strokeDasharray={seg.dasharray}
+                        strokeDashoffset={seg.dashoffset}
+                        transform="rotate(-90 60 60)"
+                      />
+                    ))}
+                    <text x="60" y="57" textAnchor="middle" className="bi-donut-center-val">
+                      {report.completionPct}%
+                    </text>
+                    <text x="60" y="72" textAnchor="middle" className="bi-donut-center-lbl">
+                      SELESAI
+                    </text>
+                  </svg>
+                  <div className="bi-legend">
+                    {statusDonut.map((s) => (
+                      <div key={s.label} className="bi-legend-row">
+                        <span className="bi-dot" style={{ background: s.color }} />
+                        <span>{s.label}</span>
+                        <b className="mono">{s.value}</b>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bi-donut-box">
+                  <svg viewBox="0 0 120 120" className="bi-donut-svg">
+                    <circle cx="60" cy="60" r="48" className="bi-donut-track" />
+                    {formatDonut.map((seg) => (
+                      <circle
+                        key={seg.label}
+                        cx="60"
+                        cy="60"
+                        r="48"
+                        fill="none"
+                        stroke={seg.color}
+                        strokeWidth="13"
+                        strokeDasharray={seg.dasharray}
+                        strokeDashoffset={seg.dashoffset}
+                        transform="rotate(-90 60 60)"
+                      />
+                    ))}
+                    <text x="60" y="57" textAnchor="middle" className="bi-donut-center-val">
+                      {report.finishedCount}
+                    </text>
+                    <text x="60" y="72" textAnchor="middle" className="bi-donut-center-lbl">
+                      LAGA FINAL
+                    </text>
+                  </svg>
+                  <div className="bi-legend">
+                    {formatDonut.map((s) => (
+                      <div key={s.label} className="bi-legend-row">
+                        <span className="bi-dot" style={{ background: s.color }} />
+                        <span>{s.label}</span>
+                        <b className="mono">{s.value}</b>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Chart 2: Duration Histogram */}
+            <div className="bi-card">
+              <div className="bi-card-head">
+                <div>
+                  <h3>Distribusi Durasi Pertandingan</h3>
+                  <p>Sebaran lama pertandingan selesai (rata-rata: {report.avgDurationSec ? formatDuration(report.avgDurationSec) : '-'})</p>
+                </div>
+              </div>
+              <div className="bi-histogram">
+                {report.durationBuckets.map((b) => {
+                  const pct = Math.round((b.count / maxBucketCount) * 100);
+                  return (
+                    <div key={b.label} className="bi-hist-col">
+                      <div className="bi-hist-val mono">{b.count}</div>
+                      <div className="bi-hist-track">
+                        <div className="bi-hist-bar" style={{ height: `${Math.max(b.count > 0 ? 10 : 0, pct)}%` }} />
+                      </div>
+                      <div className="bi-hist-lbl">{b.label}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Chart 3: Court Utilization & Cock Consumption */}
+            <div className="bi-card bi-card-wide">
+              <div className="bi-card-head">
+                <div>
+                  <h3>Utilisasi Lapangan &amp; Konsumsi Shuttlecock</h3>
+                  <p>Perbandingan jumlah pertandingan (biru) dan penggunaan shuttlecock (emas) per lapangan</p>
+                </div>
+                <div className="bi-inline-legend">
+                  <span><i className="bi-dot" style={{ background: '#38bdf8' }} /> Pertandingan</span>
+                  <span><i className="bi-dot" style={{ background: '#facc15' }} /> Shuttlecock</span>
+                </div>
+              </div>
+              <div className="bi-hbar-list">
+                {report.courts.map((c) => (
+                  <div key={c.court} className="bi-hbar-item">
+                    <div className="bi-hbar-label">
+                      <b>Lapangan {c.court}</b>
+                      <span className="mono muted">{c.finished}/{c.total} laga · {formatDuration(c.durationSec) || '00:00'}</span>
+                    </div>
+                    <div className="bi-hbar-tracks">
+                      <div className="bi-hbar-row">
+                        <div className="bi-hbar-fill cyan" style={{ width: `${Math.max(4, Math.round((c.total / maxCourtMatches) * 100))}%` }} />
+                        <span className="mono">{c.total} laga</span>
+                      </div>
+                      <div className="bi-hbar-row">
+                        <div className="bi-hbar-fill gold" style={{ width: `${Math.max(c.cock > 0 ? 4 : 0, Math.round((c.cock / maxCourtCock) * 100))}%` }} />
+                        <span className="mono">🏸 {c.cock} cock</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
         )}
 
-        {/* 3. CLUB / PB LEADERBOARD STANDINGS */}
-        {(reportTab === 'all' || reportTab === 'clubs') && report.clubs.length > 0 && (
-          <section className="tr-section">
-            <h3 className="tr-sec-title">🏛️ 2. Klasemen Perolehan Kemenangan Klub / PB Peserta ({report.clubs.length} Klub)</h3>
-            <div className="tbl-wrap">
-              <table className="tbl">
+        {/* Highlight Records Cards (Zero Truncation) */}
+        {(report.longestMatch || report.fastestMatch || report.highestCockMatch) && (
+          <section className="bi-records-grid">
+            {report.longestMatch && (
+              <div
+                className="bi-record-card clickable"
+                onClick={() => onSelectMatch?.(report.longestMatch.match)}
+                title="Klik untuk membuka Detail & Histori Reli lengkap"
+              >
+                <div className="bi-record-badge cyan">⏳ PARTAI MARATHON TERLAMA</div>
+                <div className="bi-record-val mono">{formatDuration(report.longestMatch.durSec)}</div>
+                <div className="bi-record-match">
+                  <b>{report.longestMatch.match.match_number}</b> · {report.longestMatch.match.category_name} ({report.longestMatch.match.discipline})
+                </div>
+                <div className="bi-record-players">
+                  {teamLabel(report.longestMatch.match, 'a')} <span className="muted">vs</span> {teamLabel(report.longestMatch.match, 'b')}
+                </div>
+              </div>
+            )}
+            {report.fastestMatch && (
+              <div
+                className="bi-record-card clickable"
+                onClick={() => onSelectMatch?.(report.fastestMatch.match)}
+                title="Klik untuk membuka Detail & Histori Reli lengkap"
+              >
+                <div className="bi-record-badge emerald">⚡ PARTAI TERCEPAT</div>
+                <div className="bi-record-val mono">{formatDuration(report.fastestMatch.durSec)}</div>
+                <div className="bi-record-match">
+                  <b>{report.fastestMatch.match.match_number}</b> · {report.fastestMatch.match.category_name} ({report.fastestMatch.match.discipline})
+                </div>
+                <div className="bi-record-players">
+                  {teamLabel(report.fastestMatch.match, 'a')} <span className="muted">vs</span> {teamLabel(report.fastestMatch.match, 'b')}
+                </div>
+              </div>
+            )}
+            {report.highestCockMatch && (
+              <div
+                className="bi-record-card clickable"
+                onClick={() => report.highestCockMatch.session_management?.status === 'finished' && onSelectMatch?.(report.highestCockMatch)}
+              >
+                <div className="bi-record-badge gold">🏸 KONSUMSI COCK TERTINGGI</div>
+                <div className="bi-record-val mono">{report.highestCockMatch.live_state?.shuttlecock_count || 0} Cock</div>
+                <div className="bi-record-match">
+                  <b>{report.highestCockMatch.match_number}</b> · {report.highestCockMatch.category_name} ({report.highestCockMatch.discipline})
+                </div>
+                <div className="bi-record-players">
+                  {teamLabel(report.highestCockMatch, 'a')} <span className="muted">vs</span> {teamLabel(report.highestCockMatch, 'b')}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* 3. PODIUM JUARA & HASIL PER KATEGORI (CARDS — ZERO NAME TRUNCATION) */}
+        {(reportTab === 'all' || reportTab === 'champions') && (
+          <section className="bi-card">
+            <div className="bi-card-head">
+              <div>
+                <h3>🏆 Podium Juara &amp; Ringkasan Per Kategori ({report.categories.length} Kategori)</h3>
+                <p>Nama lengkap seluruh pasangan pemenang, runner-up, klub asal, dan skor pertandingan puncak</p>
+              </div>
+            </div>
+            <div className="bi-podium-grid">
+              {report.categories.map((cat) => {
+                const catPct = cat.total > 0 ? Math.round((cat.finished / cat.total) * 100) : 0;
+                return (
+                  <div key={cat.key} className="bi-podium-card">
+                    <div className="bi-podium-head">
+                      <div>
+                        <div className="bi-podium-cat">{cat.category_name}</div>
+                        <div className="bi-podium-disc">
+                          <span className="badge blue">{cat.discipline}</span> {cat.discipline_label}
+                        </div>
+                      </div>
+                      <span className={`badge ${catPct === 100 ? 'green' : 'gold'}`}>
+                        {cat.finished}/{cat.total} ({catPct}%)
+                      </span>
+                    </div>
+
+                    <div className="bi-podium-slots">
+                      <div className="bi-podium-slot winner">
+                        <div className="bi-slot-rank">🏆 JUARA / PEMENANG</div>
+                        {cat.champion ? (
+                          <>
+                            <div className="bi-slot-name">{cat.champion.name}</div>
+                            <div className="bi-slot-meta">
+                              <span>🏛️ {cat.champion.club}</span>
+                              <span className="mono">{cat.champion.match_number} ({cat.champion.score})</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="bi-slot-empty">Menunggu partai selesai</div>
+                        )}
+                      </div>
+
+                      <div className="bi-podium-slot runnerup">
+                        <div className="bi-slot-rank">🥈 RUNNER-UP</div>
+                        {cat.runnerUp ? (
+                          <>
+                            <div className="bi-slot-name">{cat.runnerUp.name}</div>
+                            <div className="bi-slot-meta">
+                              <span>🏛️ {cat.runnerUp.club}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="bi-slot-empty">-</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bi-podium-foot mono">
+                      <span>🔥 {cat.rallies} Reli</span>
+                      <span>🏸 {cat.cock} Cock</span>
+                      <span>⏱ {formatDuration(cat.durationSec) || '-'}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* 4. CLUB / PB PERFORMANCE CHART & LEADERBOARD */}
+        {(reportTab === 'all' || reportTab === 'champions' || reportTab === 'analytics') && report.clubs.length > 0 && (
+          <section className="bi-card">
+            <div className="bi-card-head">
+              <div>
+                <h3>🏛️ Analisis Performa &amp; Klasemen Klub / PB ({report.clubs.length} Klub)</h3>
+                <p>Peringkat berdasarkan gelar juara, jumlah kemenangan, selisih set, dan selisih poin</p>
+              </div>
+            </div>
+
+            {topClubs.length > 0 && (
+              <div className="bi-club-chart">
+                {topClubs.map((cl, idx) => {
+                  const winPct = cl.matchesPlayed > 0 ? Math.round((cl.wins / cl.matchesPlayed) * 100) : 0;
+                  return (
+                    <div key={cl.club} className="bi-club-bar-row">
+                      <div className="bi-club-bar-name">
+                        <span className="mono muted">#{idx + 1}</span> <b>{cl.club}</b>
+                      </div>
+                      <div className="bi-club-bar-track">
+                        <div
+                          className="bi-club-bar-fill"
+                          style={{ width: `${Math.max(cl.wins > 0 ? 6 : 0, Math.round((cl.wins / maxClubWins) * 100))}%` }}
+                        />
+                      </div>
+                      <div className="bi-club-bar-stat mono">
+                        <b>{cl.wins}W</b>-{cl.losses}L ({winPct}%)
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="bi-tbl-wrap">
+              <table className="bi-tbl">
                 <thead>
                   <tr>
-                    <th style={{ width: 55, textAlign: 'center' }}>Rank</th>
+                    <th style={{ width: 64, textAlign: 'center' }}>Rank</th>
                     <th>Nama Klub / PB</th>
                     <th style={{ textAlign: 'center' }}>Main</th>
-                    <th style={{ textAlign: 'center' }}>Menang (W)</th>
-                    <th style={{ textAlign: 'center' }}>Kalah (L)</th>
-                    <th style={{ textAlign: 'center' }}>Win Rate</th>
-                    <th style={{ textAlign: 'center' }}>Set (W - L)</th>
-                    <th style={{ textAlign: 'center' }}>Poin (W - L)</th>
+                    <th style={{ textAlign: 'center' }}>Menang</th>
+                    <th style={{ textAlign: 'center' }}>Kalah</th>
+                    <th style={{ width: 170 }}>Win Rate</th>
+                    <th style={{ textAlign: 'center' }}>Set (W-L)</th>
+                    <th style={{ textAlign: 'center' }}>Poin (W-L)</th>
                     <th style={{ textAlign: 'center' }}>Selisih Poin</th>
                   </tr>
                 </thead>
@@ -3242,19 +3618,24 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
                     const diffPts = cl.pointsWon - cl.pointsLost;
                     return (
                       <tr key={cl.club}>
-                        <td className="mono" style={{ textAlign: 'center', fontWeight: 900, color: idx === 0 ? 'var(--gold)' : idx === 1 ? '#cbd5e1' : idx === 2 ? '#fdba74' : 'var(--muted)' }}>
+                        <td className="mono" style={{ textAlign: 'center', fontWeight: 900 }}>
                           {idx === 0 ? '🥇 1' : idx === 1 ? '🥈 2' : idx === 2 ? '🥉 3' : idx + 1}
                         </td>
-                        <td><b>{cl.club}</b></td>
+                        <td className="bi-wrap-cell"><b>{cl.club}</b></td>
                         <td className="mono" style={{ textAlign: 'center' }}>{cl.matchesPlayed}</td>
-                        <td className="mono" style={{ textAlign: 'center', fontWeight: 800, color: '#4ade80' }}>{cl.wins}</td>
+                        <td className="mono" style={{ textAlign: 'center', fontWeight: 800, color: '#22c55e' }}>{cl.wins}</td>
                         <td className="mono" style={{ textAlign: 'center', color: '#f87171' }}>{cl.losses}</td>
-                        <td className="mono" style={{ textAlign: 'center' }}>
-                          <span className={`badge ${winRate >= 60 ? 'green' : winRate >= 40 ? 'gold' : ''}`}>{winRate}%</span>
+                        <td>
+                          <div className="bi-winrate-cell">
+                            <div className="bi-progress-track">
+                              <div className="bi-progress-fill emerald" style={{ width: `${winRate}%` }} />
+                            </div>
+                            <span className="mono">{winRate}%</span>
+                          </div>
                         </td>
                         <td className="mono" style={{ textAlign: 'center' }}>{cl.setsWon} - {cl.setsLost}</td>
                         <td className="mono" style={{ textAlign: 'center' }}>{cl.pointsWon} - {cl.pointsLost}</td>
-                        <td className="mono" style={{ textAlign: 'center', color: diffPts >= 0 ? '#4ade80' : '#f87171' }}>
+                        <td className="mono" style={{ textAlign: 'center', fontWeight: 800, color: diffPts >= 0 ? '#22c55e' : '#f87171' }}>
                           {diffPts > 0 ? `+${diffPts}` : diffPts}
                         </td>
                       </tr>
@@ -3266,163 +3647,165 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
           </section>
         )}
 
-        {/* 4. COURT UTILIZATION, REFEREE DUTY LOG & BWF DISCIPLINARY CARDS */}
+        {/* 5. UMPIRE SCORECARD & BWF DISCIPLINARY AUDIT */}
         {(reportTab === 'all' || reportTab === 'logistics') && (
-          <>
-            <div className="setup-grid" style={{ gap: '1rem' }}>
-              {/* Court Utilization */}
-              <section className="tr-section">
-                <h3 className="tr-sec-title">🏟️ 3. Utilisasi Lapangan &amp; Logistik Shuttlecock</h3>
-                <div className="tbl-wrap">
-                  <table className="tbl">
-                    <thead>
-                      <tr>
-                        <th>Lapangan</th>
-                        <th style={{ textAlign: 'center' }}>Selesai / Total</th>
-                        <th style={{ textAlign: 'center' }}>Total Reli</th>
-                        <th style={{ textAlign: 'center' }}>Penggunaan Cock</th>
-                        <th style={{ textAlign: 'center' }}>Total Jam Bermain</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {report.courts.map((c) => (
-                        <tr key={c.court}>
-                          <td><b>Lapangan {c.court}</b></td>
-                          <td className="mono" style={{ textAlign: 'center' }}>{c.finished} / {c.total}</td>
-                          <td className="mono" style={{ textAlign: 'center' }}>{c.rallies}</td>
-                          <td className="mono" style={{ textAlign: 'center', color: 'var(--gold)' }}>🏸 {c.cock}</td>
-                          <td className="mono" style={{ textAlign: 'center' }}>{formatDuration(c.durationSec) || '00:00'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          <div className="bi-two-col">
+            <section className="bi-card">
+              <div className="bi-card-head">
+                <div>
+                  <h3>⚖️ Beban Tugas &amp; Kinerja Wasit ({report.referees.length})</h3>
+                  <p>Distribusi partai yang dipimpin, durasi, cock, dan kartu</p>
                 </div>
-              </section>
-
-              {/* Referee Performance & Duty Log */}
-              <section className="tr-section">
-                <h3 className="tr-sec-title">⚖️ 4. Rekapitulasi Tugas Wasit (Umpire Duty Log)</h3>
-                {report.referees.length > 0 ? (
-                  <div className="tbl-wrap">
-                    <table className="tbl">
-                      <thead>
-                        <tr>
-                          <th>Nama Wasit</th>
-                          <th style={{ textAlign: 'center' }}>Partai Dipimpin</th>
-                          <th style={{ textAlign: 'center' }}>Total Durasi</th>
-                          <th style={{ textAlign: 'center' }}>Cock Dikelola</th>
-                          <th style={{ textAlign: 'center' }}>Kartu Dikeluarkan</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {report.referees.map((rf) => (
-                          <tr key={rf.name}>
-                            <td><b>👤 {rf.name}</b></td>
-                            <td className="mono" style={{ textAlign: 'center' }}>{rf.finished} selesai ({rf.matches} total)</td>
-                            <td className="mono" style={{ textAlign: 'center' }}>{formatDuration(rf.durationSec) || '00:00'}</td>
-                            <td className="mono" style={{ textAlign: 'center' }}>🏸 {rf.cock}</td>
-                            <td className="mono" style={{ textAlign: 'center' }}>
-                              {rf.yellowCards + rf.redCards + rf.blackCards > 0 ? (
-                                <span>
-                                  {rf.yellowCards > 0 && `🟨${rf.yellowCards} `}
-                                  {rf.redCards > 0 && `🟥${rf.redCards} `}
-                                  {rf.blackCards > 0 && `⬛${rf.blackCards}`}
-                                </span>
-                              ) : (
-                                <span className="muted">0</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="muted small" style={{ padding: '1rem' }}>Belum ada data wasit yang tercatat.</div>
-                )}
-              </section>
-            </div>
-
-            {/* BWF / PBSI Disciplinary Cards Table */}
-            <section className="tr-section">
-              <h3 className="tr-sec-title">🟨🟥 5. Laporan Disiplin &amp; Kartu Pelanggaran (BWF Law 16 / PBSI)</h3>
-              {report.allCards.length > 0 ? (
-                <div className="tbl-wrap">
-                  <table className="tbl">
+              </div>
+              {report.referees.length > 0 ? (
+                <div className="bi-tbl-wrap">
+                  <table className="bi-tbl">
                     <thead>
                       <tr>
-                        <th>No. Match</th>
-                        <th>Kategori</th>
-                        <th>Kartu</th>
-                        <th>Pemain / Tim</th>
-                        <th>Club / PB</th>
-                        <th>Set &amp; Skor</th>
-                        <th>Alasan Pelanggaran</th>
-                        <th>Wasit</th>
-                        <th>Waktu</th>
+                        <th>Nama Wasit</th>
+                        <th style={{ textAlign: 'center' }}>Laga</th>
+                        <th style={{ textAlign: 'center' }}>Durasi</th>
+                        <th style={{ textAlign: 'center' }}>Cock</th>
+                        <th style={{ textAlign: 'center' }}>Kartu</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {report.allCards.map((c, idx) => (
-                        <tr key={`${c.match_number}-c-${idx}`}>
-                          <td className="mono"><b>{c.match_number}</b></td>
-                          <td className="small">{c.category_name} ({c.discipline})</td>
-                          <td>
-                            <span className={`badge ${c.type === 'yellow' ? 'gold' : 'red'}`}>
-                              {c.type === 'yellow' ? '🟨 KUNING' : c.type === 'red' ? '🟥 MERAH' : '⬛ HITAM (DSQ)'}
-                            </span>
+                      {report.referees.map((rf) => (
+                        <tr key={rf.name}>
+                          <td className="bi-wrap-cell"><b>👤 {rf.name}</b></td>
+                          <td className="mono" style={{ textAlign: 'center' }}>{rf.finished}/{rf.matches}</td>
+                          <td className="mono" style={{ textAlign: 'center' }}>{formatDuration(rf.durationSec) || '00:00'}</td>
+                          <td className="mono" style={{ textAlign: 'center' }}>🏸 {rf.cock}</td>
+                          <td className="mono" style={{ textAlign: 'center' }}>
+                            {rf.yellowCards + rf.redCards + rf.blackCards > 0
+                              ? `${rf.yellowCards > 0 ? `🟨${rf.yellowCards} ` : ''}${rf.redCards > 0 ? `🟥${rf.redCards} ` : ''}${rf.blackCards > 0 ? `⬛${rf.blackCards}` : ''}`
+                              : '0'}
                           </td>
-                          <td><b>{c.player_name}</b> (Tim {(c.team || '').toUpperCase()})</td>
-                          <td className="small">{c.club || '-'}</td>
-                          <td className="mono small">Set {c.set} ({c.score_after?.a}-{c.score_after?.b})</td>
-                          <td className="small">{c.reason}</td>
-                          <td className="small">{c.referee_name}</td>
-                          <td className="mono small">{c.timestamp || '-'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               ) : (
-                <div className="notice ok small">
-                  ✅ <b>Zero Incident / Fair Play:</b> Tidak ada Kartu Kuning, Kartu Merah, maupun Diskualifikasi yang dikeluarkan sepanjang turnamen ini.
+                <div className="bi-empty-box">Belum ada data wasit yang tercatat.</div>
+              )}
+            </section>
+
+            <section className="bi-card">
+              <div className="bi-card-head">
+                <div>
+                  <h3>🟨🟥 Audit Disiplin BWF Law 16 / PBSI</h3>
+                  <p>Catatan pelanggaran resmi Kartu Kuning, Merah, dan Hitam</p>
+                </div>
+              </div>
+              {report.allCards.length > 0 ? (
+                <div className="bi-tbl-wrap">
+                  <table className="bi-tbl">
+                    <thead>
+                      <tr>
+                        <th>Match</th>
+                        <th>Kartu</th>
+                        <th>Pemain / Klub</th>
+                        <th>Set &amp; Skor</th>
+                        <th>Alasan &amp; Wasit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.allCards.map((c, idx) => (
+                        <tr key={`${c.match_number}-c-${idx}`}>
+                          <td className="mono"><b>{c.match_number}</b></td>
+                          <td>
+                            <span className={`badge ${c.type === 'yellow' ? 'gold' : 'red'}`}>
+                              {c.type === 'yellow' ? '🟨 KUNING' : c.type === 'red' ? '🟥 MERAH' : '⬛ DSQ'}
+                            </span>
+                          </td>
+                          <td className="bi-wrap-cell">
+                            <b>{c.player_name}</b>
+                            <div className="bi-cell-sub">{c.club || '-'} · Tim {(c.team || '').toUpperCase()}</div>
+                          </td>
+                          <td className="mono">Set {c.set} ({c.score_after?.a}-{c.score_after?.b})</td>
+                          <td className="bi-wrap-cell">
+                            <div>{c.reason}</div>
+                            <div className="bi-cell-sub">Wasit: {c.referee_name} · {c.timestamp || '-'}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="bi-fairplay-ok">
+                  <div style={{ fontSize: '1.5rem' }}>🏅</div>
+                  <div>
+                    <b>Zero Incident — 100% Fair Play</b>
+                    <div className="bi-cell-sub">Tidak ada Kartu Kuning, Kartu Merah, maupun Diskualifikasi sepanjang turnamen.</div>
+                  </div>
                 </div>
               )}
             </section>
-          </>
+          </div>
         )}
 
-        {/* 5. COMPLETE MATCH-BY-MATCH REGISTER (CLICKABLE FOR FULL RALLY HISTORY) */}
+        {/* 6. COMPLETE MATCH REGISTER (ZERO TRUNCATION FOR PLAYER NAMES) */}
         {(reportTab === 'all' || reportTab === 'matches') && (
-          <section className="tr-section">
-            <div className="row" style={{ justifyContent: 'space-between', marginBottom: '.4rem' }}>
-              <h3 className="tr-sec-title" style={{ margin: 0 }}>
-                📋 6. Register Lengkap Seluruh Pertandingan ({matches.length} Partai)
-              </h3>
-              <span className="small muted tr-no-print">
-                💡 Klik baris pertandingan yang sudah selesai untuk membuka popup Detail &amp; Histori Reli Lengkap.
-              </span>
+          <section className="bi-card">
+            <div className="bi-card-head" style={{ flexWrap: 'wrap', gap: '.75rem' }}>
+              <div>
+                <h3>📋 Register Lengkap Seluruh Pertandingan ({filteredMatches.length} dari {matches.length} Partai)</h3>
+                <p>Klik baris pertandingan berstatus selesai untuk membuka detail statistik &amp; histori reli lengkap</p>
+              </div>
+              <div className="bi-filter-bar tr-no-print">
+                <input
+                  type="text"
+                  className="input"
+                  style={{ width: 220 }}
+                  placeholder="Cari match / pemain / klub…"
+                  value={matchSearch}
+                  onChange={(e) => setMatchSearch(e.target.value)}
+                />
+                <select
+                  className="input"
+                  value={matchCatFilter}
+                  onChange={(e) => setMatchCatFilter(e.target.value)}
+                >
+                  <option value="all">Semua Kategori</option>
+                  {report.categories.map((c) => (
+                    <option key={c.key} value={`${c.category_name}||${c.discipline}`}>
+                      {c.category_name} ({c.discipline})
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="input"
+                  value={matchStatusFilter}
+                  onChange={(e) => setMatchStatusFilter(e.target.value)}
+                >
+                  <option value="all">Semua Status</option>
+                  <option value="finished">Selesai</option>
+                  <option value="in_progress">Live</option>
+                  <option value="scheduled">Terjadwal</option>
+                </select>
+              </div>
             </div>
-            <div className="tbl-wrap">
-              <table className="tbl">
+
+            <div className="bi-tbl-wrap">
+              <table className="bi-tbl bi-tbl-register">
                 <thead>
                   <tr>
-                    <th>Match</th>
-                    <th>Kategori</th>
-                    <th>Jadwal &amp; Lap.</th>
-                    <th>Tim A</th>
-                    <th>Tim B</th>
-                    <th>Pemenang</th>
-                    <th style={{ textAlign: 'center' }}>Skor Set</th>
+                    <th style={{ width: 85 }}>Match</th>
+                    <th style={{ minWidth: 130 }}>Kategori &amp; Lap.</th>
+                    <th style={{ minWidth: 210 }}>Tim A (Pemain &amp; Klub)</th>
+                    <th style={{ minWidth: 210 }}>Tim B (Pemain &amp; Klub)</th>
+                    <th style={{ minWidth: 145 }}>Pemenang / Status</th>
+                    <th style={{ textAlign: 'center', minWidth: 95 }}>Skor Set</th>
                     <th style={{ textAlign: 'center' }}>Reli</th>
                     <th style={{ textAlign: 'center' }}>Durasi</th>
                     <th style={{ textAlign: 'center' }}>Cock</th>
-                    <th style={{ textAlign: 'center' }}>Kartu</th>
-                    <th>Wasit</th>
+                    <th style={{ minWidth: 115 }}>Wasit</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {matches.map((m) => {
+                  {filteredMatches.map((m) => {
                     const sm = m.session_management || {};
                     const st = m.live_state || {};
                     const isFin = sm.status === 'finished' || st.phase === 'finished';
@@ -3437,42 +3820,42 @@ function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, 
                     return (
                       <tr
                         key={m.match_number}
-                        style={{ cursor: isFin ? 'pointer' : 'default' }}
-                        onClick={() => {
-                          if (isFin && onSelectMatch) {
-                            onSelectMatch(m);
-                          }
-                        }}
+                        className={isFin ? 'bi-row-clickable' : ''}
+                        onClick={() => isFin && onSelectMatch?.(m)}
                         title={isFin ? 'Klik untuk melihat Detail Lengkap & Histori Reli pertandingan ini' : ''}
                       >
-                        <td className="mono"><b>{m.match_number}</b></td>
-                        <td className="small">{m.category_name} ({m.discipline})</td>
-                        <td className="small">
-                          Lap. {m.court_number} · {[m.scheduled_date, m.scheduled_time].filter(Boolean).join(' ')}
+                        <td className="mono">
+                          <b>{m.match_number}</b>
+                          {mCards.length > 0 && (
+                            <div style={{ marginTop: 2 }}>
+                              {mCards.map((c) => (c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛')).join('')}
+                            </div>
+                          )}
                         </td>
-                        <td className="small" style={{ fontWeight: w === 'a' ? 800 : 400, color: w === 'a' ? '#fde047' : undefined }}>
-                          {w === 'a' ? '🏆 ' : ''}{teamLabel(m, 'a')} <span className="muted">({m.teams?.team_a?.club || '-'})</span>
+                        <td className="bi-wrap-cell">
+                          <div><b>{m.category_name}</b> <span className="badge blue">{m.discipline}</span></div>
+                          <div className="bi-cell-sub">Lap. {m.court_number} · {[m.scheduled_date, m.scheduled_time].filter(Boolean).join(' ')}</div>
                         </td>
-                        <td className="small" style={{ fontWeight: w === 'b' ? 800 : 400, color: w === 'b' ? '#fde047' : undefined }}>
-                          {w === 'b' ? '🏆 ' : ''}{teamLabel(m, 'b')} <span className="muted">({m.teams?.team_b?.club || '-'})</span>
+                        <td className={`bi-wrap-cell ${w === 'a' ? 'bi-winner-cell' : ''}`}>
+                          <div className="bi-player-full">{w === 'a' ? '🏆 ' : ''}{teamLabel(m, 'a')}</div>
+                          <div className="bi-cell-sub">{m.teams?.team_a?.club || '-'}</div>
                         </td>
-                        <td className="small">
+                        <td className={`bi-wrap-cell ${w === 'b' ? 'bi-winner-cell' : ''}`}>
+                          <div className="bi-player-full">{w === 'b' ? '🏆 ' : ''}{teamLabel(m, 'b')}</div>
+                          <div className="bi-cell-sub">{m.teams?.team_b?.club || '-'}</div>
+                        </td>
+                        <td className="bi-wrap-cell">
                           {isFin && w ? (
-                            <span className="badge green">Tim {w.toUpperCase()} ({teamLabel(m, w)})</span>
+                            <span className="badge green">Tim {w.toUpperCase()} Menang</span>
                           ) : (
                             <StatusBadge match={m} />
                           )}
                         </td>
-                        <td className="mono small" style={{ textAlign: 'center', fontWeight: 700 }}>{scoreStr}</td>
-                        <td className="mono small" style={{ textAlign: 'center' }}>{st.rally_history?.length || 0}</td>
-                        <td className="mono small" style={{ textAlign: 'center' }}>{dur || '-'}</td>
-                        <td className="mono small" style={{ textAlign: 'center' }}>{st.shuttlecock_count ?? 0}</td>
-                        <td className="small" style={{ textAlign: 'center' }}>
-                          {mCards.length > 0
-                            ? mCards.map((c) => (c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛')).join('')
-                            : '-'}
-                        </td>
-                        <td className="small">{sm.controller_label || '-'}</td>
+                        <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>{scoreStr}</td>
+                        <td className="mono" style={{ textAlign: 'center' }}>{st.rally_history?.length || 0}</td>
+                        <td className="mono" style={{ textAlign: 'center' }}>{dur || '-'}</td>
+                        <td className="mono" style={{ textAlign: 'center' }}>{st.shuttlecock_count ?? 0}</td>
+                        <td className="bi-wrap-cell">{sm.controller_label || '-'}</td>
                       </tr>
                     );
                   })}
@@ -4577,7 +4960,19 @@ export default function AdminPage() {
         <TournamentReportModal
           profile={activeProfile}
           matches={matches}
+          token={token}
           now={now}
+          notify={notify}
+          onRegenerate={async () => {
+            const r = await emitAck('admin:watch', { token, pin: token });
+            if (r?.ok) {
+              if (r.matches) setMatches(r.matches);
+              if (r.active_profile) setActiveProfile(r.active_profile);
+              if (r.profiles) setProfiles(r.profiles);
+              if (r.exporter) setExporter(r.exporter);
+              if (r.sync) setSync(r.sync);
+            }
+          }}
           onClose={() => setShowTournamentReportModal(false)}
           onSelectMatch={(m) => setDetailMatch(m)}
           onOpenCloseModal={() => setShowCloseTournamentModal(true)}
