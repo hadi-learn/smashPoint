@@ -5297,3 +5297,79 @@ table.tbl tr:hover td { background: rgba(59, 130, 246, .05); }
   padding: 0.9rem 1.1rem;
   color: var(--bi-heading);
 }
+
+/* Final Match Summary inside Category Podium Card */
+.bi-final-summary {
+  background: var(--bi-surface);
+  border: 1px solid var(--bi-border);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  transition: border-color 0.15s ease;
+}
+.bi-final-summary.clickable { cursor: pointer; }
+.bi-final-summary.clickable:hover { border-color: var(--bi-accent-cyan); }
+.bi-final-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.74rem;
+  color: var(--bi-muted);
+}
+.bi-final-head b { color: var(--bi-heading); }
+.bi-final-link {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--bi-accent-cyan);
+}
+.bi-final-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.38rem 0.6rem;
+}
+.bi-final-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.06rem;
+}
+.bi-final-grid span {
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bi-muted);
+}
+.bi-final-grid b {
+  font-size: 0.76rem;
+  color: var(--bi-heading);
+  word-break: break-word;
+}
+
+/* Distinct Winner Badges & Player Highlights for Tim A vs Tim B */
+.bi-win-badge-a {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.5) !important;
+}
+.bi-win-badge-b {
+  background: rgba(56, 189, 248, 0.18) !important;
+  color: #38bdf8 !important;
+  border: 1px solid rgba(56, 189, 248, 0.5) !important;
+}
+.bi-theme-paper .bi-win-badge-a {
+  background: #dcfce7 !important;
+  color: #15803d !important;
+  border-color: #86efac !important;
+}
+.bi-theme-paper .bi-win-badge-b {
+  background: #e0f2fe !important;
+  color: #0369a1 !important;
+  border-color: #7dd3fc !important;
+}
+.bi-winner-a .bi-player-full { color: #34d399; font-weight: 900; }
+.bi-winner-b .bi-player-full { color: #38bdf8; font-weight: 900; }
+.bi-theme-paper .bi-winner-a .bi-player-full { color: #15803d; }
+.bi-theme-paper .bi-winner-b .bi-player-full { color: #0369a1; }

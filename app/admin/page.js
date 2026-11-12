@@ -2983,18 +2983,40 @@ function TournamentReportModal({ profile, matches, token, now, onClose, onSelect
       const lastFin = finList[finList.length - 1] || null;
       let champion = null;
       let runnerUp = null;
+      let finalMatch = null;
       if (lastFin && (lastFin.live_state?.winner === 'a' || lastFin.live_state?.winner === 'b')) {
         const w = lastFin.live_state.winner;
         const l = w === 'a' ? 'b' : 'a';
+        const fSt = lastFin.live_state || {};
+        const fSm = lastFin.session_management || {};
+        const fSets = Array.isArray(fSt.set_history) && fSt.set_history.length > 0
+          ? fSt.set_history
+          : [{ set: 1, a: fSt.score?.a || 0, b: fSt.score?.b || 0, winner: w }];
+        const fScoreStr = fSets.map((s) => `${s.a}-${s.b}`).join(', ');
+        const fTotalPts = fSets.reduce((acc, s) => acc + (Number(s.a) || 0) + (Number(s.b) || 0), 0);
+        const fCards = Array.isArray(fSt.cards) ? fSt.cards : [];
         champion = {
           name: teamLabel(lastFin, w),
           club: lastFin.teams?.[`team_${w}`]?.club || '-',
           match_number: lastFin.match_number,
-          score: (lastFin.live_state.set_history || []).map((s) => `${s.a}-${s.b}`).join(', '),
+          score: fScoreStr,
         };
         runnerUp = {
           name: teamLabel(lastFin, l),
           club: lastFin.teams?.[`team_${l}`]?.club || '-',
+        };
+        finalMatch = {
+          match: lastFin,
+          match_number: lastFin.match_number,
+          court: lastFin.court_number || '-',
+          score: fScoreStr,
+          duration: matchDurationText(lastFin, now) || '-',
+          cock: fSt.shuttlecock_count ?? 0,
+          rallies: Array.isArray(fSt.rally_history) ? fSt.rally_history.length : 0,
+          totalPoints: fTotalPts,
+          referee: fSm.controller_label || '-',
+          cards: fCards,
+          winnerSide: w,
         };
         if (c.finished === c.total && c.total > 0) {
           const chClub = ensureClub(lastFin.teams?.[`team_${w}`]?.club);
@@ -3007,6 +3029,7 @@ function TournamentReportModal({ profile, matches, token, now, onClose, onSelect
         ...c,
         champion,
         runnerUp,
+        finalMatch,
       };
     });
 
@@ -3567,7 +3590,36 @@ function TournamentReportModal({ profile, matches, token, now, onClose, onSelect
                       </div>
                     </div>
 
+                    {cat.finalMatch && (
+                      <div
+                        className="bi-final-summary clickable"
+                        onClick={() => onSelectMatch?.(cat.finalMatch.match)}
+                        title="Klik untuk membuka Detail & Histori Reli Partai Puncak ini"
+                      >
+                        <div className="bi-final-head">
+                          <span>📌 <b>Ringkasan Partai Final ({cat.finalMatch.match_number})</b> · Lap. {cat.finalMatch.court}</span>
+                          <span className="bi-final-link tr-no-print">Detail Reli ↗</span>
+                        </div>
+                        <div className="bi-final-grid">
+                          <div><span>Skor Set</span><b className="mono">{cat.finalMatch.score}</b></div>
+                          <div><span>Durasi</span><b className="mono">{cat.finalMatch.duration}</b></div>
+                          <div><span>Shuttlecock</span><b className="mono">🏸 {cat.finalMatch.cock}</b></div>
+                          <div><span>Reli &amp; Poin</span><b className="mono">{cat.finalMatch.rallies} ({cat.finalMatch.totalPoints} pts)</b></div>
+                          <div><span>Wasit</span><b>👤 {cat.finalMatch.referee}</b></div>
+                          <div>
+                            <span>Kartu BWF</span>
+                            <b>
+                              {cat.finalMatch.cards.length > 0
+                                ? cat.finalMatch.cards.map((c) => (c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛')).join(' ')
+                                : 'Bersih'}
+                            </b>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="bi-podium-foot mono">
+                      <span>Total Kategori:</span>
                       <span>🔥 {cat.rallies} Reli</span>
                       <span>🏸 {cat.cock} Cock</span>
                       <span>⏱ {formatDuration(cat.durationSec) || '-'}</span>
@@ -3852,17 +3904,19 @@ function TournamentReportModal({ profile, matches, token, now, onClose, onSelect
                           <div><b>{m.category_name}</b> <span className="badge blue">{m.discipline}</span></div>
                           <div className="bi-cell-sub">Lap. {m.court_number} · {[m.scheduled_date, m.scheduled_time].filter(Boolean).join(' ')}</div>
                         </td>
-                        <td className={`bi-wrap-cell ${w === 'a' ? 'bi-winner-cell' : ''}`}>
+                        <td className={`bi-wrap-cell ${w === 'a' ? 'bi-winner-cell bi-winner-a' : ''}`}>
                           <div className="bi-player-full">{w === 'a' ? '🏆 ' : ''}{teamLabel(m, 'a')}</div>
                           <div className="bi-cell-sub">{m.teams?.team_a?.club || '-'}</div>
                         </td>
-                        <td className={`bi-wrap-cell ${w === 'b' ? 'bi-winner-cell' : ''}`}>
+                        <td className={`bi-wrap-cell ${w === 'b' ? 'bi-winner-cell bi-winner-b' : ''}`}>
                           <div className="bi-player-full">{w === 'b' ? '🏆 ' : ''}{teamLabel(m, 'b')}</div>
                           <div className="bi-cell-sub">{m.teams?.team_b?.club || '-'}</div>
                         </td>
                         <td className="bi-wrap-cell">
                           {isFin && w ? (
-                            <span className="badge green">Tim {w.toUpperCase()} Menang</span>
+                            <span className={`badge ${w === 'a' ? 'bi-win-badge-a' : 'bi-win-badge-b'}`}>
+                              Tim {w.toUpperCase()} Menang
+                            </span>
                           ) : (
                             <StatusBadge match={m} />
                           )}
