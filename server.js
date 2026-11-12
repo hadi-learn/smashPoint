@@ -614,6 +614,31 @@ async function handleApi(req, res, url) {
         sync: syncStatus(),
       });
     }
+    if (parts[4] === 'close' && method === 'POST') {
+      const b = await readBody(req);
+      profileManager.closeTournament(profId, {
+        closedBy: adminUser.username,
+        closing_notes: b.closing_notes,
+        venue: b.venue,
+        chief_referee: b.chief_referee,
+        committee_head: b.committee_head,
+      });
+      emitAdmin();
+      return send(res, 200, {
+        ok: true,
+        active_profile: profileManager.activeProfile(store),
+        profiles: profileManager.list(store),
+      });
+    }
+    if (parts[4] === 'reopen' && method === 'POST') {
+      profileManager.reopenTournament(profId);
+      emitAdmin();
+      return send(res, 200, {
+        ok: true,
+        active_profile: profileManager.activeProfile(store),
+        profiles: profileManager.list(store),
+      });
+    }
     if (parts.length === 4 && method === 'PATCH') {
       const b = await readBody(req);
       profileManager.update(profId, b);

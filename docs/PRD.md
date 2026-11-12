@@ -38,7 +38,7 @@
 ┌───────────────┐    ┌──────────────────┐    ┌───────────────────┐   ┌───────────────────┐
 │ TABLET WASIT  │    │ LAYAR TV ARENA   │    │  OBS / YOUTUBE    │   │   LAYAR VENUE     │
 │  (/referee)   │    │ (/display?court) │    │  OVERLAY STREAM   │   │  MULTI-LIVESCORE  │
-│ • Setup Posisi│    │ • Skor Raksasa   │    │ (/display?mode=obs│   │   (/livescore)    │
+│ • Setup Posisi│    │ • Skor Raksasa   │    │(/display?mode=obs)│   │   (/livescore)    │
 │ • Skoring Reli│    │ • Highlight Srv/ │    │ • BWF Scorebug    │   │ • 1 s/d 15 Court  │
 │ • Hitung Cock │    │   Receiver       │    │ • On-Demand 10    │   │ • Visual Lapangan │
 │ • Timer Break │    │ • Durasi 2x Besar│    │   Rally History   │   │ • Auto-Fit History│

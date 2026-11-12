@@ -14,10 +14,13 @@ import {
   formatIsoToIndonesianDate,
   parseScheduleTimeToPicker,
   formatPickerToScheduleTime,
+  formatDuration,
+  formatLocalDateTime,
   teamLabel,
   teamSeedBadge,
 } from '@/lib/engine';
 import { StatusBadge } from '@/components/referee/Entry';
+import RallyHistoryStrip from '@/components/RallyHistoryStrip';
 
 const ACTIVE = ['locked', 'in_progress'];
 const tm = (s) => (s ? new Date(s).toLocaleTimeString('id-ID', { hour12: false }) : '-');
@@ -903,7 +906,7 @@ function LogsModal({ id, onClose }) {
                 <tr key={l.log_id}>
                   <td className="mono small">{tm(l.timestamp)}</td>
                   <td>
-                    <span className={`badge ${l.event_type === 'UNDO' ? 'gold' : l.event_type.startsWith('SIDE_OUT') ? 'blue' : l.event_type.includes('TAKEOVER') ? 'red' : l.event_type.startsWith('SHUTTLECOCK') ? 'cyan' : ''}`}>{l.event_type}</span>
+                    <span className={`badge ${l.event_type === 'UNDO' || l.event_type === 'YELLOW_CARD' ? 'gold' : l.event_type.startsWith('SIDE_OUT') ? 'blue' : l.event_type.includes('TAKEOVER') || l.event_type === 'RED_CARD' || l.event_type === 'BLACK_CARD' ? 'red' : l.event_type.startsWith('SHUTTLECOCK') ? 'cyan' : ''}`}>{l.event_type}</span>
                   </td>
                   <td className="small">{l.details}</td>
                   <td className="small">{l.referee_name || <span className="muted">-</span>}</td>
@@ -914,6 +917,364 @@ function LogsModal({ id, onClose }) {
             </tbody>
           </table>
           {!logs && <div className="muted" style={{ padding: '1rem' }}>Memuat…</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * FinishedMatchDetailModal
+ * Popup elegan & profesional ketika Admin mengklik pertandingan yang sudah selesai.
+ * Menampilkan ringkasan eksekutif pertandingan, perbandingan pemenang vs lawan,
+ * statistik poin & reli, kartu pelanggaran BWF (Kuning/Merah/Hitam), serta
+ * seluruh histori reli pertandingan tersebut dari awal sampai akhir dalam multi-baris.
+ */
+function FinishedMatchDetailModal({ match, now, onClose, onEdit, onLogs }) {
+  const st = match.live_state || {};
+  const sm = match.session_management || {};
+  const isSets = match.rules?.scoring_type === 'sets';
+  const winSide = st.winner || (st.score?.a >= st.score?.b ? 'a' : 'b');
+  const loseSide = winSide === 'a' ? 'b' : 'a';
+  const duration = matchDurationText(match, now);
+  const rallies = Array.isArray(st.rally_history) ? st.rally_history : [];
+  const cards = Array.isArray(st.cards) ? st.cards : [];
+  const setHist = Array.isArray(st.set_history) && st.set_history.length > 0
+    ? st.set_history
+    : [{ set: 1, a: st.score?.a || 0, b: st.score?.b || 0, winner: winSide }];
+
+  // Hitung statistik pertandingan dari set_history & rally_history
+  const stats = useMemo(() => {
+    const totalPointsA = setHist.reduce((acc, s) => acc + (Number(s.a) || 0), 0);
+    const totalPointsB = setHist.reduce((acc, s) => acc + (Number(s.b) || 0), 0);
+    let rWonA = 0;
+    let rWonB = 0;
+    let srvWonA = 0;
+    let srvWonB = 0;
+    let maxStreakA = 0;
+    let maxStreakB = 0;
+    let curA = 0;
+    let curB = 0;
+
+    for (const r of rallies) {
+      if (r.winner === 'a') {
+        rWonA += 1;
+        curA += 1;
+        curB = 0;
+        if (curA > maxStreakA) maxStreakA = curA;
+        if (r.server_side === 'a') srvWonA += 1;
+      } else if (r.winner === 'b') {
+        rWonB += 1;
+        curB += 1;
+        curA = 0;
+        if (curB > maxStreakB) maxStreakB = curB;
+        if (r.server_side === 'b') srvWonB += 1;
+      }
+    }
+
+    return {
+      totalPointsA,
+      totalPointsB,
+      totalPoints: totalPointsA + totalPointsB,
+      totalRallies: rallies.length,
+      rWonA,
+      rWonB,
+      srvWonA,
+      srvWonB,
+      maxStreakA,
+      maxStreakB,
+    };
+  }, [setHist, rallies]);
+
+  const [perRow, setPerRow] = useState(20);
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal col fm-modal" style={{ width: 'min(1260px, 100%)' }} onClick={(e) => e.stopPropagation()}>
+        {/* Top Executive Header */}
+        <div className="fm-header">
+          <div className="col" style={{ gap: '.25rem' }}>
+            <div className="row" style={{ gap: '.5rem' }}>
+              <span className="badge gold" style={{ fontSize: '.82rem', padding: '.25rem .7rem' }}>
+                🏁 LAPORAN RESMI HASIL PERTANDINGAN
+              </span>
+              <span className="badge blue mono" style={{ fontSize: '.85rem' }}>
+                {match.match_number}
+              </span>
+              <span className="badge">Lapangan {match.court_number}</span>
+              {match.admin_override?.is_edited && (
+                <span className="badge gold">🔒 Diedit Panitia</span>
+              )}
+            </div>
+            <h2 className="fm-title">
+              {match.tournament_name} — <span style={{ color: 'var(--gold)' }}>{match.category_name}</span> ({DISCIPLINE_LABEL[match.discipline] || match.discipline})
+            </h2>
+          </div>
+          <div className="row" style={{ gap: '.45rem' }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-yellow"
+              onClick={() => {
+                onClose();
+                onEdit?.(match);
+              }}
+              title="Buka editor lengkap untuk mengubah skor, pemain, atau status pertandingan ini"
+            >
+              ✏️ Edit Pertandingan
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-blue"
+              onClick={() => {
+                onLogs?.(match.match_number);
+              }}
+              title="Lihat Audit Log Lengkap"
+            >
+              📜 Audit Log
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => window.print()}
+              title="Cetak laporan hasil pertandingan ini"
+            >
+              🖨️ Cetak
+            </button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Match Duel Hero Banner: Winner vs Opponent */}
+        <div className="fm-duel-grid">
+          {['a', 'b'].map((t) => {
+            const isWin = winSide === t;
+            const tmObj = match.teams?.[`team_${t}`] || {};
+            const seed = teamSeedBadge(match, t);
+            const tCards = cards.filter((c) => c.team === t);
+            const mainScore = isSets
+              ? st.sets?.[t] ?? 0
+              : setHist[setHist.length - 1]?.[t] ?? st.score?.[t] ?? 0;
+
+            return (
+              <div key={t} className={`fm-team-card ${isWin ? 'winner' : 'loser'} team-${t}`}>
+                <div className="fm-team-left">
+                  <div className="row" style={{ gap: '.45rem' }}>
+                    <span className={`fm-role-pill ${isWin ? 'win' : 'lose'}`}>
+                      {isWin ? '🏆 PEMENANG (WINNER)' : 'RUNNER-UP LAGA'}
+                    </span>
+                    <span className="small muted" style={{ fontWeight: 800 }}>TIM {t.toUpperCase()}</span>
+                    {seed && <span className="seed-pill">{seed}</span>}
+                    {tCards.map((c) => (
+                      <span key={c.card_id} className="badge" style={{ padding: '.1rem .4rem' }} title={`${c.player_name}: ${c.reason}`}>
+                        {c.type === 'yellow' ? '🟨 Kuning' : c.type === 'red' ? '🟥 Merah' : '⬛ Hitam (DSQ)'}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="fm-player-names">{teamLabel(match, t)}</div>
+                  <div className="fm-club-name">
+                    🏛️ {tmObj.club || 'Tanpa Klub / Independen'}
+                  </div>
+                </div>
+                <div className="fm-team-right">
+                  <div className="fm-main-score mono">{mainScore}</div>
+                  <div className="fm-score-sub">{isSets ? 'SET MENANG' : 'POIN AKHIR'}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Set-by-Set Scoreboard & Match Metadata KPI Grid */}
+        <div className="fm-meta-section">
+          {/* Set-by-set score table */}
+          <div className="fm-sets-box">
+            <div className="small" style={{ fontWeight: 800, color: 'var(--gold)', marginBottom: '.4rem' }}>
+              📊 RINCIAN SKOR PER SET ({match.rules?.scoring_method === 'side_out' ? 'Side-Out / Pindah Bola' : 'Rally Point'} · Target {match.rules?.win_point} Poin)
+            </div>
+            <table className="tbl fm-sets-table">
+              <thead>
+                <tr>
+                  <th>TIM / PEMAIN</th>
+                  {setHist.map((s) => (
+                    <th key={s.set} style={{ textAlign: 'center' }}>
+                      {isSets ? `SET ${s.set}` : 'SKOR GAME'}
+                    </th>
+                  ))}
+                  <th style={{ textAlign: 'center' }}>TOTAL POIN</th>
+                  {rallies.length > 0 && <th style={{ textAlign: 'center' }}>RELI MENANG</th>}
+                  {rallies.length > 0 && <th style={{ textAlign: 'center' }}>STREAK TERPANJANG</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {['a', 'b'].map((t) => {
+                  const isWin = winSide === t;
+                  return (
+                    <tr key={t} className={isWin ? 'fm-row-win' : ''}>
+                      <td>
+                        <b>{isWin ? '🏆 ' : ''}{teamLabel(match, t)}</b>{' '}
+                        <span className="muted small">({match.teams?.[`team_${t}`]?.club || '-'})</span>
+                      </td>
+                      {setHist.map((s) => {
+                        const sWon = (s.winner || (s.a >= s.b ? 'a' : 'b')) === t;
+                        return (
+                          <td key={s.set} className="mono" style={{ textAlign: 'center', fontWeight: sWon ? 900 : 600, color: sWon ? '#fde047' : 'var(--text)', fontSize: '1.05rem' }}>
+                            {s[t]}
+                            {s.note === 'DSQ' && !sWon ? ' (DSQ)' : ''}
+                          </td>
+                        );
+                      })}
+                      <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>
+                        {t === 'a' ? stats.totalPointsA : stats.totalPointsB}
+                      </td>
+                      {rallies.length > 0 && (
+                        <td className="mono" style={{ textAlign: 'center' }}>
+                          {t === 'a' ? stats.rWonA : stats.rWonB} <span className="muted small">({Math.round(((t === 'a' ? stats.rWonA : stats.rWonB) / rallies.length) * 100)}%)</span>
+                        </td>
+                      )}
+                      {rallies.length > 0 && (
+                        <td className="mono" style={{ textAlign: 'center' }}>
+                          🔥 {t === 'a' ? stats.maxStreakA : stats.maxStreakB} beruntun
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Match Metadata Cards */}
+          <div className="fm-kpi-grid">
+            <div className="fm-kpi-item">
+              <span className="fm-kpi-label">👤 WASIT BERTUGAS</span>
+              <span className="fm-kpi-val">{sm.controller_label || 'Tidak Tercatat'}</span>
+            </div>
+            <div className="fm-kpi-item">
+              <span className="fm-kpi-label">⏱ DURASI BERMAIN</span>
+              <span className="fm-kpi-val mono" style={{ color: 'var(--cyan)' }}>{duration || '-'}</span>
+            </div>
+            <div className="fm-kpi-item">
+              <span className="fm-kpi-label">🏸 PENGGUNAAN COCK</span>
+              <span className="fm-kpi-val mono" style={{ color: 'var(--gold)' }}>{st.shuttlecock_count ?? 0} Cock</span>
+            </div>
+            <div className="fm-kpi-item">
+              <span className="fm-kpi-label">📈 TOTAL RELI / SERVIS</span>
+              <span className="fm-kpi-val mono">{rallies.length} Reli</span>
+            </div>
+            <div className="fm-kpi-item">
+              <span className="fm-kpi-label">📅 JADWAL &amp; WAKTU MULAI</span>
+              <span className="fm-kpi-val small">
+                {[match.scheduled_date, match.scheduled_time].filter(Boolean).join(' · ') || '-'}
+                {st.started_at && <div className="muted mono" style={{ fontSize: '.74rem' }}>Mulai: {formatLocalDateTime(st.started_at)}</div>}
+              </span>
+            </div>
+            <div className="fm-kpi-item">
+              <span className="fm-kpi-label">🏁 WAKTU SELESAI</span>
+              <span className="fm-kpi-val small mono">
+                {formatLocalDateTime(match.finished_at || st.ended_at) || '-'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* BWF / PBSI Penalty Cards Section (shown if any cards were issued or with clean status badge) */}
+        <div className="fm-cards-box">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="small" style={{ fontWeight: 800, color: cards.length > 0 ? '#fca5a5' : '#4ade80' }}>
+              🟨🟥 CATATAN DISIPLIN &amp; KARTU PELANGGARAN (BWF LAW 16 / PBSI)
+            </span>
+            <span className={`badge ${cards.length > 0 ? 'red' : 'green'}`}>
+              {cards.length > 0 ? `${cards.length} Kartu Dikeluarkan` : '✔ Fair Play — 0 Kartu Pelanggaran'}
+            </span>
+          </div>
+          {cards.length > 0 && (
+            <div className="tbl-wrap" style={{ marginTop: '.45rem' }}>
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Kartu</th>
+                    <th>Pemain / Tim</th>
+                    <th>Club / PB</th>
+                    <th>Set &amp; Skor</th>
+                    <th>Alasan Pelanggaran (BWF Clause 16)</th>
+                    <th>Konsekuensi Pertandingan</th>
+                    <th>Waktu</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cards.map((c) => (
+                    <tr key={c.card_id}>
+                      <td>
+                        <span className={`badge ${c.type === 'yellow' ? 'gold' : 'red'}`}>
+                          {c.type === 'yellow' ? '🟨 KARTU KUNING' : c.type === 'red' ? '🟥 KARTU MERAH' : '⬛ KARTU HITAM (DSQ)'}
+                        </span>
+                      </td>
+                      <td>
+                        <b>{c.player_name}</b>
+                        <div className="small muted">Tim {(c.team || '').toUpperCase()}</div>
+                      </td>
+                      <td className="small">{c.club || '-'}</td>
+                      <td className="mono small">
+                        Set {c.set} ({c.score_before?.a}-{c.score_before?.b} ➔ <b>{c.score_after?.a}-{c.score_after?.b}</b>)
+                      </td>
+                      <td className="small">{c.reason}</td>
+                      <td className="small muted">{c.consequence}</td>
+                      <td className="mono small">{c.timestamp || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Complete Multi-Row Rally History at the Bottom */}
+        <div className="fm-history-section">
+          <div className="row" style={{ justifyContent: 'space-between', marginBottom: '.5rem' }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#fff' }}>
+                📈 Histori Reli Lengkap Pertandingan ({rallies.length} Reli)
+              </h3>
+              <span className="small muted">
+                Menampilkan urutan perolehan angka dan servis dari Reli #1 hingga poin penutup per-set dalam tampilan multi-baris.
+              </span>
+            </div>
+            {rallies.length > 0 && (
+              <div className="row" style={{ gap: '.4rem' }}>
+                <span className="small muted">Kolom per baris:</span>
+                {[15, 20, 25, 30].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className={`btn btn-sm ${perRow === n ? 'btn-primary' : ''}`}
+                    onClick={() => setPerRow(n)}
+                  >
+                    {n} Reli/Baris
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {rallies.length > 0 ? (
+            <RallyHistoryStrip
+              match={match}
+              multiRow={true}
+              perRow={perRow}
+              groupBySet={true}
+              topSide="a"
+              bottomSide="b"
+              showLabel={true}
+              showTeamNames={true}
+              title={`PROGRESI RELI LENGKAP · ${teamLabel(match, 'a')} vs ${teamLabel(match, 'b')}`}
+            />
+          ) : (
+            <div className="muted small" style={{ padding: '1.2rem', textAlign: 'center', background: '#0a1328', borderRadius: 10, border: '1px dashed var(--line)' }}>
+              Pertandingan ini diselesaikan melalui input skor langsung / keputusan panitia sehingga tidak memiliki rekaman reli per-poin.
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1114,7 +1475,7 @@ function compareByCol(col, x, y, now) {
   }
 }
 
-function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify, prefs, setPrefs }) {
+function MatchTable({ matches, pin, courtCount, now, onEdit, onViewDetail, onLogs, notify, prefs, setPrefs }) {
   const { q, status, court, category, sorts } = prefs;
   const setQ = (val) => setPrefs((p) => ({ ...p, q: val }));
   const setStatus = (val) => setPrefs((p) => ({ ...p, status: val }));
@@ -1361,17 +1722,33 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify, pre
               const sm = m.session_management;
               const st = m.live_state;
               const dur = matchDurationText(m, now);
+              const isFin = sm.status === 'finished' || st.phase === 'finished';
+              const cards = Array.isArray(st.cards) ? st.cards : [];
               return (
                 <tr key={m.match_number}>
-                  <td>
+                  <td
+                    style={{ cursor: isFin ? 'pointer' : 'default' }}
+                    onClick={() => isFin && onViewDetail?.(m)}
+                    title={isFin ? 'Klik untuk membuka Detail & Histori Reli Lengkap pertandingan ini' : ''}
+                  >
                     <b>{m.match_number}</b>
+                    {cards.length > 0 && (
+                      <div className="small" title={cards.map((c) => `${c.type.toUpperCase()} (${c.player_name}): ${c.reason}`).join(' | ')}>
+                        {cards.map((c) => (c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛')).join('')}
+                      </div>
+                    )}
                   </td>
                   <td className="small">
                     {m.category_name}
                     <br />
                     <span className="muted">{m.discipline}</span>
                   </td>
-                  <td className="small">
+                  <td
+                    className="small"
+                    style={{ cursor: isFin ? 'pointer' : 'default' }}
+                    onClick={() => isFin && onViewDetail?.(m)}
+                    title={isFin ? 'Klik untuk membuka Detail & Histori Reli Lengkap pertandingan ini' : ''}
+                  >
                     {teamLabel(m, 'a')}
                     {teamSeedBadge(m, 'a') && <span className="seed-pill">{teamSeedBadge(m, 'a')}</span>}{' '}
                     <span className="muted">({m.teams.team_a.club || '-'})</span>
@@ -1421,7 +1798,12 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify, pre
                       </div>
                     )}
                   </td>
-                  <td className="mono">
+                  <td
+                    className="mono"
+                    style={{ cursor: isFin ? 'pointer' : 'default' }}
+                    onClick={() => isFin && onViewDetail?.(m)}
+                    title={isFin ? 'Klik untuk membuka Detail & Histori Reli Lengkap pertandingan ini' : ''}
+                  >
                     {st.score.a}-{st.score.b}
                     {m.rules.scoring_type === 'sets' && <span className="muted"> [{st.sets.a}-{st.sets.b}]</span>}
                   </td>
@@ -1452,6 +1834,15 @@ function MatchTable({ matches, pin, courtCount, now, onEdit, onLogs, notify, pre
                   </td>
                   <td>
                     <div className="row" style={{ gap: '.3rem', flexWrap: 'nowrap' }}>
+                      {isFin && (
+                        <button
+                          className="btn btn-sm btn-green"
+                          onClick={() => onViewDetail?.(m)}
+                          title="Lihat Detail Lengkap Pertandingan & Seluruh Histori Reli"
+                        >
+                          📊 Detail &amp; Reli
+                        </button>
+                      )}
                       <button className="btn btn-sm btn-yellow" onClick={() => onEdit(m)} title="Edit lengkap (pemain, club, skor, status, diskualifikasi/WO)">
                         ✏️ Edit
                       </button>
@@ -2194,7 +2585,908 @@ function UserManagementPanel({ token, currentUser, onUserUpdated, notify }) {
   );
 }
 
-function TournamentProfileBar({ token, activeProfile, profiles = [], onSwitched, notify }) {
+/**
+ * CloseTournamentModal
+ * Modal untuk melakukan Closing Turnamen secara resmi dan melengkapi metadata laporan (Venue, Chief Referee, Ketua Panitia, Catatan Penutupan).
+ */
+function CloseTournamentModal({ profile, matches, token, onClose, onSaved, onOpenReport, notify }) {
+  const [venue, setVenue] = useState(profile?.venue || '');
+  const [chiefReferee, setChiefReferee] = useState(profile?.chief_referee || '');
+  const [committeeHead, setCommitteeHead] = useState(profile?.committee_head || '');
+  const [closingNotes, setClosingNotes] = useState(
+    profile?.closing_notes ||
+      'Turnamen berjalan lancar, tertib, dan menjunjung tinggi sportivitas sesuai regulasi BWF & PBSI.'
+  );
+  const [busy, setBusy] = useState(false);
+
+  const total = matches.length;
+  const finished = matches.filter((m) => m.session_management?.status === 'finished').length;
+  const unfinished = total - finished;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!profile?.id) return;
+    if (
+      unfinished > 0 &&
+      !window.confirm(
+        `Masih ada ${unfinished} dari ${total} pertandingan yang belum berstatus Selesai (Finished).\n\nTetap lakukan Closing Turnamen "${profile.name}" sekarang?`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    const r = await api(`/api/admin/profiles/${encodeURIComponent(profile.id)}/close`, {
+      method: 'POST',
+      pin: token,
+      body: {
+        venue: venue.trim(),
+        chief_referee: chiefReferee.trim(),
+        committee_head: committeeHead.trim(),
+        closing_notes: closingNotes.trim(),
+      },
+    });
+    setBusy(false);
+    if (r.ok) {
+      onSaved?.(r);
+      notify({
+        type: 'ok',
+        text: `🏁 Turnamen "${profile.name}" resmi ditutup (Closed)! Membuka Laporan Pelaksanaan Turnamen…`,
+      });
+      onClose();
+      onOpenReport?.();
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal menutup turnamen' });
+    }
+  };
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <form className="modal col" style={{ width: 'min(680px, 100%)' }} onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <div className="row">
+          <h2 style={{ margin: 0 }}>🏁 Closing Turnamen &amp; Pengesahan Laporan</h2>
+          <div className="spacer" />
+          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+
+        <p className="muted small" style={{ margin: 0 }}>
+          Anda akan melakukan <b>Closing (Penutupan Resmi)</b> untuk profil turnamen <b>{profile?.name}</b>. Sistem akan menghasilkan <b>Laporan Pelaksanaan Turnamen Lengkap</b> yang merangkum seluruh hasil, juara kategori, klasemen klub, durasi, penggunaan shuttlecock, kinerja wasit, dan kartu pelanggaran.
+        </p>
+
+        {unfinished > 0 ? (
+          <div className="notice warn small">
+            ⚠️ Perhatian: Terdapat <b>{unfinished} pertandingan</b> yang belum selesai ({finished}/{total} selesai). Anda tetap dapat menutup turnamen atau menyelesaikan pertandingan terlebih dahulu.
+          </div>
+        ) : (
+          <div className="notice ok small">
+            ✅ Seluruh <b>{total} pertandingan</b> pada turnamen ini telah selesai (100% Completed). Turnamen siap ditutup!
+          </div>
+        )}
+
+        <div className="info-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <label className="field">
+            Lokasi / Venue GOR
+            <input
+              className="input"
+              value={venue}
+              onChange={(e) => setVenue(e.target.value)}
+              placeholder="Contoh: GOR Bulutangkis Djarum / Hall A"
+            />
+          </label>
+          <label className="field">
+            Referee Utama (Chief Referee)
+            <input
+              className="input"
+              value={chiefReferee}
+              onChange={(e) => setChiefReferee(e.target.value)}
+              placeholder="Nama Referee Utama PBSI/BWF"
+            />
+          </label>
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            Ketua Panitia Pelaksana
+            <input
+              className="input"
+              value={committeeHead}
+              onChange={(e) => setCommitteeHead(e.target.value)}
+              placeholder="Nama Ketua Panitia / Penanggung Jawab"
+            />
+          </label>
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            Catatan Evaluasi &amp; Berita Acara Penutupan Turnamen
+            <textarea
+              className="input"
+              rows={3}
+              value={closingNotes}
+              onChange={(e) => setClosingNotes(e.target.value)}
+              placeholder="Ringkasan jalannya turnamen, evaluasi teknis, atau apresiasi pemenang…"
+            />
+          </label>
+        </div>
+
+        <div className="row">
+          <button type="submit" className="btn btn-green btn-lg" style={{ flex: 1 }} disabled={busy}>
+            {busy ? 'Memproses Closing…' : '🏁 Konfirmasi Closing Turnamen & Buat Laporan'}
+          </button>
+          <button type="button" className="btn btn-ghost btn-lg" onClick={onClose}>
+            Batal
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/**
+ * TournamentReportModal
+ * Laporan Pelaksanaan Turnamen Komprehensif (Executive Summary s/d Detail Match & Reli).
+ */
+function TournamentReportModal({ profile, matches, now, onClose, onSelectMatch, onOpenCloseModal }) {
+  const [reportTab, setReportTab] = useState('all'); // 'all' | 'champions' | 'clubs' | 'logistics' | 'matches'
+
+  const report = useMemo(() => {
+    const totalMatches = matches.length;
+    const finishedMatches = matches.filter((m) => m.session_management?.status === 'finished');
+    const liveMatches = matches.filter((m) => m.session_management?.status === 'in_progress');
+    const scheduledMatches = matches.filter((m) => m.session_management?.status === 'scheduled' || m.session_management?.status === 'locked');
+    const completionPct = totalMatches > 0 ? Math.round((finishedMatches.length / totalMatches) * 100) : 0;
+
+    let totalSets = 0;
+    let totalPoints = 0;
+    let totalRallies = 0;
+    let totalCock = 0;
+    let totalDurationSec = 0;
+    let durationCount = 0;
+    let longestMatch = null;
+    let fastestMatch = null;
+    let highestCockMatch = null;
+    let rubberSetCount = 0;
+
+    const categoryMap = new Map();
+    const clubMap = new Map();
+    const courtMap = new Map();
+    const refereeMap = new Map();
+    const allCards = [];
+    const dateSet = new Set();
+
+    const ensureClub = (clubName) => {
+      const key = (clubName || 'Independen / Tanpa Klub').trim();
+      if (!clubMap.has(key)) {
+        clubMap.set(key, {
+          club: key,
+          matchesPlayed: 0,
+          wins: 0,
+          losses: 0,
+          setsWon: 0,
+          setsLost: 0,
+          pointsWon: 0,
+          pointsLost: 0,
+          titles: 0,
+          runnerUps: 0,
+        });
+      }
+      return clubMap.get(key);
+    };
+
+    for (const m of matches) {
+      const st = m.live_state || {};
+      const sm = m.session_management || {};
+      const isFin = sm.status === 'finished' || st.phase === 'finished';
+      if (m.scheduled_date) dateSet.add(m.scheduled_date);
+
+      const cock = Number(st.shuttlecock_count) || 0;
+      totalCock += cock;
+      if (cock > 0 && (!highestCockMatch || cock > (highestCockMatch.live_state?.shuttlecock_count || 0))) {
+        highestCockMatch = m;
+      }
+
+      const ralliesLen = Array.isArray(st.rally_history) ? st.rally_history.length : 0;
+      totalRallies += ralliesLen;
+
+      const setHist = Array.isArray(st.set_history) && st.set_history.length > 0
+        ? st.set_history
+        : isFin
+        ? [{ set: 1, a: st.score?.a || 0, b: st.score?.b || 0, winner: st.winner || 'a' }]
+        : [];
+      totalSets += setHist.length;
+      if (setHist.length >= 3) rubberSetCount += 1;
+
+      const ptsA = setHist.reduce((acc, s) => acc + (Number(s.a) || 0), 0);
+      const ptsB = setHist.reduce((acc, s) => acc + (Number(s.b) || 0), 0);
+      totalPoints += ptsA + ptsB;
+
+      const durSec = matchDurationSec(m, now);
+      if (isFin && durSec !== null && durSec > 0) {
+        totalDurationSec += durSec;
+        durationCount += 1;
+        if (!longestMatch || durSec > longestMatch.durSec) longestMatch = { match: m, durSec };
+        if (!fastestMatch || durSec < fastestMatch.durSec) fastestMatch = { match: m, durSec };
+      }
+
+      // Cards
+      if (Array.isArray(st.cards)) {
+        for (const c of st.cards) {
+          allCards.push({
+            ...c,
+            match_number: m.match_number,
+            category_name: m.category_name,
+            discipline: m.discipline,
+            court_number: m.court_number,
+            referee_name: sm.controller_label || '-',
+          });
+        }
+      }
+
+      // Category aggregation
+      const catKey = `${m.category_name || 'Umum'}||${m.discipline || 'MD'}`;
+      if (!categoryMap.has(catKey)) {
+        categoryMap.set(catKey, {
+          key: catKey,
+          category_name: m.category_name || 'Umum',
+          discipline: m.discipline || '-',
+          discipline_label: DISCIPLINE_LABEL[m.discipline] || m.discipline || '-',
+          total: 0,
+          finished: 0,
+          cock: 0,
+          rallies: 0,
+          durationSec: 0,
+          matches: [],
+        });
+      }
+      const catObj = categoryMap.get(catKey);
+      catObj.total += 1;
+      catObj.cock += cock;
+      catObj.rallies += ralliesLen;
+      if (isFin) {
+        catObj.finished += 1;
+        if (durSec) catObj.durationSec += durSec;
+      }
+      catObj.matches.push(m);
+
+      // Court aggregation
+      const cNo = m.court_number || 1;
+      if (!courtMap.has(cNo)) {
+        courtMap.set(cNo, { court: cNo, total: 0, finished: 0, live: 0, cock: 0, durationSec: 0, rallies: 0 });
+      }
+      const crt = courtMap.get(cNo);
+      crt.total += 1;
+      crt.cock += cock;
+      crt.rallies += ralliesLen;
+      if (isFin) {
+        crt.finished += 1;
+        if (durSec) crt.durationSec += durSec;
+      } else if (sm.status === 'in_progress') {
+        crt.live += 1;
+      }
+
+      // Referee aggregation
+      const refName = (sm.controller_label || '').trim();
+      if (refName) {
+        if (!refereeMap.has(refName)) {
+          refereeMap.set(refName, {
+            name: refName,
+            matches: 0,
+            finished: 0,
+            durationSec: 0,
+            cock: 0,
+            yellowCards: 0,
+            redCards: 0,
+            blackCards: 0,
+          });
+        }
+        const rf = refereeMap.get(refName);
+        rf.matches += 1;
+        if (isFin) rf.finished += 1;
+        if (durSec) rf.durationSec += durSec;
+        rf.cock += cock;
+        if (Array.isArray(st.cards)) {
+          rf.yellowCards += st.cards.filter((c) => c.type === 'yellow').length;
+          rf.redCards += st.cards.filter((c) => c.type === 'red').length;
+          rf.blackCards += st.cards.filter((c) => c.type === 'black').length;
+        }
+      }
+
+      // Club standings (for finished matches)
+      if (isFin && (st.winner === 'a' || st.winner === 'b')) {
+        const winSide = st.winner;
+        const loseSide = winSide === 'a' ? 'b' : 'a';
+        const clubA = ensureClub(m.teams?.team_a?.club);
+        const clubB = ensureClub(m.teams?.team_b?.club);
+
+        clubA.matchesPlayed += 1;
+        clubB.matchesPlayed += 1;
+        if (winSide === 'a') {
+          clubA.wins += 1;
+          clubB.losses += 1;
+        } else {
+          clubB.wins += 1;
+          clubA.losses += 1;
+        }
+        const sA = setHist.filter((s) => s.winner === 'a').length || (winSide === 'a' ? 1 : 0);
+        const sB = setHist.filter((s) => s.winner === 'b').length || (winSide === 'b' ? 1 : 0);
+        clubA.setsWon += sA;
+        clubA.setsLost += sB;
+        clubB.setsWon += sB;
+        clubB.setsLost += sA;
+        clubA.pointsWon += ptsA;
+        clubA.pointsLost += ptsB;
+        clubB.pointsWon += ptsB;
+        clubB.pointsLost += ptsA;
+      }
+    }
+
+    // Determine Category Champions / Final match per category
+    const categories = Array.from(categoryMap.values()).map((c) => {
+      const finList = c.matches
+        .filter((m) => m.session_management?.status === 'finished')
+        .sort(
+          (x, y) =>
+            (x.finished_at || x.updated_at || '').localeCompare(y.finished_at || y.updated_at || '') ||
+            cmpStr(x.match_number, y.match_number)
+        );
+      // Count wins per team within this category
+      const teamWins = new Map();
+      for (const m of finList) {
+        const w = m.live_state?.winner;
+        if (w === 'a' || w === 'b') {
+          const tName = teamLabel(m, w);
+          const tClub = m.teams?.[`team_${w}`]?.club || '';
+          const cur = teamWins.get(tName) || { name: tName, club: tClub, wins: 0 };
+          cur.wins += 1;
+          teamWins.set(tName, cur);
+        }
+      }
+      const lastFin = finList[finList.length - 1] || null;
+      let champion = null;
+      let runnerUp = null;
+      if (lastFin && (lastFin.live_state?.winner === 'a' || lastFin.live_state?.winner === 'b')) {
+        const w = lastFin.live_state.winner;
+        const l = w === 'a' ? 'b' : 'a';
+        champion = {
+          name: teamLabel(lastFin, w),
+          club: lastFin.teams?.[`team_${w}`]?.club || '-',
+          match_number: lastFin.match_number,
+          score: (lastFin.live_state.set_history || []).map((s) => `${s.a}-${s.b}`).join(', '),
+        };
+        runnerUp = {
+          name: teamLabel(lastFin, l),
+          club: lastFin.teams?.[`team_${l}`]?.club || '-',
+        };
+        if (c.finished === c.total && c.total > 0) {
+          const chClub = ensureClub(lastFin.teams?.[`team_${w}`]?.club);
+          const ruClub = ensureClub(lastFin.teams?.[`team_${l}`]?.club);
+          chClub.titles += 1;
+          ruClub.runnerUps += 1;
+        }
+      }
+      return {
+        ...c,
+        champion,
+        runnerUp,
+        topPerformers: Array.from(teamWins.values()).sort((a, b) => b.wins - a.wins).slice(0, 3),
+      };
+    });
+
+    const clubs = Array.from(clubMap.values()).sort(
+      (a, b) =>
+        b.titles - a.titles ||
+        b.wins - a.wins ||
+        b.setsWon - b.setsLost - (a.setsWon - a.setsLost) ||
+        b.pointsWon - b.pointsLost - (a.pointsWon - a.pointsLost)
+    );
+
+    const courts = Array.from(courtMap.values()).sort((a, b) => a.court - b.court);
+    const referees = Array.from(refereeMap.values()).sort((a, b) => b.matches - a.matches || b.durationSec - a.durationSec);
+
+    return {
+      totalMatches,
+      finishedCount: finishedMatches.length,
+      liveCount: liveMatches.length,
+      scheduledCount: scheduledMatches.length,
+      completionPct,
+      totalSets,
+      rubberSetCount,
+      totalPoints,
+      totalRallies,
+      totalCock,
+      avgCockPerMatch: finishedMatches.length > 0 ? (totalCock / finishedMatches.length).toFixed(1) : '0.0',
+      totalDurationSec,
+      avgDurationSec: durationCount > 0 ? Math.round(totalDurationSec / durationCount) : null,
+      longestMatch,
+      fastestMatch,
+      highestCockMatch,
+      categories,
+      clubs,
+      courts,
+      referees,
+      allCards,
+      dates: Array.from(dateSet),
+    };
+  }, [matches, now]);
+
+  const isClosed = profile?.status === 'closed';
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal col tr-report-modal" style={{ width: 'min(1380px, 100%)' }} onClick={(e) => e.stopPropagation()}>
+        {/* Report Header Banner */}
+        <div className="tr-report-header">
+          <div className="col" style={{ gap: '.3rem' }}>
+            <div className="row" style={{ gap: '.5rem' }}>
+              <span className={`badge ${isClosed ? 'gold' : 'green'}`} style={{ fontSize: '.82rem', padding: '.28rem .75rem' }}>
+                {isClosed ? '🏁 TURNAMEN SELESAI & DITUTUP RESMI (CLOSED)' : '🟢 TURNAMEN SEDANG BERLANGSUNG (ACTIVE)'}
+              </span>
+              <span className="badge blue">Progres: {report.finishedCount}/{report.totalMatches} Match ({report.completionPct}%)</span>
+              {report.dates.length > 0 && <span className="badge">📅 {report.dates.join(' s/d ')}</span>}
+            </div>
+            <h2 style={{ margin: 0, fontSize: '1.5rem', color: '#fff' }}>
+              📑 Laporan Pelaksanaan Turnamen: <span style={{ color: 'var(--gold)' }}>{profile?.name || 'Turnamen Utama'}</span>
+            </h2>
+            <div className="row small muted" style={{ gap: '1rem' }}>
+              {profile?.description && <span>📌 {profile.description}</span>}
+              {profile?.venue && <span>🏟️ Venue: <b style={{ color: '#e2e8f0' }}>{profile.venue}</b></span>}
+              {profile?.chief_referee && <span>⚖️ Referee Utama: <b style={{ color: '#e2e8f0' }}>{profile.chief_referee}</b></span>}
+              {profile?.committee_head && <span>👔 Ketua Panitia: <b style={{ color: '#e2e8f0' }}>{profile.committee_head}</b></span>}
+              {profile?.closed_at && <span>🔒 Ditutup pada: <b className="mono">{formatLocalDateTime(profile.closed_at)}</b> oleh @{profile.closed_by}</span>}
+            </div>
+          </div>
+
+          <div className="row tr-no-print" style={{ gap: '.45rem' }}>
+            {!isClosed && (
+              <button
+                type="button"
+                className="btn btn-sm btn-green"
+                onClick={() => {
+                  onClose();
+                  onOpenCloseModal?.();
+                }}
+              >
+                🏁 Lakukan Closing Turnamen
+              </button>
+            )}
+            <a className="btn btn-sm" href="/api/export/results.csv">
+              ⬇ CSV Hasil
+            </a>
+            <button type="button" className="btn btn-sm btn-yellow" onClick={() => window.print()}>
+              🖨️ Cetak / Simpan PDF
+            </button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Navigation Section Filter Tabs */}
+        <div className="row tr-no-print" style={{ borderBottom: '1px solid var(--line)', paddingBottom: '.55rem', gap: '.4rem' }}>
+          {[
+            ['all', '📊 Semua Bagian Laporan (Lengkap)'],
+            ['champions', '🏆 Juara & Hasil Per Kategori'],
+            ['clubs', '🏛️ Klasemen Klub / PB'],
+            ['logistics', '🏸 Logistik Cock, Lapangan, Wasit & Kartu'],
+            ['matches', '📋 Rekapitulasi Seluruh Pertandingan'],
+          ].map(([id, lbl]) => (
+            <button
+              key={id}
+              type="button"
+              className={`btn btn-sm ${reportTab === id ? 'btn-primary' : ''}`}
+              onClick={() => setReportTab(id)}
+            >
+              {lbl}
+            </button>
+          ))}
+        </div>
+
+        {/* Closing Notes / Berita Acara if present */}
+        {profile?.closing_notes && (
+          <div className="tr-closing-banner">
+            <div className="small" style={{ fontWeight: 900, color: 'var(--gold)', marginBottom: '.2rem' }}>
+              📜 BERITA ACARA &amp; CATATAN EVALUASI PENUTUPAN TURNAMEN:
+            </div>
+            <div style={{ fontSize: '.92rem', lineHeight: 1.5, color: '#f1f5f9' }}>{profile.closing_notes}</div>
+          </div>
+        )}
+
+        {/* 1. EXECUTIVE SUMMARY KPI CARDS */}
+        <div className="tr-kpi-grid">
+          <div className="tr-kpi-card">
+            <span className="tr-kpi-lbl">TOTAL PERTANDINGAN</span>
+            <span className="tr-kpi-num mono">{report.finishedCount} <small>/ {report.totalMatches}</small></span>
+            <span className="tr-kpi-sub">{report.completionPct}% Selesai · {report.liveCount} Live · {report.scheduledCount} Antre</span>
+          </div>
+          <div className="tr-kpi-card">
+            <span className="tr-kpi-lbl">TOTAL SET &amp; RUBBER GAME</span>
+            <span className="tr-kpi-num mono">{report.totalSets} <small>Set</small></span>
+            <span className="tr-kpi-sub">{report.rubberSetCount} Partai Rubber Game (3 Set)</span>
+          </div>
+          <div className="tr-kpi-card">
+            <span className="tr-kpi-lbl">TOTAL RELI &amp; POIN TERCIPTA</span>
+            <span className="tr-kpi-num mono" style={{ color: 'var(--cyan)' }}>{report.totalRallies.toLocaleString('id-ID')} <small>Reli</small></span>
+            <span className="tr-kpi-sub">Total {report.totalPoints.toLocaleString('id-ID')} angka dicetak</span>
+          </div>
+          <div className="tr-kpi-card">
+            <span className="tr-kpi-lbl">TOTAL DURASI BERMAIN</span>
+            <span className="tr-kpi-num mono">{formatDuration(report.totalDurationSec) || '00:00'}</span>
+            <span className="tr-kpi-sub">Rata-rata: {report.avgDurationSec ? `${formatDuration(report.avgDurationSec)} / laga` : '-'}</span>
+          </div>
+          <div className="tr-kpi-card">
+            <span className="tr-kpi-lbl">PENGGUNAAN SHUTTLECOCK</span>
+            <span className="tr-kpi-num mono" style={{ color: 'var(--gold)' }}>🏸 {report.totalCock} <small>Cock</small></span>
+            <span className="tr-kpi-sub">Rata-rata {report.avgCockPerMatch} cock / pertandingan</span>
+          </div>
+          <div className="tr-kpi-card">
+            <span className="tr-kpi-lbl">DISIPLIN &amp; FAIR PLAY (BWF)</span>
+            <span className="tr-kpi-num mono" style={{ color: report.allCards.length > 0 ? '#f87171' : '#4ade80' }}>
+              {report.allCards.length} <small>Kartu</small>
+            </span>
+            <span className="tr-kpi-sub">
+              🟨 {report.allCards.filter((c) => c.type === 'yellow').length} Kuning · 🟥 {report.allCards.filter((c) => c.type === 'red').length} Merah · ⬛ {report.allCards.filter((c) => c.type === 'black').length} Hitam
+            </span>
+          </div>
+        </div>
+
+        {/* Highlight Records Row (Fastest, Longest, Most Shuttlecocks) */}
+        {(report.longestMatch || report.fastestMatch || report.highestCockMatch) && (
+          <div className="tr-records-bar">
+            {report.longestMatch && (
+              <div className="tr-record-pill">
+                <span>⏳ <b>Partai Terlama (Marathon):</b></span>
+                <span>
+                  {report.longestMatch.match.match_number} ({teamLabel(report.longestMatch.match, 'a')} vs {teamLabel(report.longestMatch.match, 'b')}) — <b style={{ color: 'var(--cyan)' }}>{formatDuration(report.longestMatch.durSec)}</b>
+                </span>
+              </div>
+            )}
+            {report.fastestMatch && (
+              <div className="tr-record-pill">
+                <span>⚡ <b>Partai Tercepat:</b></span>
+                <span>
+                  {report.fastestMatch.match.match_number} ({teamLabel(report.fastestMatch.match, 'a')} vs {teamLabel(report.fastestMatch.match, 'b')}) — <b style={{ color: '#4ade80' }}>{formatDuration(report.fastestMatch.durSec)}</b>
+                </span>
+              </div>
+            )}
+            {report.highestCockMatch && (
+              <div className="tr-record-pill">
+                <span>🏸 <b>Konsumsi Cock Tertinggi:</b></span>
+                <span>
+                  {report.highestCockMatch.match_number} ({teamLabel(report.highestCockMatch, 'a')} vs {teamLabel(report.highestCockMatch, 'b')}) — <b style={{ color: 'var(--gold)' }}>{report.highestCockMatch.live_state?.shuttlecock_count || 0} Cock</b>
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 2. CATEGORY & DISCIPLINE SUMMARY + PODIUM / FINAL WINNERS */}
+        {(reportTab === 'all' || reportTab === 'champions') && (
+          <section className="tr-section">
+            <h3 className="tr-sec-title">🏆 1. Rangkuman Kategori, Disiplin &amp; Pemenang Partai Puncak</h3>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Kategori</th>
+                    <th>Disiplin</th>
+                    <th style={{ textAlign: 'center' }}>Progres Match</th>
+                    <th>🏆 Pemenang Partai Terakhir / Juara</th>
+                    <th>🥈 Lawan / Runner-Up</th>
+                    <th style={{ textAlign: 'center' }}>Total Reli</th>
+                    <th style={{ textAlign: 'center' }}>Total Cock</th>
+                    <th style={{ textAlign: 'center' }}>Total Durasi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.categories.map((cat) => (
+                    <tr key={cat.key}>
+                      <td><b>{cat.category_name}</b></td>
+                      <td>
+                        <span className="badge blue">{cat.discipline}</span>{' '}
+                        <span className="small muted">{cat.discipline_label}</span>
+                      </td>
+                      <td className="mono" style={{ textAlign: 'center' }}>
+                        {cat.finished}/{cat.total} ({cat.total > 0 ? Math.round((cat.finished / cat.total) * 100) : 0}%)
+                      </td>
+                      <td>
+                        {cat.champion ? (
+                          <div>
+                            <b style={{ color: 'var(--gold)' }}>🏆 {cat.champion.name}</b>{' '}
+                            <span className="small muted">({cat.champion.club})</span>
+                            <div className="small muted mono">
+                              {cat.champion.match_number}: {cat.champion.score}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="muted small">Belum selesai</span>
+                        )}
+                      </td>
+                      <td>
+                        {cat.runnerUp ? (
+                          <div>
+                            <b>{cat.runnerUp.name}</b>{' '}
+                            <span className="small muted">({cat.runnerUp.club})</span>
+                          </div>
+                        ) : (
+                          <span className="muted small">-</span>
+                        )}
+                      </td>
+                      <td className="mono" style={{ textAlign: 'center' }}>{cat.rallies}</td>
+                      <td className="mono" style={{ textAlign: 'center' }}>🏸 {cat.cock}</td>
+                      <td className="mono" style={{ textAlign: 'center' }}>{formatDuration(cat.durationSec) || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* 3. CLUB / PB LEADERBOARD STANDINGS */}
+        {(reportTab === 'all' || reportTab === 'clubs') && report.clubs.length > 0 && (
+          <section className="tr-section">
+            <h3 className="tr-sec-title">🏛️ 2. Klasemen Perolehan Kemenangan Klub / PB Peserta ({report.clubs.length} Klub)</h3>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th style={{ width: 55, textAlign: 'center' }}>Rank</th>
+                    <th>Nama Klub / PB</th>
+                    <th style={{ textAlign: 'center' }}>Main</th>
+                    <th style={{ textAlign: 'center' }}>Menang (W)</th>
+                    <th style={{ textAlign: 'center' }}>Kalah (L)</th>
+                    <th style={{ textAlign: 'center' }}>Win Rate</th>
+                    <th style={{ textAlign: 'center' }}>Set (W - L)</th>
+                    <th style={{ textAlign: 'center' }}>Poin (W - L)</th>
+                    <th style={{ textAlign: 'center' }}>Selisih Poin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.clubs.map((cl, idx) => {
+                    const winRate = cl.matchesPlayed > 0 ? Math.round((cl.wins / cl.matchesPlayed) * 100) : 0;
+                    const diffPts = cl.pointsWon - cl.pointsLost;
+                    return (
+                      <tr key={cl.club}>
+                        <td className="mono" style={{ textAlign: 'center', fontWeight: 900, color: idx === 0 ? 'var(--gold)' : idx === 1 ? '#cbd5e1' : idx === 2 ? '#fdba74' : 'var(--muted)' }}>
+                          {idx === 0 ? '🥇 1' : idx === 1 ? '🥈 2' : idx === 2 ? '🥉 3' : idx + 1}
+                        </td>
+                        <td><b>{cl.club}</b></td>
+                        <td className="mono" style={{ textAlign: 'center' }}>{cl.matchesPlayed}</td>
+                        <td className="mono" style={{ textAlign: 'center', fontWeight: 800, color: '#4ade80' }}>{cl.wins}</td>
+                        <td className="mono" style={{ textAlign: 'center', color: '#f87171' }}>{cl.losses}</td>
+                        <td className="mono" style={{ textAlign: 'center' }}>
+                          <span className={`badge ${winRate >= 60 ? 'green' : winRate >= 40 ? 'gold' : ''}`}>{winRate}%</span>
+                        </td>
+                        <td className="mono" style={{ textAlign: 'center' }}>{cl.setsWon} - {cl.setsLost}</td>
+                        <td className="mono" style={{ textAlign: 'center' }}>{cl.pointsWon} - {cl.pointsLost}</td>
+                        <td className="mono" style={{ textAlign: 'center', color: diffPts >= 0 ? '#4ade80' : '#f87171' }}>
+                          {diffPts > 0 ? `+${diffPts}` : diffPts}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* 4. COURT UTILIZATION, REFEREE DUTY LOG & BWF DISCIPLINARY CARDS */}
+        {(reportTab === 'all' || reportTab === 'logistics') && (
+          <>
+            <div className="setup-grid" style={{ gap: '1rem' }}>
+              {/* Court Utilization */}
+              <section className="tr-section">
+                <h3 className="tr-sec-title">🏟️ 3. Utilisasi Lapangan &amp; Logistik Shuttlecock</h3>
+                <div className="tbl-wrap">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>Lapangan</th>
+                        <th style={{ textAlign: 'center' }}>Selesai / Total</th>
+                        <th style={{ textAlign: 'center' }}>Total Reli</th>
+                        <th style={{ textAlign: 'center' }}>Penggunaan Cock</th>
+                        <th style={{ textAlign: 'center' }}>Total Jam Bermain</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.courts.map((c) => (
+                        <tr key={c.court}>
+                          <td><b>Lapangan {c.court}</b></td>
+                          <td className="mono" style={{ textAlign: 'center' }}>{c.finished} / {c.total}</td>
+                          <td className="mono" style={{ textAlign: 'center' }}>{c.rallies}</td>
+                          <td className="mono" style={{ textAlign: 'center', color: 'var(--gold)' }}>🏸 {c.cock}</td>
+                          <td className="mono" style={{ textAlign: 'center' }}>{formatDuration(c.durationSec) || '00:00'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              {/* Referee Performance & Duty Log */}
+              <section className="tr-section">
+                <h3 className="tr-sec-title">⚖️ 4. Rekapitulasi Tugas Wasit (Umpire Duty Log)</h3>
+                {report.referees.length > 0 ? (
+                  <div className="tbl-wrap">
+                    <table className="tbl">
+                      <thead>
+                        <tr>
+                          <th>Nama Wasit</th>
+                          <th style={{ textAlign: 'center' }}>Partai Dipimpin</th>
+                          <th style={{ textAlign: 'center' }}>Total Durasi</th>
+                          <th style={{ textAlign: 'center' }}>Cock Dikelola</th>
+                          <th style={{ textAlign: 'center' }}>Kartu Dikeluarkan</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {report.referees.map((rf) => (
+                          <tr key={rf.name}>
+                            <td><b>👤 {rf.name}</b></td>
+                            <td className="mono" style={{ textAlign: 'center' }}>{rf.finished} selesai ({rf.matches} total)</td>
+                            <td className="mono" style={{ textAlign: 'center' }}>{formatDuration(rf.durationSec) || '00:00'}</td>
+                            <td className="mono" style={{ textAlign: 'center' }}>🏸 {rf.cock}</td>
+                            <td className="mono" style={{ textAlign: 'center' }}>
+                              {rf.yellowCards + rf.redCards + rf.blackCards > 0 ? (
+                                <span>
+                                  {rf.yellowCards > 0 && `🟨${rf.yellowCards} `}
+                                  {rf.redCards > 0 && `🟥${rf.redCards} `}
+                                  {rf.blackCards > 0 && `⬛${rf.blackCards}`}
+                                </span>
+                              ) : (
+                                <span className="muted">0</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="muted small" style={{ padding: '1rem' }}>Belum ada data wasit yang tercatat.</div>
+                )}
+              </section>
+            </div>
+
+            {/* BWF / PBSI Disciplinary Cards Table */}
+            <section className="tr-section">
+              <h3 className="tr-sec-title">🟨🟥 5. Laporan Disiplin &amp; Kartu Pelanggaran (BWF Law 16 / PBSI)</h3>
+              {report.allCards.length > 0 ? (
+                <div className="tbl-wrap">
+                  <table className="tbl">
+                    <thead>
+                      <tr>
+                        <th>No. Match</th>
+                        <th>Kategori</th>
+                        <th>Kartu</th>
+                        <th>Pemain / Tim</th>
+                        <th>Club / PB</th>
+                        <th>Set &amp; Skor</th>
+                        <th>Alasan Pelanggaran</th>
+                        <th>Wasit</th>
+                        <th>Waktu</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.allCards.map((c, idx) => (
+                        <tr key={`${c.match_number}-c-${idx}`}>
+                          <td className="mono"><b>{c.match_number}</b></td>
+                          <td className="small">{c.category_name} ({c.discipline})</td>
+                          <td>
+                            <span className={`badge ${c.type === 'yellow' ? 'gold' : 'red'}`}>
+                              {c.type === 'yellow' ? '🟨 KUNING' : c.type === 'red' ? '🟥 MERAH' : '⬛ HITAM (DSQ)'}
+                            </span>
+                          </td>
+                          <td><b>{c.player_name}</b> (Tim {(c.team || '').toUpperCase()})</td>
+                          <td className="small">{c.club || '-'}</td>
+                          <td className="mono small">Set {c.set} ({c.score_after?.a}-{c.score_after?.b})</td>
+                          <td className="small">{c.reason}</td>
+                          <td className="small">{c.referee_name}</td>
+                          <td className="mono small">{c.timestamp || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="notice ok small">
+                  ✅ <b>Zero Incident / Fair Play:</b> Tidak ada Kartu Kuning, Kartu Merah, maupun Diskualifikasi yang dikeluarkan sepanjang turnamen ini.
+                </div>
+              )}
+            </section>
+          </>
+        )}
+
+        {/* 5. COMPLETE MATCH-BY-MATCH REGISTER (CLICKABLE FOR FULL RALLY HISTORY) */}
+        {(reportTab === 'all' || reportTab === 'matches') && (
+          <section className="tr-section">
+            <div className="row" style={{ justifyContent: 'space-between', marginBottom: '.4rem' }}>
+              <h3 className="tr-sec-title" style={{ margin: 0 }}>
+                📋 6. Register Lengkap Seluruh Pertandingan ({matches.length} Partai)
+              </h3>
+              <span className="small muted tr-no-print">
+                💡 Klik baris pertandingan yang sudah selesai untuk membuka popup Detail &amp; Histori Reli Lengkap.
+              </span>
+            </div>
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Match</th>
+                    <th>Kategori</th>
+                    <th>Jadwal &amp; Lap.</th>
+                    <th>Tim A</th>
+                    <th>Tim B</th>
+                    <th>Pemenang</th>
+                    <th style={{ textAlign: 'center' }}>Skor Set</th>
+                    <th style={{ textAlign: 'center' }}>Reli</th>
+                    <th style={{ textAlign: 'center' }}>Durasi</th>
+                    <th style={{ textAlign: 'center' }}>Cock</th>
+                    <th style={{ textAlign: 'center' }}>Kartu</th>
+                    <th>Wasit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {matches.map((m) => {
+                    const sm = m.session_management || {};
+                    const st = m.live_state || {};
+                    const isFin = sm.status === 'finished' || st.phase === 'finished';
+                    const w = isFin ? st.winner : null;
+                    const dur = matchDurationText(m, now);
+                    const mCards = Array.isArray(st.cards) ? st.cards : [];
+                    const scoreStr = st.set_history?.length
+                      ? st.set_history.map((s) => `${s.a}-${s.b}`).join(', ')
+                      : sm.status === 'scheduled'
+                      ? '-'
+                      : `${st.score?.a || 0}-${st.score?.b || 0}`;
+                    return (
+                      <tr
+                        key={m.match_number}
+                        style={{ cursor: isFin ? 'pointer' : 'default' }}
+                        onClick={() => {
+                          if (isFin && onSelectMatch) {
+                            onSelectMatch(m);
+                          }
+                        }}
+                        title={isFin ? 'Klik untuk melihat Detail Lengkap & Histori Reli pertandingan ini' : ''}
+                      >
+                        <td className="mono"><b>{m.match_number}</b></td>
+                        <td className="small">{m.category_name} ({m.discipline})</td>
+                        <td className="small">
+                          Lap. {m.court_number} · {[m.scheduled_date, m.scheduled_time].filter(Boolean).join(' ')}
+                        </td>
+                        <td className="small" style={{ fontWeight: w === 'a' ? 800 : 400, color: w === 'a' ? '#fde047' : undefined }}>
+                          {w === 'a' ? '🏆 ' : ''}{teamLabel(m, 'a')} <span className="muted">({m.teams?.team_a?.club || '-'})</span>
+                        </td>
+                        <td className="small" style={{ fontWeight: w === 'b' ? 800 : 400, color: w === 'b' ? '#fde047' : undefined }}>
+                          {w === 'b' ? '🏆 ' : ''}{teamLabel(m, 'b')} <span className="muted">({m.teams?.team_b?.club || '-'})</span>
+                        </td>
+                        <td className="small">
+                          {isFin && w ? (
+                            <span className="badge green">Tim {w.toUpperCase()} ({teamLabel(m, w)})</span>
+                          ) : (
+                            <StatusBadge match={m} />
+                          )}
+                        </td>
+                        <td className="mono small" style={{ textAlign: 'center', fontWeight: 700 }}>{scoreStr}</td>
+                        <td className="mono small" style={{ textAlign: 'center' }}>{st.rally_history?.length || 0}</td>
+                        <td className="mono small" style={{ textAlign: 'center' }}>{dur || '-'}</td>
+                        <td className="mono small" style={{ textAlign: 'center' }}>{st.shuttlecock_count ?? 0}</td>
+                        <td className="small" style={{ textAlign: 'center' }}>
+                          {mCards.length > 0
+                            ? mCards.map((c) => (c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛')).join('')
+                            : '-'}
+                        </td>
+                        <td className="small">{sm.controller_label || '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TournamentProfileBar({ token, activeProfile, profiles = [], onSwitched, onOpenCloseModal, onOpenReport, notify }) {
   const [expanded, setExpanded] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -2300,8 +3592,27 @@ function TournamentProfileBar({ token, activeProfile, profiles = [], onSwitched,
     }
   };
 
+  const isClosed = activeProfile?.status === 'closed';
+
+  const handleReopenTournament = async () => {
+    if (!activeProfile?.id) return;
+    if (!window.confirm(`Buka kembali status turnamen "${activeProfile.name}" menjadi AKTIF BERLANGSUNG?`)) return;
+    setBusy(true);
+    const r = await api(`/api/admin/profiles/${encodeURIComponent(activeProfile.id)}/reopen`, {
+      method: 'POST',
+      pin: token,
+    });
+    setBusy(false);
+    if (r.ok) {
+      onSwitched?.(r);
+      notify({ type: 'ok', text: `🔓 Status turnamen "${activeProfile.name}" kembali AKTIF.` });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal membuka kembali status turnamen' });
+    }
+  };
+
   return (
-    <div className="card col" style={{ borderColor: 'rgba(250, 204, 21, 0.45)', background: 'linear-gradient(180deg, #132247 0%, #0b152c 100%)' }}>
+    <div className="card col" style={{ borderColor: isClosed ? 'rgba(34, 197, 94, 0.55)' : 'rgba(250, 204, 21, 0.45)', background: 'linear-gradient(180deg, #132247 0%, #0b152c 100%)' }}>
       <div className="row">
         <div className="row" style={{ gap: '.55rem' }}>
           <span className="badge gold" style={{ fontSize: '.82rem', padding: '.28rem .7rem' }}>
@@ -2310,6 +3621,9 @@ function TournamentProfileBar({ token, activeProfile, profiles = [], onSwitched,
           <strong style={{ fontSize: '1.15rem', color: '#fff' }}>
             {activeProfile?.name || 'Turnamen Utama'}
           </strong>
+          <span className={`badge ${isClosed ? 'gold' : 'green'}`}>
+            {isClosed ? '🏁 STATUS: SELESAI (CLOSED)' : '🟢 STATUS: AKTIF BERLANGSUNG'}
+          </span>
           {activeProfile?.description && (
             <span className="small muted">({activeProfile.description})</span>
           )}
@@ -2317,12 +3631,41 @@ function TournamentProfileBar({ token, activeProfile, profiles = [], onSwitched,
 
         <div className="spacer" />
 
-        {/* Quick Switcher Dropdown */}
+        {/* Tournament Report & Closing Actions + Quick Switcher Dropdown */}
         <div className="row" style={{ gap: '.45rem' }}>
-          <span className="small muted" style={{ fontWeight: 700 }}>Pindah Profil (Auto-Save):</span>
+          <button
+            type="button"
+            className="btn btn-sm btn-blue"
+            onClick={() => onOpenReport?.()}
+            title="Lihat Laporan Pelaksanaan Turnamen Lengkap (Executive Summary, Juara Kategori, Klasemen Klub, Durasi, Cock, Wasit & Kartu)"
+          >
+            📑 Laporan Turnamen
+          </button>
+          {isClosed ? (
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={busy}
+              onClick={handleReopenTournament}
+              title="Buka kembali status turnamen menjadi Aktif Berlangsung"
+            >
+              🔓 Buka Kembali Turnamen
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-sm btn-green"
+              disabled={busy}
+              onClick={() => onOpenCloseModal?.()}
+              title="Selesaikan & Tutup Turnamen (Closing Turnamen) serta buat Laporan Pelaksanaan Resmi"
+            >
+              🏁 Closing Turnamen
+            </button>
+          )}
+          <span className="small muted" style={{ fontWeight: 700, marginLeft: '.25rem' }}>Pindah Profil:</span>
           <select
             className="input"
-            style={{ width: 250, padding: '.4rem .7rem', fontWeight: 700, borderColor: 'var(--gold)' }}
+            style={{ width: 235, padding: '.4rem .7rem', fontWeight: 700, borderColor: 'var(--gold)' }}
             value={activeProfile?.id || ''}
             disabled={busy}
             onChange={(e) => handleSwitch(e.target.value)}
@@ -2330,7 +3673,7 @@ function TournamentProfileBar({ token, activeProfile, profiles = [], onSwitched,
             {profiles.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.active ? '● ' : '○ '}
-                {p.name} ({p.stats?.finished || 0}/{p.stats?.total || 0} selesai)
+                {p.name} {p.status === 'closed' ? '[CLOSED]' : ''} ({p.stats?.finished || 0}/{p.stats?.total || 0} selesai)
               </option>
             ))}
           </select>
@@ -2339,7 +3682,7 @@ function TournamentProfileBar({ token, activeProfile, profiles = [], onSwitched,
             className={`btn btn-sm ${expanded ? 'btn-primary' : 'btn-yellow'}`}
             onClick={() => setExpanded((v) => !v)}
           >
-            {expanded ? '▲ Tutup Kelola Profil' : `📂 Kelola / Buat Profil Turnamen (${profiles.length})`}
+            {expanded ? '▲ Tutup Kelola Profil' : `📂 Kelola Profil (${profiles.length})`}
           </button>
         </div>
       </div>
@@ -2501,7 +3844,7 @@ function TournamentProfileBar({ token, activeProfile, profiles = [], onSwitched,
  *  - 'discipline': Per-Disiplin (MS, WS, MD, WD, XD)
  *  - 'status': Per-Status Pertandingan (Live, Setup, Terjadwal, Selesai)
  */
-function GroupedMatchBoard({ matches, now, onEdit, onLogs, prefs, setPrefs }) {
+function GroupedMatchBoard({ matches, now, onEdit, onViewDetail, onLogs, prefs, setPrefs }) {
   const { groupBy, statusFilter, cols, q } = prefs;
   const setGroupBy = (val) => setPrefs((p) => ({ ...p, groupBy: val }));
   const setStatusFilter = (val) => setPrefs((p) => ({ ...p, statusFilter: val }));
@@ -2781,8 +4124,8 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs, prefs, setPrefs }) {
                         key={m.match_number}
                         className={`gb-row ${isLive ? 'row-live' : isSetup ? 'row-setup' : isFinished ? 'row-finished' : 'row-scheduled'}`}
                         style={{ gridTemplateColumns: gridColumns }}
-                        onClick={() => onEdit?.(m)}
-                        title="Klik untuk mengedit / melihat detail pertandingan ini"
+                        onClick={() => (isFinished && onViewDetail ? onViewDetail(m) : onEdit?.(m))}
+                        title={isFinished ? 'Klik untuk membuka Detail Lengkap & Histori Reli pertandingan ini' : 'Klik untuk mengedit / melihat detail pertandingan ini'}
                       >
                         {/* Col 1: Match Number & Lock/Override Indicator */}
                         <div className="gb-col-no">
@@ -2793,6 +4136,11 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs, prefs, setPrefs }) {
                               title={`Manual edit oleh ${m.admin_override?.edited_by || 'admin'}. Terkunci dari auto-sync Sheet.`}
                             >
                               🔒 EDIT
+                            </span>
+                          )}
+                          {Array.isArray(st.cards) && st.cards.length > 0 && (
+                            <span className="gb-override-tag" style={{ background: 'rgba(239,68,68,0.2)', color: '#fca5a5' }}>
+                              {st.cards.map((c) => (c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛')).join('')}
                             </span>
                           )}
                         </div>
@@ -2867,8 +4215,18 @@ function GroupedMatchBoard({ matches, now, onEdit, onLogs, prefs, setPrefs }) {
                           </div>
                         )}
 
-                        {/* Col 9: Aksi Cepat Edit & Log */}
+                        {/* Col 9: Aksi Cepat Detail / Edit & Log */}
                         <div className="gb-col-actions" onClick={(e) => e.stopPropagation()}>
+                          {isFinished && (
+                            <button
+                              type="button"
+                              className="gb-action-btn"
+                              onClick={() => onViewDetail?.(m)}
+                              title="Lihat Detail Lengkap & Histori Reli Pertandingan"
+                            >
+                              📊
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="gb-action-btn"
@@ -2925,6 +4283,9 @@ export default function AdminPage() {
   const [courtCount, setCourtCount] = useState(15);
   const [logsFor, setLogsFor] = useState(null);
   const [editMatch, setEditMatch] = useState(null);
+  const [detailMatch, setDetailMatch] = useState(null);
+  const [showCloseTournamentModal, setShowCloseTournamentModal] = useState(false);
+  const [showTournamentReportModal, setShowTournamentReportModal] = useState(false);
   const [notice, setNotice] = useState(null);
   const now = useNow(1000);
 
@@ -3125,6 +4486,8 @@ export default function AdminPage() {
         activeProfile={activeProfile}
         profiles={profiles}
         onSwitched={applyProfileResponse}
+        onOpenCloseModal={() => setShowCloseTournamentModal(true)}
+        onOpenReport={() => setShowTournamentReportModal(true)}
         notify={notify}
       />
 
@@ -3143,6 +4506,7 @@ export default function AdminPage() {
           matches={matches}
           now={now}
           onEdit={setEditMatch}
+          onViewDetail={setDetailMatch}
           onLogs={setLogsFor}
           prefs={boardPrefs}
           setPrefs={setBoardPrefs}
@@ -3180,6 +4544,7 @@ export default function AdminPage() {
             courtCount={courtCount}
             now={now}
             onEdit={setEditMatch}
+            onViewDetail={setDetailMatch}
             onLogs={setLogsFor}
             notify={notify}
             prefs={tablePrefs}
@@ -3188,6 +4553,36 @@ export default function AdminPage() {
         </>
       )}
 
+      {detailMatch && (
+        <FinishedMatchDetailModal
+          match={matches.find((x) => x.match_number === detailMatch.match_number) || detailMatch}
+          now={now}
+          onClose={() => setDetailMatch(null)}
+          onEdit={setEditMatch}
+          onLogs={setLogsFor}
+        />
+      )}
+      {showCloseTournamentModal && (
+        <CloseTournamentModal
+          profile={activeProfile}
+          matches={matches}
+          token={token}
+          onClose={() => setShowCloseTournamentModal(false)}
+          onSaved={applyProfileResponse}
+          onOpenReport={() => setShowTournamentReportModal(true)}
+          notify={notify}
+        />
+      )}
+      {showTournamentReportModal && (
+        <TournamentReportModal
+          profile={activeProfile}
+          matches={matches}
+          now={now}
+          onClose={() => setShowTournamentReportModal(false)}
+          onSelectMatch={(m) => setDetailMatch(m)}
+          onOpenCloseModal={() => setShowCloseTournamentModal(true)}
+        />
+      )}
       {editMatch && (
         <EditMatchModal
           match={matches.find((x) => x.match_number === editMatch.match_number) || editMatch}

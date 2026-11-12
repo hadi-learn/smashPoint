@@ -162,6 +162,11 @@ function BroadcastScorebug({ match, now, compact = false, showHistory = null }) 
                       </>
                     )}
                     {seed && <span className="bwf-seed-badge">{seed}</span>}
+                    {Array.isArray(st.cards) && st.cards.filter((c) => c.team === t).map((c) => (
+                      <span key={c.card_id} className={`tv-card-badge ${c.type}`} title={`${c.player_name}: ${c.reason}`}>
+                        {c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛'}
+                      </span>
+                    ))}
                   </div>
                   {(tm.club || seed) && (
                     <div className="bwf-club-sub">
@@ -698,10 +703,15 @@ function ArenaBwfRowsBoard({ match, topTeam, bottomTeam }) {
 
             {/* Team Identity & Players */}
             <div className="arena-bwf-identity">
-              {(seed || tm.club || teamAlert) && (
+              {(seed || tm.club || teamAlert || (Array.isArray(st.cards) && st.cards.some((c) => c.team === t))) && (
                 <div className="arena-bwf-meta-line">
                   {seed && <span className="arena-seed-badge">{seed}</span>}
                   {tm.club && <span className="arena-club-badge">{tm.club}</span>}
+                  {Array.isArray(st.cards) && st.cards.filter((c) => c.team === t).map((c) => (
+                    <span key={c.card_id} className={`tv-card-badge ${c.type}`} title={`${c.player_name}: ${c.reason}`}>
+                      {c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛'}
+                    </span>
+                  ))}
                   {teamAlert && (
                     <span className={`arena-bwf-point-pill ${teamAlert.tone}`}>
                       {teamAlert.type}
@@ -803,10 +813,15 @@ function ArenaBroadcastProBoard({ match, leftTeam, rightTeam }) {
 
     return (
       <div className={`arena-pro-wing ${screen} team-${t} ${serving ? `serving-panel ${serveClass}` : ''}`}>
-        {(seed || tm.club) && (
+        {(seed || tm.club || (Array.isArray(st.cards) && st.cards.some((c) => c.team === t))) && (
           <div className="arena-pro-wing-top">
             {seed && <span className="arena-seed-badge">{seed}</span>}
             {tm.club && <span className="arena-club-badge">{tm.club}</span>}
+            {Array.isArray(st.cards) && st.cards.filter((c) => c.team === t).map((c) => (
+              <span key={c.card_id} className={`tv-card-badge ${c.type}`} title={`${c.player_name}: ${c.reason}`}>
+                {c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛'}
+              </span>
+            ))}
           </div>
         )}
 
@@ -923,10 +938,15 @@ function ArenaTeamCard({ match, t, screen }) {
   return (
     <div className={`arena-half ${screen} team-${t} ${serving ? `serving-panel ${serveClass}` : ''}`}>
       {/* Top Club + Seeded Header */}
-      {(tm.club || seed) && (
+      {(tm.club || seed || (Array.isArray(st.cards) && st.cards.some((c) => c.team === t))) && (
         <div className="arena-half-top">
           {seed && <span className="arena-seed-badge">{seed}</span>}
           {tm.club && <span className="arena-club-badge">{tm.club}</span>}
+          {Array.isArray(st.cards) && st.cards.filter((c) => c.team === t).map((c) => (
+            <span key={c.card_id} className={`tv-card-badge ${c.type}`} title={`${c.player_name}: ${c.reason}`}>
+              {c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛'}
+            </span>
+          ))}
         </div>
       )}
 

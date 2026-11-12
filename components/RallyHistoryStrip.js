@@ -29,6 +29,9 @@ export default function RallyHistoryStrip({
   match,
   limit = 10,
   autoFit = false,
+  multiRow = false,
+  perRow = 20,
+  groupBySet = false,
   topSide = 'a',
   bottomSide = 'b',
   compact = false,
@@ -43,7 +46,7 @@ export default function RallyHistoryStrip({
   const hasRallies = Boolean(match?.live_state?.rally_history?.length);
 
   useEffect(() => {
-    if (!autoFit || !hasRallies) {
+    if (!autoFit || multiRow || !hasRallies) {
       setMeasuredLimit(null);
       return undefined;
     }
@@ -90,13 +93,16 @@ export default function RallyHistoryStrip({
     }
     window.addEventListener('resize', computeFit);
     return () => window.removeEventListener('resize', computeFit);
-  }, [autoFit, hasRallies, compact, showTeamNames]);
+  }, [autoFit, multiRow, hasRallies, compact, showTeamNames]);
 
-  const effectiveLimit = autoFit && measuredLimit ? measuredLimit : limit;
+  const effectiveLimit = multiRow ? 99999 : autoFit && measuredLimit ? measuredLimit : limit;
 
   const rallies = useMemo(() => {
+    if (multiRow) {
+      return match?.live_state?.rally_history || [];
+    }
     return getRecentRallies(match, effectiveLimit, false);
-  }, [match?.live_state?.rally_history, effectiveLimit]);
+  }, [match?.live_state?.rally_history, effectiveLimit, multiRow]);
 
   if (!rallies || rallies.length === 0) {
     return null; // Do not render if no rallies yet
@@ -104,7 +110,7 @@ export default function RallyHistoryStrip({
 
   const topName = teamLabel(match, topSide);
   const bottomName = teamLabel(match, bottomSide);
-  const dynamicTitle = title || `${rallies.length} RALLY TERAKHIR`;
+  const dynamicTitle = title || (multiRow ? `HISTORI RELI LENGKAP (${rallies.length} RELI)` : `${rallies.length} RALLY TERAKHIR`);
   const isSideOutMode = match?.rules?.scoring_method === 'side_out';
 
   const renderCell = (r, team, isTopRow) => {
@@ -115,10 +121,14 @@ export default function RallyHistoryStrip({
     const scoreVal = r.score ? r.score[team] : '-';
     const isSecondServe = r.second_serve || (isServer && r.server_turn === 2);
     const isSideOut = r.side_out;
+    const isPenaltyRed = r.penalty_card === 'red';
+    const isOffender = isPenaltyRed && r.offender_team === team;
 
     // Determine visual style tone
     let tone = 'loser-receiver'; // Default neutral/grayed out
-    if (isWinner && isServer) {
+    if (isOffender) {
+      tone = 'penalty-offender';
+    } else if (isWinner && isServer) {
       tone = 'winner-server'; // High-contrast gold / yellow
     } else if (isWinner && !isServer) {
       tone = 'winner-receiver'; // High-contrast green (break / side-out + point)
@@ -126,9 +136,15 @@ export default function RallyHistoryStrip({
       tone = 'loser-server'; // Server that lost the rally
     }
 
-    // Pure symbols for serves: ONLY shown in side_out mode (never in rally_point mode)
+    // Pure symbols for serves: ONLY shown in side_out mode (never in rally_point mode), OR penalty card indicator
     let symbol = null;
-    if (isSideOutMode) {
+    if (isOffender) {
+      symbol = (
+        <span className="rhs-dot-sym penalty-red" title={`Kartu Merah (${r.offender_name || ''}): ${r.reason || ''}`}>
+          🟥
+        </span>
+      );
+    } else if (isSideOutMode) {
       if (isServer) {
         if (isSecondServe) {
           symbol = (
@@ -152,13 +168,15 @@ export default function RallyHistoryStrip({
       }
     }
 
+    const showSymbolSlot = isSideOutMode || isPenaltyRed;
+
     return (
       <div
-        className={`rhs-cell ${tone} ${compact ? 'compact' : ''} ${isSideOutMode ? 'with-symbols' : 'no-symbols'} ${isWinner ? 'is-winner' : 'is-loser'}`}
-        title={`Reli #${r.rally_number} (Set ${r.set}): ${team.toUpperCase()} Skor ${scoreVal}${isSideOutMode ? (isServer ? (isSecondServe ? ' · Servis ke-2' : ' · Servis ke-1') : isWinner ? ' · Pindah Servis' : '') : ''}`}
+        className={`rhs-cell ${tone} ${compact ? 'compact' : ''} ${showSymbolSlot ? 'with-symbols' : 'no-symbols'} ${isWinner ? 'is-winner' : 'is-loser'}`}
+        title={`Reli #${r.rally_number} (Set ${r.set}): ${team.toUpperCase()} Skor ${scoreVal}${isOffender ? ` · 🟥 Kartu Merah (${r.offender_name}): ${r.reason}` : isSideOutMode ? (isServer ? (isSecondServe ? ' · Servis ke-2' : ' · Servis ke-1') : isWinner ? ' · Pindah Servis' : '') : ''}`}
       >
         <span className="rhs-score">{scoreVal}</span>
-        {isSideOutMode && (
+        {showSymbolSlot && (
           <div className="rhs-symbol-slot">
             {symbol || <span className="rhs-symbol-spacer" />}
           </div>
@@ -166,6 +184,99 @@ export default function RallyHistoryStrip({
       </div>
     );
   };
+
+  if (multiRow) {
+    const chunkSize = Math.max(8, Number(perRow) || 20);
+    // Group by set if groupBySet is enabled (or if multiple sets exist)
+    const setMap = new Map();
+    for (const r of rallies) {
+      const sNo = groupBySet ? (r.set || 1) : 1;
+      if (!setMap.has(sNo)) setMap.set(sNo, []);
+      setMap.get(sNo).push(r);
+    }
+    const setGroups = Array.from(setMap.entries()).map(([setNo, list]) => {
+      const rows = [];
+      for (let i = 0; i < list.length; i += chunkSize) {
+        rows.push({
+          startIdx: i + 1,
+          endIdx: Math.min(i + chunkSize, list.length),
+          items: list.slice(i, i + chunkSize),
+        });
+      }
+      const setMeta = match?.live_state?.set_history?.find((sh) => sh.set === setNo);
+      return { setNo, totalInSet: list.length, rows, setMeta };
+    });
+
+    return (
+      <div ref={wrapRef} className={`rhs-wrap multi-row ${compact ? 'compact' : ''} ${className}`}>
+        {showLabel && (
+          <div className="rhs-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+            <span className="rhs-title">📊 {dynamicTitle}</span>
+            <div className="row small muted" style={{ gap: '.65rem', fontSize: '.74rem' }}>
+              <span><b style={{ color: '#fde047' }}>■ Kuning</b>: Servis &amp; Poin</span>
+              <span><b style={{ color: '#4ade80' }}>■ Hijau</b>: Pindah Servis / Break Poin</span>
+              {isSideOutMode && <span><b>● / ●●</b>: Servis 1 / 2 · <b>⇄</b>: Pindah Bola</span>}
+              <span><b>🟥</b>: Poin Penalti Kartu Merah</span>
+            </div>
+          </div>
+        )}
+        <div className="rhs-multirow-stack">
+          {setGroups.map((sg) => (
+            <div key={`set-group-${sg.setNo}`} className="rhs-set-block">
+              {(groupBySet || setGroups.length > 1) && (
+                <div className="rhs-set-banner">
+                  <span className="rhs-set-badge">SET {sg.setNo}</span>
+                  {sg.setMeta && (
+                    <span className="rhs-set-score">
+                      Skor Akhir Set {sg.setNo}: <b>{sg.setMeta.a} - {sg.setMeta.b}</b>
+                      {sg.setMeta.winner && (
+                        <span className="rhs-set-winner">
+                          {' '}· 🏆 {teamLabel(match, sg.setMeta.winner)}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                  <span className="rhs-set-count">{sg.totalInSet} Reli</span>
+                </div>
+              )}
+              <div className="rhs-rows-container">
+                {sg.rows.map((rowChunk, rIdx) => (
+                  <div key={`set-${sg.setNo}-row-${rIdx}`} className="rhs-row-line">
+                    <div className="rhs-row-meta">
+                      <span className="rhs-row-range">Reli #{rowChunk.items[0]?.rally_number}–#{rowChunk.items[rowChunk.items.length - 1]?.rally_number}</span>
+                    </div>
+                    <div className="rhs-body-layout">
+                      {showTeamNames && (
+                        <div className="rhs-team-labels">
+                          <div className={`rhs-team-tag top team-${topSide}`} title={topName}>
+                            <span className="rhs-team-dot" />
+                            <span className="rhs-team-txt">{topName}</span>
+                          </div>
+                          <div className={`rhs-team-tag bottom team-${bottomSide}`} title={bottomName}>
+                            <span className="rhs-team-dot" />
+                            <span className="rhs-team-txt">{bottomName}</span>
+                          </div>
+                        </div>
+                      )}
+                      <div className="rhs-cols-scroll" style={{ flexWrap: 'nowrap', overflowX: 'auto' }}>
+                        {rowChunk.items.map((r, idx) => (
+                          <div key={`rally-col-${r.rally_number || idx}`} className="rhs-vertical-col">
+                            <span className="rhs-rally-num">#{r.rally_number}</span>
+                            {renderCell(r, topSide, true)}
+                            {renderCell(r, bottomSide, false)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={wrapRef} className={`rhs-wrap ${compact ? 'compact' : ''} ${autoFit ? 'auto-fit' : ''} ${className}`}>

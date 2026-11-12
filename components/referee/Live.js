@@ -1,10 +1,241 @@
 'use client';
 import { useState } from 'react';
-import { breakCountdownInfo, courtPositions, detailsToInput, isDoubles, matchDurationText, other, playerName, teamLabel, teamSeedBadge } from '@/lib/engine';
+import { breakCountdownInfo, BWF_CARD_REASONS, BWF_CARD_TYPES, courtPositions, detailsToInput, isDoubles, matchDurationText, other, playerName, teamLabel, teamSeedBadge } from '@/lib/engine';
 import CourtMap from '../CourtMap';
 import { Shuttle } from '../Icons';
 
 const T = (t) => (t ? t.toUpperCase() : '');
+
+function PenaltyCardModal({ match, onClose, send, pending }) {
+  const st = match.live_state;
+  const dbl = isDoubles(match);
+  const canIssueRed = st.phase === 'live';
+  const [team, setTeam] = useState('a');
+  const [playerId, setPlayerId] = useState('a1');
+  const [cardType, setCardType] = useState('yellow');
+  const [reasonPreset, setReasonPreset] = useState(BWF_CARD_REASONS[0]);
+  const [customNote, setCustomNote] = useState('');
+  const [err, setErr] = useState(null);
+
+  const cards = Array.isArray(st.cards) ? st.cards : [];
+  const playerCards = cards.filter((c) => c.player_id === playerId || c.team === team);
+  const hasYellowAlready = playerCards.some((c) => c.type === 'yellow');
+
+  const selectTeam = (t) => {
+    setTeam(t);
+    setPlayerId(`${t}1`);
+  };
+
+  const handleIssue = async (e) => {
+    e.preventDefault();
+    setErr(null);
+    const fullReason = customNote.trim()
+      ? `${reasonPreset} — ${customNote.trim()}`
+      : reasonPreset;
+    if (cardType === 'black') {
+      const oppName = teamLabel(match, other(team));
+      if (!window.confirm(`KONFIRMASI KARTU HITAM (DISKUALIFIKASI BWF Law 16.7.2):\n\nDiskualifikasi ${playerName(match, playerId)} (Tim ${T(team)}) dan menangkan lawan (${oppName}) sekarang?`)) {
+        return;
+      }
+    }
+    const r = await send('ISSUE_CARD', {
+      card_type: cardType,
+      team,
+      player_id: playerId,
+      reason: fullReason,
+    });
+    if (r?.ok) onClose();
+    else if (r?.error) setErr(r.error);
+  };
+
+  const selectedMeta = BWF_CARD_TYPES[cardType] || BWF_CARD_TYPES.yellow;
+  const oppTeam = other(team);
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <form className="modal col" style={{ width: 'min(720px, 100%)' }} onClick={(e) => e.stopPropagation()} onSubmit={handleIssue}>
+        <div className="row">
+          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '.45rem' }}>
+            <span>🟨🟥</span> Kartu Pelanggaran Resmi BWF / PBSI
+          </h2>
+          <span className="badge gold">BWF Law 16</span>
+          <div className="spacer" />
+          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+
+        {/* Ringkasan Peraturan Resmi BWF & PBSI */}
+        <div className="col" style={{ background: '#0a1328', padding: '.7rem .85rem', borderRadius: 10, border: '1px solid var(--line)', gap: '.3rem' }}>
+          <div className="small" style={{ fontWeight: 800, color: 'var(--gold)' }}>
+            📖 Panduan Regulasi Resmi BWF (Clause 16.6 &amp; 16.7) &amp; PBSI:
+          </div>
+          <div className="small muted" style={{ lineHeight: 1.45 }}>
+            • <b>🟨 Kartu Kuning (Warning / Peringatan — Law 16.7.1.1):</b> Diberikan atas pelanggaran pertama (menunda permainan, merusak shuttlecock, membanting raket, coaching saat reli, perilaku tidak sportif). <b>Tidak mengubah skor maupun servis.</b>
+            <br />
+            • <b>🟥 Kartu Merah (Fault for Misconduct — Law 16.7.1.2):</b> Diberikan atas pelanggaran kedua setelah Kartu Kuning atau pelanggaran berat. <b>Dihitung sebagai FAULT (Pelanggaran Reli):</b> Lawan otomatis mendapat <b>+1 Poin &amp; Servis</b> (Rally Point) atau <b>Pindah Servis / +1 Poin</b> (Side-Out).
+            <br />
+            • <b>⬛ Kartu Hitam (Disqualification — Law 16.7.2):</b> Atas persetujuan Referee untuk pelanggaran sangat berat. Pemain didiskualifikasi &amp; lawan langsung dinyatakan menang.
+          </div>
+        </div>
+
+        {err && <div className="notice error">{err}</div>}
+
+        {/* Pilih Tim & Pemain */}
+        <div className="col" style={{ gap: '.45rem' }}>
+          <span className="small" style={{ fontWeight: 800 }}>1. Pilih Tim &amp; Pemain yang Melanggar:</span>
+          <div className="row" style={{ gap: '.5rem' }}>
+            {['a', 'b'].map((t) => {
+              const tCards = cards.filter((c) => c.team === t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  className={`btn ${team === t ? 'btn-primary' : ''}`}
+                  style={{ flex: 1, justifyContent: 'space-between', padding: '.65rem .85rem' }}
+                  onClick={() => selectTeam(t)}
+                >
+                  <span>
+                    <b>Tim {T(t)}:</b> {teamLabel(match, t)}
+                  </span>
+                  {tCards.length > 0 && (
+                    <span className="row" style={{ gap: 2 }}>
+                      {tCards.map((c) => (
+                        <span key={c.card_id} title={`${c.player_name}: ${c.reason}`}>
+                          {c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛'}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {dbl && (
+            <div className="row" style={{ gap: '.5rem' }}>
+              {[`${team}1`, `${team}2`].map((pid) => (
+                <button
+                  key={pid}
+                  type="button"
+                  className={`btn btn-sm ${playerId === pid ? 'btn-yellow' : ''}`}
+                  style={{ flex: 1 }}
+                  onClick={() => setPlayerId(pid)}
+                >
+                  👤 {playerName(match, pid)}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {hasYellowAlready && cardType === 'yellow' && (
+            <div className="notice warn small">
+              ⚠️ Tim/Pemain ini sudah menerima <b>🟨 Kartu Kuning</b> sebelumnya pada pertandingan ini. Sesuai <b>BWF Law 16.7.1.2</b>, pelanggaran berikutnya disarankan menggunakan <b>🟥 Kartu Merah (Fault / Poin Lawan)</b>.
+            </div>
+          )}
+        </div>
+
+        {/* Pilih Jenis Kartu */}
+        <div className="col" style={{ gap: '.45rem' }}>
+          <span className="small" style={{ fontWeight: 800 }}>2. Pilih Jenis Kartu Pelanggaran:</span>
+          <div className="row" style={{ gap: '.5rem' }}>
+            <button
+              type="button"
+              className={`btn ${cardType === 'yellow' ? 'btn-yellow' : ''}`}
+              style={{ flex: 1, flexDirection: 'column', alignItems: 'flex-start', padding: '.65rem .8rem', border: cardType === 'yellow' ? '2px solid #facc15' : undefined }}
+              onClick={() => setCardType('yellow')}
+            >
+              <div style={{ fontWeight: 900, fontSize: '.95rem' }}>🟨 Kartu Kuning</div>
+              <div className="small" style={{ opacity: 0.85, textAlign: 'left' }}>Peringatan Resmi (Skor Tetap)</div>
+            </button>
+            <button
+              type="button"
+              className={`btn ${cardType === 'red' ? 'btn-red' : ''}`}
+              disabled={!canIssueRed}
+              style={{ flex: 1, flexDirection: 'column', alignItems: 'flex-start', padding: '.65rem .8rem', border: cardType === 'red' ? '2px solid #f87171' : undefined }}
+              onClick={() => setCardType('red')}
+              title={!canIssueRed ? 'Kartu Merah hanya dapat diberikan saat permainan berstatus Live' : ''}
+            >
+              <div style={{ fontWeight: 900, fontSize: '.95rem' }}>🟥 Kartu Merah</div>
+              <div className="small" style={{ opacity: 0.9, textAlign: 'left' }}>
+                Fault (+1 Poin / Servis ke Tim {T(oppTeam)})
+              </div>
+            </button>
+            <button
+              type="button"
+              className={`btn ${cardType === 'black' ? 'btn-grey' : ''}`}
+              style={{ flex: 1, flexDirection: 'column', alignItems: 'flex-start', padding: '.65rem .8rem', border: cardType === 'black' ? '2px solid #fff' : undefined }}
+              onClick={() => setCardType('black')}
+            >
+              <div style={{ fontWeight: 900, fontSize: '.95rem' }}>⬛ Kartu Hitam</div>
+              <div className="small" style={{ opacity: 0.85, textAlign: 'left' }}>Diskualifikasi (Menangkan Tim {T(oppTeam)})</div>
+            </button>
+          </div>
+
+          <div className="notice small" style={{ background: cardType === 'red' ? 'rgba(239, 68, 68, 0.14)' : cardType === 'black' ? 'rgba(15, 23, 42, 0.9)' : 'rgba(250, 204, 21, 0.12)', borderColor: cardType === 'red' ? '#ef4444' : cardType === 'black' ? '#94a3b8' : '#facc15' }}>
+            <b>{selectedMeta.icon} {selectedMeta.label} ({selectedMeta.law}):</b>
+            <br />
+            {selectedMeta.consequence}
+          </div>
+        </div>
+
+        {/* Pilih Alasan Pelanggaran */}
+        <div className="col" style={{ gap: '.45rem' }}>
+          <label className="field">
+            3. Jenis Pelanggaran (BWF Clause 16)
+            <select className="input" value={reasonPreset} onChange={(e) => setReasonPreset(e.target.value)}>
+              {BWF_CARD_REASONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Catatan Tambahan Wasit (Opsional)
+            <input
+              className="input"
+              value={customNote}
+              onChange={(e) => setCustomNote(e.target.value)}
+              placeholder="Contoh: Menolak melanjutkan servis setelah dipanggil 2x oleh wasit"
+            />
+          </label>
+        </div>
+
+        {/* Riwayat Kartu di Pertandingan Ini */}
+        {cards.length > 0 && (
+          <div className="col" style={{ background: '#0a1328', padding: '.6rem .8rem', borderRadius: 8, gap: '.3rem' }}>
+            <div className="small muted" style={{ fontWeight: 700 }}>Riwayat Kartu pada Pertandingan Ini ({cards.length}):</div>
+            {cards.map((c) => (
+              <div key={c.card_id} className="row small" style={{ justifyContent: 'space-between', borderBottom: '1px solid rgba(148,163,184,0.12)', paddingBottom: '.2rem' }}>
+                <span>
+                  {c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛'} <b>{c.player_name}</b> (Tim {T(c.team)}) — {c.reason}
+                </span>
+                <span className="mono muted">Set {c.set} ({c.score_after?.a}-{c.score_after?.b})</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="row">
+          <button
+            type="submit"
+            className={`btn btn-lg ${cardType === 'red' ? 'btn-red' : cardType === 'black' ? 'btn-grey' : 'btn-yellow'}`}
+            style={{ flex: 1 }}
+            disabled={pending}
+          >
+            {pending
+              ? 'Memproses…'
+              : `${selectedMeta.icon} Berikan ${selectedMeta.label} ke ${playerName(match, playerId)}`}
+          </button>
+          <button type="button" className="btn btn-ghost btn-lg" onClick={onClose}>
+            Batal
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 function OverrideModal({ match, onClose, send, pending }) {
   const st = match.live_state;
@@ -230,6 +461,7 @@ export function TakeoverModal({ match, onClose, onSubmit }) {
 
 export default function LiveScreen({ match, now, readOnly, pending, connected, send, spectator, layout = 'landscape-sides' }) {
   const [showOverride, setShowOverride] = useState(false);
+  const [showCardModal, setShowCardModal] = useState(false);
   const st = match.live_state;
   const ss = st.service_status;
   const L = st.sides.left;
@@ -242,6 +474,21 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
   const duration = matchDurationText(match, now);
   const isSplitBelow = layout === 'portrait-split';
   const isStack = layout === 'portrait-stack';
+  const cards = Array.isArray(st.cards) ? st.cards : [];
+
+  const renderTeamCards = (t) => {
+    const tCards = cards.filter((c) => c.team === t);
+    if (!tCards.length) return null;
+    return (
+      <span className="ref-team-cards" title={tCards.map((c) => `${c.type.toUpperCase()} (${c.player_name}): ${c.reason}`).join(' | ')}>
+        {tCards.map((c) => (
+          <span key={c.card_id} className={`ref-card-pip ${c.type}`}>
+            {c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛'}
+          </span>
+        ))}
+      </span>
+    );
+  };
 
   const teamHeader = (t, align, sideTag) => {
     const seed = teamSeedBadge(match, t);
@@ -250,6 +497,7 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
         <span className="tname">
           {teamLabel(match, t)}
           {seed && <span className="seed-pill">{seed}</span>}
+          {renderTeamCards(t)}
         </span>
         <span className="tclub">
           {sideTag ? `${sideTag} · ` : ''}Tim {T(t)} · {match.teams[`team_${t}`].club || '-'}
@@ -442,6 +690,7 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
             {arrow} {sideLabel} · MENANG RELI
           </span>
           {seed && <span className="seed-pill">{seed}</span>}
+          {renderTeamCards(t)}
           {isServeHere && (
             <span className={`rally-serve-tag ${sideOutDbl && ss.turn === 2 ? 'serve-2' : 'serve-1'}`}>
               <Shuttle size={14} />
@@ -584,6 +833,20 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
             >
               ⇄ TUKAR SISI (KIRI ↔ KANAN)
             </button>
+            <button
+              className="btn"
+              style={{
+                background: 'linear-gradient(135deg, rgba(250, 204, 21, 0.22), rgba(239, 68, 68, 0.25))',
+                borderColor: 'rgba(250, 204, 21, 0.65)',
+                color: '#fef08a',
+                fontWeight: 800,
+              }}
+              disabled={!canAct}
+              onClick={() => setShowCardModal(true)}
+              title="Berikan Kartu Kuning (Warning), Kartu Merah (Fault / Poin Lawan), atau Kartu Hitam (Diskualifikasi) sesuai BWF Law 16"
+            >
+              🟨🟥 KARTU PELANGGARAN {cards.length > 0 ? `(${cards.length})` : ''}
+            </button>
             <button className="btn btn-red" disabled={!canAct} onClick={() => setShowOverride(true)}>
               ⚠ OVERRIDE
             </button>
@@ -591,6 +854,7 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
         )}
         {spectator}
       </div>
+      {showCardModal && <PenaltyCardModal match={match} onClose={() => setShowCardModal(false)} send={send} pending={pending} />}
       {showOverride && <OverrideModal match={match} onClose={() => setShowOverride(false)} send={send} pending={pending} />}
     </>
   );

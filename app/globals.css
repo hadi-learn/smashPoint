@@ -4320,3 +4320,384 @@ table.tbl tr:hover td { background: rgba(59, 130, 246, .05); }
   .gb-row { grid-template-columns: 80px minmax(0, 1fr) 90px; }
   .gb-row .gb-col-meta, .gb-row .gb-col-status, .gb-row-head > :nth-child(2), .gb-row-head > :nth-child(5) { display: none; }
 }
+
+/* ==========================================================================
+   FINISHED MATCH DETAIL MODAL, MULTI-ROW RALLY HISTORY, BWF CARDS & TOURNAMENT REPORT
+   ========================================================================== */
+
+/* BWF Card Badges on Referee & Arena Display */
+.ref-team-cards {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+}
+.ref-card-pip {
+  font-size: 0.85em;
+  line-height: 1;
+}
+.tv-card-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05vw;
+  line-height: 1;
+  padding: 0.1vw 0.25vw;
+  border-radius: 0.25vw;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+/* Multi-Row Rally History Strip (for Finished Match Detail Modal) */
+.rhs-wrap.multi-row {
+  background: #081024;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.rhs-multirow-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.rhs-set-block {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.rhs-set-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  font-size: 0.82rem;
+}
+.rhs-set-badge {
+  background: var(--blue);
+  color: #fff;
+  font-weight: 900;
+  font-size: 0.74rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 5px;
+  letter-spacing: 0.05em;
+}
+.rhs-set-score {
+  color: #e2e8f0;
+  font-weight: 600;
+}
+.rhs-set-winner {
+  color: var(--gold);
+  font-weight: 800;
+}
+.rhs-set-count {
+  margin-left: auto;
+  color: var(--cyan);
+  font-weight: 800;
+  font-size: 0.76rem;
+}
+.rhs-rows-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.rhs-row-line {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  padding: 0.4rem 0.55rem;
+  background: #060c1b;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+.rhs-row-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rhs-row-range {
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #94a3b8;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rhs-rally-num {
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: #64748b;
+  text-align: center;
+  line-height: 1.1;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.rhs-cell.penalty-offender {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+.rhs-dot-sym.penalty-red {
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+/* Finished Match Detail Modal (.fm-modal) */
+.fm-modal {
+  gap: 1rem;
+  max-height: 92vh;
+}
+.fm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+.fm-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: #ffffff;
+}
+.fm-duel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0.85rem;
+}
+.fm-team-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  border-radius: 14px;
+  background: #0a1328;
+  border: 1.5px solid var(--line);
+}
+.fm-team-card.winner {
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.16) 0%, rgba(15, 23, 42, 0.96) 75%);
+  border-color: var(--gold);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+}
+.fm-team-card.loser {
+  opacity: 0.9;
+}
+.fm-team-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.fm-role-pill {
+  font-size: 0.72rem;
+  font-weight: 900;
+  padding: 0.16rem 0.55rem;
+  border-radius: 5px;
+  letter-spacing: 0.05em;
+}
+.fm-role-pill.win {
+  background: var(--gold);
+  color: #090d16;
+}
+.fm-role-pill.lose {
+  background: rgba(148, 163, 184, 0.18);
+  color: #cbd5e1;
+}
+.fm-player-names {
+  font-size: 1.3rem;
+  font-weight: 900;
+  color: #ffffff;
+  line-height: 1.2;
+}
+.fm-team-card.winner .fm-player-names {
+  color: #fde047;
+}
+.fm-club-name {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #93c5fd;
+}
+.fm-team-right {
+  text-align: center;
+  flex-shrink: 0;
+  background: rgba(6, 11, 25, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 0.5rem 0.95rem;
+  min-width: 78px;
+}
+.fm-main-score {
+  font-size: 2.3rem;
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+}
+.fm-team-card.winner .fm-main-score {
+  color: var(--gold);
+}
+.fm-score-sub {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
+.fm-meta-section {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 0.85rem;
+  align-items: stretch;
+}
+@media (max-width: 980px) {
+  .fm-meta-section { grid-template-columns: 1fr; }
+}
+.fm-sets-box {
+  background: #0a1328;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.8rem 0.95rem;
+}
+.fm-row-win {
+  background: rgba(250, 204, 21, 0.06);
+}
+.fm-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.55rem;
+}
+.fm-kpi-item {
+  background: #0a1328;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.2rem;
+}
+.fm-kpi-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.fm-kpi-val {
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+.fm-cards-box {
+  background: #0a1328;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem 0.95rem;
+}
+.fm-history-section {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Comprehensive Tournament Execution Report Modal (.tr-report-modal) */
+.tr-report-modal {
+  gap: 1rem;
+  max-height: 93vh;
+}
+.tr-report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+.tr-closing-banner {
+  background: linear-gradient(90deg, rgba(250, 204, 21, 0.14) 0%, rgba(15, 23, 42, 0.92) 100%);
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+.tr-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(195px, 1fr));
+  gap: 0.65rem;
+}
+.tr-kpi-card {
+  background: linear-gradient(180deg, #111f42 0%, #0a1328 100%);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.tr-kpi-lbl {
+  font-size: 0.68rem;
+  font-weight: 900;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+.tr-kpi-num {
+  font-size: 1.55rem;
+  font-weight: 900;
+  color: #ffffff;
+  line-height: 1.15;
+}
+.tr-kpi-num small {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.tr-kpi-sub {
+  font-size: 0.74rem;
+  color: #94a3b8;
+  font-weight: 600;
+}
+.tr-records-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+.tr-record-pill {
+  flex: 1;
+  min-width: 260px;
+  background: #0a1328;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 9px;
+  padding: 0.5rem 0.8rem;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.tr-section {
+  background: #0a1328;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.tr-sec-title {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 900;
+  color: var(--gold);
+}
+
+@media print {
+  body { background: #070d1d !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .tr-no-print { display: none !important; }
+  .modal-bg { position: static !important; background: none !important; padding: 0 !important; }
+  .modal { max-height: none !important; overflow: visible !important; width: 100% !important; border: none !important; box-shadow: none !important; }
+}

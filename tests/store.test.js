@@ -748,3 +748,106 @@ M-502,Turnamen Lintas Laptop,Tunggal Putra,MS,rally_point,sets,21,11,Ginting,,SG
   fs.rmSync(dirB, { recursive: true, force: true });
   fs.rmSync(dirC, { recursive: true, force: true });
 });
+
+test('Tournament Closing, Reopening & Penalty Card Export Columns', () => {
+  const closeDir = path.join(process.cwd(), 'tests', 'temp_close_tournament_test');
+  if (fs.existsSync(closeDir)) fs.rmSync(closeDir, { recursive: true, force: true });
+  fs.mkdirSync(closeDir, { recursive: true });
+
+  const pm = new ProfileManager({ rootDir: closeDir });
+  const active = pm.activeProfile();
+  assert.equal(active.status, 'active');
+
+  const store = new Store({
+    dataDir: pm.dataDirFor(active.id),
+    courtCount: 15,
+    lockTimeoutMs: 1000,
+    masterPin: '1234',
+  });
+
+  const sampleCsv = `match_number,tournament_name,category_name,discipline,scoring_method,scoring_type,win_point,interval_point,team_a_p1_name,team_a_p2_name,team_a_club,team_a_details,team_b_p1_name,team_b_p2_name,team_b_club,team_b_details,scheduled_date,court_number,scheduled_time
+M-901,Kejuaraan Kota,Ganda Putra,MD,rally_point,continuous,2,1,Fajar,Rian,SGS,1,Leo,Daniel,Djarum,2,Sabtu / 7 November 2026,1,09:00 WIB`;
+  store.upsertMatches(ingest(sampleCsv, { courtCount: 15 }).matches);
+
+  const dev = 'dev-ref-card';
+  const locked = store.lock('M-901', dev, 'Wasit Hendra');
+  const started = store.action('M-901', dev, {
+    type: 'SETUP_START',
+    last_log_id: locked.match.last_log_id,
+    payload: {
+      left: 'a',
+      positions: { a: { even: 'a1', odd: 'a2' }, b: { even: 'b1', odd: 'b2' } },
+      server_id: 'a1',
+      receiver_id: 'b1',
+    },
+  });
+
+  // Issue Yellow Card to Team B (b1)
+  const yc = store.action('M-901', dev, {
+    type: 'ISSUE_CARD',
+    last_log_id: started.match.last_log_id,
+    payload: {
+      card_type: 'yellow',
+      team: 'b',
+      player_id: 'b1',
+      reason: 'Delaying Play',
+    },
+  });
+  assert.equal(yc.match.live_state.cards.length, 1);
+
+  // Issue Red Card to Team B (b1) -> awards +1 point to Team A (score 1-0, triggers interval at 1)
+  const rc = store.action('M-901', dev, {
+    type: 'ISSUE_CARD',
+    last_log_id: yc.match.last_log_id,
+    payload: {
+      card_type: 'red',
+      team: 'b',
+      player_id: 'b1',
+      reason: 'Repeated Delay',
+    },
+  });
+  assert.equal(rc.match.live_state.score.a, 1);
+  assert.equal(rc.match.live_state.cards.length, 2);
+
+  // Confirm interval and win match for Team A
+  const iv = store.action('M-901', dev, { type: 'CONFIRM_INTERVAL', last_log_id: rc.match.last_log_id });
+  const winPt = store.action('M-901', dev, { type: 'WIN_RALLY', last_log_id: iv.match.last_log_id, payload: { team: 'a' } });
+  const fin = store.action('M-901', dev, { type: 'CONFIRM_FINISH', last_log_id: winPt.match.last_log_id });
+  assert.equal(fin.match.session_management.status, 'finished');
+
+  // Verify resultRow exports yellow_cards, red_cards, black_cards, and cards_detail
+  const row = resultRow(store.get('M-901'));
+  assert.ok(RESULT_HEADER.includes('yellow_cards'));
+  assert.ok(RESULT_HEADER.includes('red_cards'));
+  assert.ok(RESULT_HEADER.includes('black_cards'));
+  assert.ok(RESULT_HEADER.includes('cards_detail'));
+  assert.equal(row.yellow_cards, 1);
+  assert.equal(row.red_cards, 1);
+  assert.equal(row.black_cards, 0);
+  assert.match(row.cards_detail, /\[YELLOW Set 1\]/);
+  assert.match(row.cards_detail, /\[RED Set 1\]/);
+
+  // Close the tournament via ProfileManager
+  const closed = pm.closeTournament(active.id, {
+    closedBy: 'Ketua Panitia',
+    closing_notes: 'Seluruh pertandingan berjalan lancar dan tertib.',
+    venue: 'GOR Bulutangkis Pusat',
+    chief_referee: 'Bpk. Sutrisno (BWF Referee)',
+    committee_head: 'Bpk. H. Ahmad',
+  });
+  assert.equal(closed.status, 'closed');
+  assert.ok(closed.closed_at);
+  assert.equal(closed.closed_by, 'Ketua Panitia');
+  assert.equal(closed.closing_notes, 'Seluruh pertandingan berjalan lancar dan tertib.');
+  assert.equal(closed.venue, 'GOR Bulutangkis Pusat');
+  assert.equal(closed.chief_referee, 'Bpk. Sutrisno (BWF Referee)');
+  assert.equal(closed.committee_head, 'Bpk. H. Ahmad');
+
+  // Reopen the tournament
+  const reopened = pm.reopenTournament(active.id);
+  assert.equal(reopened.status, 'active');
+  assert.equal(reopened.closed_at, null);
+
+  store.flush();
+  fs.rmSync(closeDir, { recursive: true, force: true });
+});

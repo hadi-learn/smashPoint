@@ -252,3 +252,75 @@ test('Shuttlecock usage counter & local date time formatting', () => {
   assert.match(formatted, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   assert.equal(formatLocalDateTime(''), '');
 });
+
+test('BWF / PBSI Penalty Cards (Yellow, Red & Black Card / Disqualification)', () => {
+  // 1. Rally Point Mode: Yellow Card (warning, no score change) & Red Card (fault -> +1 point & service to opponent)
+  const m = mk('MD', 'rally_point', 'sets', 21, 11);
+  start(m);
+
+  // Team A is serving at 0-0. Issue Yellow Card to Team A (a1)
+  const ycRes = act(m, 'ISSUE_CARD', {
+    card_type: 'yellow',
+    team: 'a',
+    player_id: 'a1',
+    reason: 'Menunda jalannya pertandingan (Delaying Play — Law 16.4)',
+  });
+  assert.equal(ycRes.event_type, 'YELLOW_CARD');
+  assert.deepEqual(m.live_state.score, { a: 0, b: 0 });
+  assert.equal(m.live_state.cards.length, 1);
+  assert.equal(m.live_state.cards[0].type, 'yellow');
+  assert.equal(m.live_state.cards[0].team, 'a');
+  assert.equal(m.live_state.cards[0].player_name, 'Budi');
+
+  // Issue Red Card to Team A (a1) -> Fault for Misconduct (BWF Law 16.7.1.2)
+  // Opponent (Team B) receives +1 point (score 0-1) & service transfers to Team B!
+  const rcRes = act(m, 'ISSUE_CARD', {
+    card_type: 'red',
+    team: 'a',
+    player_id: 'a1',
+    reason: 'Pelanggaran berulang setelah Kartu Kuning',
+  });
+  assert.equal(rcRes.event_type, 'RED_CARD');
+  assert.deepEqual(m.live_state.score, { a: 0, b: 1 });
+  assert.equal(m.live_state.service_status.player_id, 'b2'); // B scores 1 (odd court)
+  assert.equal(m.live_state.cards.length, 2);
+  assert.equal(m.live_state.cards[1].type, 'red');
+  assert.equal(m.live_state.rally_history.length, 1);
+  assert.equal(m.live_state.rally_history[0].penalty_card, 'red');
+  assert.equal(m.live_state.rally_history[0].offender_team, 'a');
+
+  // 2. Side-Out Doubles: Red Card on serving team causes side-out / 2nd serve; Red Card on receiving team gives +1 point to server
+  const mSide = mk('MD', 'side_out', 'continuous', 30, 15);
+  start(mSide);
+  // Team A starts at 2nd serve (0-0). Red card on Team A -> Fault -> Side-Out to Team B (still 0-0)
+  act(mSide, 'ISSUE_CARD', {
+    card_type: 'red',
+    team: 'a',
+    player_id: 'a1',
+    reason: 'Perilaku tidak sportif',
+  });
+  assert.deepEqual(mSide.live_state.score, { a: 0, b: 0 });
+  assert.equal(mSide.live_state.service_status.player_id, 'b1');
+
+  // Now Team B is serving (1st serve). Red card on receiving Team A -> Fault -> Team B scores +1 point (0-1)!
+  act(mSide, 'ISSUE_CARD', {
+    card_type: 'red',
+    team: 'a',
+    player_id: 'a2',
+    reason: 'Memukul net / merusak peralatan',
+  });
+  assert.deepEqual(mSide.live_state.score, { a: 0, b: 1 });
+
+  // 3. Black Card (Disqualification — BWF Law 16.7.2) ends match immediately and awards victory to opponent
+  const bcRes = act(m, 'ISSUE_CARD', {
+    card_type: 'black',
+    team: 'b',
+    player_id: 'b1',
+    reason: 'Pelanggaran berat / Diskualifikasi oleh Referee',
+  });
+  assert.equal(bcRes.event_type, 'BLACK_CARD');
+  assert.equal(m.live_state.phase, 'finished');
+  assert.equal(m.live_state.winner, 'a');
+  assert.equal(m.live_state.cards.length, 3);
+  assert.equal(m.live_state.cards[2].type, 'black');
+});
