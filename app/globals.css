@@ -4696,12 +4696,20 @@ table.tbl tr:hover td { background: rgba(59, 130, 246, .05); }
 }
 
 @media print {
+  @page { margin: 10mm; }
   body { background: #070d1d !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body.bi-report-open { background: #050a14 !important; }
+  body.bi-report-open.bi-paper-print { background: #ffffff !important; }
+  body.bi-report-open .container > *:not(.bi-overlay) { display: none !important; }
+  body.fm-detail-open .container > *:not(.modal-bg) { display: none !important; }
+  body.fm-detail-open .bi-overlay { display: none !important; }
   .tr-no-print { display: none !important; }
   .modal-bg { position: static !important; background: none !important; padding: 0 !important; }
   .modal { max-height: none !important; overflow: visible !important; width: 100% !important; border: none !important; box-shadow: none !important; }
-  .bi-overlay { position: static !important; background: none !important; padding: 0 !important; overflow: visible !important; }
-  .bi-shell { max-width: 100% !important; border: none !important; box-shadow: none !important; padding: 0.5rem !important; }
+  .bi-overlay { position: static !important; background: none !important; padding: 0 !important; overflow: visible !important; backdrop-filter: none !important; display: block !important; }
+  .bi-shell { max-width: 100% !important; border: none !important; box-shadow: none !important; padding: 0 !important; border-radius: 0 !important; }
+  .bi-overlay.bi-theme-paper .bi-shell { background: #ffffff !important; }
+  .bi-card, .bi-kpi-card, .bi-podium-card, .bi-record-card, .bi-masthead { break-inside: avoid; page-break-inside: avoid; }
 }
 
 /* =====================================================================

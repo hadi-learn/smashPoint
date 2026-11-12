@@ -931,6 +931,11 @@ function LogsModal({ id, onClose }) {
  * seluruh histori reli pertandingan tersebut dari awal sampai akhir dalam multi-baris.
  */
 function FinishedMatchDetailModal({ match, now, onClose, onEdit, onLogs }) {
+  useEffect(() => {
+    document.body.classList.add('fm-detail-open');
+    return () => document.body.classList.remove('fm-detail-open');
+  }, []);
+
   const st = match.live_state || {};
   const sm = match.session_management || {};
   const isSets = match.rules?.scoring_type === 'sets';
@@ -2732,6 +2737,17 @@ function TournamentReportModal({ profile, matches, token, now, onClose, onSelect
   const [matchSearch, setMatchSearch] = useState('');
   const [matchStatusFilter, setMatchStatusFilter] = useState('all');
   const [matchCatFilter, setMatchCatFilter] = useState('all');
+
+  useEffect(() => {
+    document.body.classList.add('bi-report-open');
+    return () => {
+      document.body.classList.remove('bi-report-open', 'bi-paper-print');
+    };
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle('bi-paper-print', biTheme === 'paper');
+  }, [biTheme]);
 
   const handleRegenerate = async () => {
     if (regenerating) return;
