@@ -931,10 +931,17 @@ function LogsModal({ id, onClose }) {
  * seluruh histori reli pertandingan tersebut dari awal sampai akhir dalam multi-baris.
  */
 function FinishedMatchDetailModal({ match, now, onClose, onEdit, onLogs }) {
+  const [matchBiTheme, setMatchBiTheme] = useState('dark'); // 'dark' | 'paper'
+  const [perRow, setPerRow] = useState(25);
+
   useEffect(() => {
     document.body.classList.add('fm-detail-open');
-    return () => document.body.classList.remove('fm-detail-open');
+    return () => document.body.classList.remove('fm-detail-open', 'fm-paper-print');
   }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle('fm-paper-print', matchBiTheme === 'paper');
+  }, [matchBiTheme]);
 
   const st = match.live_state || {};
   const sm = match.session_management || {};
@@ -948,74 +955,97 @@ function FinishedMatchDetailModal({ match, now, onClose, onEdit, onLogs }) {
     ? st.set_history
     : [{ set: 1, a: st.score?.a || 0, b: st.score?.b || 0, winner: winSide }];
 
-  // Hitung statistik pertandingan dari set_history & rally_history
+  // Hitung statistik pertandingan mendalam dari set_history & rally_history
   const stats = useMemo(() => {
     const totalPointsA = setHist.reduce((acc, s) => acc + (Number(s.a) || 0), 0);
     const totalPointsB = setHist.reduce((acc, s) => acc + (Number(s.b) || 0), 0);
+    const totalPts = totalPointsA + totalPointsB;
     let rWonA = 0;
     let rWonB = 0;
     let srvWonA = 0;
     let srvWonB = 0;
+    let rcvWonA = 0; // break / point won when receiving
+    let rcvWonB = 0;
+    let totalServesA = 0;
+    let totalServesB = 0;
     let maxStreakA = 0;
     let maxStreakB = 0;
     let curA = 0;
     let curB = 0;
 
     for (const r of rallies) {
+      if (r.server_side === 'a') totalServesA += 1;
+      else if (r.server_side === 'b') totalServesB += 1;
+
       if (r.winner === 'a') {
         rWonA += 1;
         curA += 1;
         curB = 0;
         if (curA > maxStreakA) maxStreakA = curA;
         if (r.server_side === 'a') srvWonA += 1;
+        else rcvWonA += 1;
       } else if (r.winner === 'b') {
         rWonB += 1;
         curB += 1;
         curA = 0;
         if (curB > maxStreakB) maxStreakB = curB;
         if (r.server_side === 'b') srvWonB += 1;
+        else rcvWonB += 1;
       }
     }
+
+    const winRateA = rallies.length > 0 ? Math.round((rWonA / rallies.length) * 100) : totalPts > 0 ? Math.round((totalPointsA / totalPts) * 100) : 50;
+    const winRateB = rallies.length > 0 ? Math.round((rWonB / rallies.length) * 100) : totalPts > 0 ? Math.round((totalPointsB / totalPts) * 100) : 50;
+    const srvHoldPctA = totalServesA > 0 ? Math.round((srvWonA / totalServesA) * 100) : 0;
+    const srvHoldPctB = totalServesB > 0 ? Math.round((srvWonB / totalServesB) * 100) : 0;
 
     return {
       totalPointsA,
       totalPointsB,
-      totalPoints: totalPointsA + totalPointsB,
+      totalPoints: totalPts,
       totalRallies: rallies.length,
       rWonA,
       rWonB,
+      winRateA,
+      winRateB,
       srvWonA,
       srvWonB,
+      rcvWonA,
+      rcvWonB,
+      srvHoldPctA,
+      srvHoldPctB,
       maxStreakA,
       maxStreakB,
     };
   }, [setHist, rallies]);
 
-  const [perRow, setPerRow] = useState(20);
+  const winningTeamName = teamLabel(match, winSide);
+  const runnerUpTeamName = teamLabel(match, loseSide);
+  const isTeamAWin = winSide === 'a';
 
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal col fm-modal" style={{ width: 'min(1260px, 100%)' }} onClick={(e) => e.stopPropagation()}>
-        {/* Top Executive Header */}
-        <div className="fm-header">
-          <div className="col" style={{ gap: '.25rem' }}>
-            <div className="row" style={{ gap: '.5rem' }}>
-              <span className="badge gold" style={{ fontSize: '.82rem', padding: '.25rem .7rem' }}>
-                🏁 LAPORAN RESMI HASIL PERTANDINGAN
-              </span>
-              <span className="badge blue mono" style={{ fontSize: '.85rem' }}>
-                {match.match_number}
-              </span>
-              <span className="badge">Lapangan {match.court_number}</span>
-              {match.admin_override?.is_edited && (
-                <span className="badge gold">🔒 Diedit Panitia</span>
-              )}
-            </div>
-            <h2 className="fm-title">
-              {match.tournament_name} — <span style={{ color: 'var(--gold)' }}>{match.category_name}</span> ({DISCIPLINE_LABEL[match.discipline] || match.discipline})
-            </h2>
+    <div className={`modal-bg md-overlay ${matchBiTheme === 'paper' ? 'md-theme-paper' : 'md-theme-dark'}`} onClick={onClose}>
+      <div className="modal col md-shell" style={{ width: 'min(1440px, 98vw)' }} onClick={(e) => e.stopPropagation()}>
+        {/* Sticky Executive Toolbar */}
+        <div className="md-toolbar tr-no-print">
+          <div className="md-toolbar-left">
+            <span className="bi-brand-pill">MATCH INTELLIGENCE</span>
+            <span className="badge blue mono" style={{ fontWeight: 800 }}>{match.match_number}</span>
+            <span className="badge">Lapangan {match.court_number}</span>
+            <span className={`badge ${isTeamAWin ? 'bi-win-badge-a' : 'bi-win-badge-b'}`}>
+              🏆 {isTeamAWin ? 'Tim A Menang' : 'Tim B Menang'}
+            </span>
+            {match.admin_override?.is_edited && <span className="badge gold">🔒 Manual Edit</span>}
           </div>
-          <div className="row" style={{ gap: '.45rem' }}>
+          <div className="md-toolbar-actions">
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setMatchBiTheme((t) => (t === 'dark' ? 'paper' : 'dark'))}
+              title="Ganti tema tampilan gelap vs kertas putih (siap cetak)"
+            >
+              {matchBiTheme === 'dark' ? '☀️ Executive Paper' : '🌙 Executive Dark'}
+            </button>
             <button
               type="button"
               className="btn btn-sm btn-yellow"
@@ -1023,189 +1053,330 @@ function FinishedMatchDetailModal({ match, now, onClose, onEdit, onLogs }) {
                 onClose();
                 onEdit?.(match);
               }}
-              title="Buka editor lengkap untuk mengubah skor, pemain, atau status pertandingan ini"
+              title="Buka editor lengkap untuk koreksi skor, pemain, atau status laga"
             >
-              ✏️ Edit Pertandingan
+              ✏️ Edit Laga
             </button>
             <button
               type="button"
               className="btn btn-sm btn-blue"
-              onClick={() => {
-                onLogs?.(match.match_number);
-              }}
-              title="Lihat Audit Log Lengkap"
+              onClick={() => onLogs?.(match.match_number)}
+              title="Audit trail lengkap seluruh reli, perubahan skor, wasit, dan kartu"
             >
               📜 Audit Log
             </button>
             <button
               type="button"
-              className="btn btn-sm"
+              className="btn btn-sm btn-green"
               onClick={() => window.print()}
-              title="Cetak laporan hasil pertandingan ini"
+              title="Cetak atau simpan laporan eksekutif pertandingan ini sebagai PDF"
             >
-              🖨️ Cetak
+              🖨️ Cetak / PDF Laga
             </button>
             <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-              ✕
+              ✕ Tutup
             </button>
           </div>
         </div>
 
-        {/* Match Duel Hero Banner: Winner vs Opponent */}
-        <div className="fm-duel-grid">
+        {/* Executive Match Header */}
+        <header className="md-header">
+          <div className="md-header-main">
+            <div className="bi-eyebrow">OFFICIAL MATCH REPORT &amp; PERFORMANCE ANALYTICS</div>
+            <h1 className="md-title">
+              {match.tournament_name || 'Turnamen Bulutangkis'}
+            </h1>
+            <div className="md-subtitle">
+              <span className="badge blue">{match.discipline}</span> <b>{match.category_name}</b> · {DISCIPLINE_LABEL[match.discipline] || match.discipline}
+            </div>
+            <p className="md-narrative">
+              Pertandingan nomor <b>{match.match_number}</b> di Lapangan <b>{match.court_number}</b> dimenangkan oleh <b className={isTeamAWin ? 'bi-winner-a' : 'bi-winner-b'}>Tim {winSide.toUpperCase()} ({winningTeamName})</b> atas <b>Tim {loseSide.toUpperCase()} ({runnerUpTeamName})</b> dalam waktu efektif <b>{duration || '-'}</b> dengan <b>{stats.totalRallies} reli</b> dan konsumsi <b>{st.shuttlecock_count ?? 0} shuttlecock</b>.
+            </p>
+          </div>
+
+          <div className="md-meta-box">
+            <div className="bi-meta-row">
+              <span>Nomor Pertandingan</span>
+              <b className="mono">{match.match_number}</b>
+            </div>
+            <div className="bi-meta-row">
+              <span>Lapangan &amp; Jadwal</span>
+              <b>Lap. {match.court_number} · {[match.scheduled_date, match.scheduled_time].filter(Boolean).join(' ') || '-'}</b>
+            </div>
+            <div className="bi-meta-row">
+              <span>Wasit Bertugas</span>
+              <b>👤 {sm.controller_label || 'Tidak Tercatat'}</b>
+            </div>
+            <div className="bi-meta-row">
+              <span>Waktu Mulai</span>
+              <b className="mono">{st.started_at ? formatLocalDateTime(st.started_at) : '-'}</b>
+            </div>
+            <div className="bi-meta-row">
+              <span>Waktu Selesai</span>
+              <b className="mono">{formatLocalDateTime(match.finished_at || st.ended_at) || '-'}</b>
+            </div>
+            <div className="bi-meta-row">
+              <span>Status Pelanggaran</span>
+              <b>{cards.length > 0 ? `${cards.length} Kartu BWF` : '✔ 100% Fair Play'}</b>
+            </div>
+          </div>
+        </header>
+
+        {/* Dual Team Showdown Banner (Distinct Winner & Colors for Team A vs Team B) */}
+        <div className="md-duel-grid">
           {['a', 'b'].map((t) => {
             const isWin = winSide === t;
+            const isTeamA = t === 'a';
             const tmObj = match.teams?.[`team_${t}`] || {};
             const seed = teamSeedBadge(match, t);
             const tCards = cards.filter((c) => c.team === t);
             const mainScore = isSets
               ? st.sets?.[t] ?? 0
               : setHist[setHist.length - 1]?.[t] ?? st.score?.[t] ?? 0;
+            const teamTotalPts = isTeamA ? stats.totalPointsA : stats.totalPointsB;
+            const teamRWon = isTeamA ? stats.rWonA : stats.rWonB;
+            const teamWinRate = isTeamA ? stats.winRateA : stats.winRateB;
+            const teamMaxStreak = isTeamA ? stats.maxStreakA : stats.maxStreakB;
 
             return (
-              <div key={t} className={`fm-team-card ${isWin ? 'winner' : 'loser'} team-${t}`}>
-                <div className="fm-team-left">
-                  <div className="row" style={{ gap: '.45rem' }}>
-                    <span className={`fm-role-pill ${isWin ? 'win' : 'lose'}`}>
+              <div
+                key={t}
+                className={`md-team-card ${isWin ? 'winner' : 'loser'} ${isTeamA ? 'team-a' : 'team-b'} ${isWin ? (isTeamA ? 'win-a' : 'win-b') : ''}`}
+              >
+                <div className="md-team-top">
+                  <div className="row" style={{ gap: '.45rem', flexWrap: 'wrap' }}>
+                    <span className={`badge ${isWin ? (isTeamA ? 'bi-win-badge-a' : 'bi-win-badge-b') : ''}`}>
                       {isWin ? '🏆 PEMENANG (WINNER)' : 'RUNNER-UP LAGA'}
                     </span>
-                    <span className="small muted" style={{ fontWeight: 800 }}>TIM {t.toUpperCase()}</span>
+                    <span className="badge" style={{ fontWeight: 800 }}>TIM {t.toUpperCase()}</span>
                     {seed && <span className="seed-pill">{seed}</span>}
                     {tCards.map((c) => (
-                      <span key={c.card_id} className="badge" style={{ padding: '.1rem .4rem' }} title={`${c.player_name}: ${c.reason}`}>
-                        {c.type === 'yellow' ? '🟨 Kuning' : c.type === 'red' ? '🟥 Merah' : '⬛ Hitam (DSQ)'}
+                      <span key={c.card_id} className={`badge ${c.type === 'yellow' ? 'gold' : 'red'}`}>
+                        {c.type === 'yellow' ? '🟨 Kuning' : c.type === 'red' ? '🟥 Merah' : '⬛ DSQ'}
                       </span>
                     ))}
                   </div>
-                  <div className="fm-player-names">{teamLabel(match, t)}</div>
-                  <div className="fm-club-name">
+
+                  <div className="md-team-names">{teamLabel(match, t)}</div>
+                  <div className="md-club-name">
                     🏛️ {tmObj.club || 'Tanpa Klub / Independen'}
                   </div>
+
+                  {/* Micro stats under team */}
+                  <div className="md-team-stats-row mono">
+                    <span><b>{teamTotalPts}</b> Total Poin</span>
+                    <span>·</span>
+                    <span><b>{teamRWon}</b> Reli Dimenangkan ({teamWinRate}%)</span>
+                    <span>·</span>
+                    <span>🔥 Streak <b>{teamMaxStreak}</b></span>
+                  </div>
                 </div>
-                <div className="fm-team-right">
-                  <div className="fm-main-score mono">{mainScore}</div>
-                  <div className="fm-score-sub">{isSets ? 'SET MENANG' : 'POIN AKHIR'}</div>
+
+                <div className="md-team-score-box">
+                  <div className="md-main-score mono">{mainScore}</div>
+                  <div className="md-score-lbl">{isSets ? 'SET MENANG' : 'SKOR AKHIR'}</div>
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* Set-by-Set Scoreboard & Match Metadata KPI Grid */}
-        <div className="fm-meta-section">
-          {/* Set-by-set score table */}
-          <div className="fm-sets-box">
-            <div className="small" style={{ fontWeight: 800, color: 'var(--gold)', marginBottom: '.4rem' }}>
-              📊 RINCIAN SKOR PER SET ({match.rules?.scoring_method === 'side_out' ? 'Side-Out / Pindah Bola' : 'Rally Point'} · Target {match.rules?.win_point} Poin)
+        {/* 6 Executive KPI Metrics */}
+        <section className="bi-kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+          <div className="bi-kpi-card accent-purple">
+            <div className="bi-kpi-top">
+              <span>DURASI PERMAINAN</span>
+              <span className="bi-kpi-pill">Efektif</span>
             </div>
-            <table className="tbl fm-sets-table">
+            <div className="bi-kpi-val mono" style={{ color: 'var(--cyan)' }}>{duration || '-'}</div>
+            <div className="bi-kpi-sub">
+              {st.started_at && st.ended_at ? 'Waktu tercatat otomatis' : 'Durasi total laga'}
+            </div>
+          </div>
+
+          <div className="bi-kpi-card accent-gold">
+            <div className="bi-kpi-top">
+              <span>SHUTTLECOCK DIGUNAKAN</span>
+              <span className="bi-kpi-pill">Wasit</span>
+            </div>
+            <div className="bi-kpi-val mono" style={{ color: 'var(--bi-accent-gold)' }}>
+              🏸 {st.shuttlecock_count ?? 0} <small>Cock</small>
+            </div>
+            <div className="bi-kpi-sub">Dikelola oleh wasit utama</div>
+          </div>
+
+          <div className="bi-kpi-card accent-cyan">
+            <div className="bi-kpi-top">
+              <span>TOTAL RELI / RALLY</span>
+              <span className="bi-kpi-pill">{stats.totalRallies} Reli</span>
+            </div>
+            <div className="bi-kpi-val mono">{stats.totalRallies} <small>Bursa Angka</small></div>
+            <div className="bi-kpi-sub">{stats.totalPoints} total poin terkumpul</div>
+          </div>
+
+          <div className="bi-kpi-card accent-blue">
+            <div className="bi-kpi-top">
+              <span>DOMINASI SERVIS &amp; BREAK</span>
+              <span className="bi-kpi-pill">A vs B</span>
+            </div>
+            <div className="bi-kpi-val mono" style={{ fontSize: '1.25rem' }}>
+              <span className="bi-winner-a">{stats.srvWonA}</span> / <span className="bi-winner-b">{stats.srvWonB}</span> <small>Poin Servis</small>
+            </div>
+            <div className="bi-kpi-sub">
+              Break: Tim A {stats.rcvWonA} · Tim B {stats.rcvWonB}
+            </div>
+          </div>
+
+          <div className="bi-kpi-card accent-emerald">
+            <div className="bi-kpi-top">
+              <span>STREAK POIN MAKSIMAL</span>
+              <span className="bi-kpi-pill">Beruntun</span>
+            </div>
+            <div className="bi-kpi-val mono" style={{ fontSize: '1.25rem' }}>
+              🔥 <span className="bi-winner-a">{stats.maxStreakA}</span> vs <span className="bi-winner-b">{stats.maxStreakB}</span>
+            </div>
+            <div className="bi-kpi-sub">Laju poin tanpa henti terpanjang</div>
+          </div>
+
+          <div className="bi-kpi-card accent-rose">
+            <div className="bi-kpi-top">
+              <span>KARTU PELANGGARAN BWF</span>
+              <span className="bi-kpi-pill">{cards.length > 0 ? `${cards.length} Kartu` : 'Bersih'}</span>
+            </div>
+            <div className="bi-kpi-val mono" style={{ color: cards.length > 0 ? '#f87171' : '#22c55e' }}>
+              {cards.length} <small>Kartu</small>
+            </div>
+            <div className="bi-kpi-sub">
+              🟨 {cards.filter((c) => c.type === 'yellow').length} Kuning · 🟥 {cards.filter((c) => c.type === 'red').length} Merah · ⬛ {cards.filter((c) => c.type === 'black').length} Hitam
+            </div>
+          </div>
+        </section>
+
+        {/* Set-by-Set Score Table & Visual Progression Bar */}
+        <section className="bi-card">
+          <div className="bi-card-head">
+            <div>
+              <h3>📊 Rincian Skor &amp; Performa Per Set</h3>
+              <p>
+                Sistem Skor: <b>{match.rules?.scoring_method === 'side_out' ? 'Side-Out (Pindah Bola Klasik)' : 'Rally Point'}</b> · Format <b>{match.rules?.scoring_type === 'sets' ? 'Best of 3 Sets' : 'Continuous 1 Game'}</b> · Target <b>{match.rules?.win_point} Poin</b>
+              </p>
+            </div>
+          </div>
+
+          <div className="bi-tbl-wrap">
+            <table className="bi-tbl">
               <thead>
                 <tr>
-                  <th>TIM / PEMAIN</th>
+                  <th style={{ minWidth: 220 }}>Tim &amp; Pemain</th>
                   {setHist.map((s) => (
-                    <th key={s.set} style={{ textAlign: 'center' }}>
+                    <th key={s.set} style={{ textAlign: 'center', minWidth: 90 }}>
                       {isSets ? `SET ${s.set}` : 'SKOR GAME'}
                     </th>
                   ))}
-                  <th style={{ textAlign: 'center' }}>TOTAL POIN</th>
-                  {rallies.length > 0 && <th style={{ textAlign: 'center' }}>RELI MENANG</th>}
-                  {rallies.length > 0 && <th style={{ textAlign: 'center' }}>STREAK TERPANJANG</th>}
+                  <th style={{ textAlign: 'center' }}>Total Poin</th>
+                  <th style={{ width: 180 }}>Persentase Reli Won</th>
+                  <th style={{ textAlign: 'center' }}>Servis Menang</th>
+                  <th style={{ textAlign: 'center' }}>Break Lawan</th>
+                  <th style={{ textAlign: 'center' }}>Streak Terpanjang</th>
                 </tr>
               </thead>
               <tbody>
                 {['a', 'b'].map((t) => {
                   const isWin = winSide === t;
+                  const isTeamA = t === 'a';
+                  const totalPts = isTeamA ? stats.totalPointsA : stats.totalPointsB;
+                  const rWon = isTeamA ? stats.rWonA : stats.rWonB;
+                  const winRate = isTeamA ? stats.winRateA : stats.winRateB;
+                  const srvWon = isTeamA ? stats.srvWonA : stats.srvWonB;
+                  const rcvWon = isTeamA ? stats.rcvWonA : stats.rcvWonB;
+                  const maxStreak = isTeamA ? stats.maxStreakA : stats.maxStreakB;
+
                   return (
-                    <tr key={t} className={isWin ? 'fm-row-win' : ''}>
-                      <td>
-                        <b>{isWin ? '🏆 ' : ''}{teamLabel(match, t)}</b>{' '}
-                        <span className="muted small">({match.teams?.[`team_${t}`]?.club || '-'})</span>
+                    <tr key={t} className={isWin ? (isTeamA ? 'md-row-win-a' : 'md-row-win-b') : ''}>
+                      <td className="bi-wrap-cell">
+                        <div className={`bi-player-full ${isWin ? (isTeamA ? 'bi-winner-a' : 'bi-winner-b') : ''}`}>
+                          {isWin ? '🏆 ' : ''}{teamLabel(match, t)}
+                        </div>
+                        <div className="bi-cell-sub">
+                          TIM {t.toUpperCase()} · {match.teams?.[`team_${t}`]?.club || 'Tanpa Klub'}
+                        </div>
                       </td>
+
                       {setHist.map((s) => {
                         const sWon = (s.winner || (s.a >= s.b ? 'a' : 'b')) === t;
                         return (
-                          <td key={s.set} className="mono" style={{ textAlign: 'center', fontWeight: sWon ? 900 : 600, color: sWon ? '#fde047' : 'var(--text)', fontSize: '1.05rem' }}>
+                          <td
+                            key={s.set}
+                            className="mono"
+                            style={{
+                              textAlign: 'center',
+                              fontWeight: sWon ? 900 : 600,
+                              fontSize: '1.2rem',
+                              color: sWon ? (isTeamA ? '#34d399' : '#38bdf8') : undefined,
+                            }}
+                          >
                             {s[t]}
                             {s.note === 'DSQ' && !sWon ? ' (DSQ)' : ''}
                           </td>
                         );
                       })}
-                      <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>
-                        {t === 'a' ? stats.totalPointsA : stats.totalPointsB}
+
+                      <td className="mono" style={{ textAlign: 'center', fontWeight: 900, fontSize: '1.1rem' }}>
+                        {totalPts}
                       </td>
-                      {rallies.length > 0 && (
-                        <td className="mono" style={{ textAlign: 'center' }}>
-                          {t === 'a' ? stats.rWonA : stats.rWonB} <span className="muted small">({Math.round(((t === 'a' ? stats.rWonA : stats.rWonB) / rallies.length) * 100)}%)</span>
-                        </td>
-                      )}
-                      {rallies.length > 0 && (
-                        <td className="mono" style={{ textAlign: 'center' }}>
-                          🔥 {t === 'a' ? stats.maxStreakA : stats.maxStreakB} beruntun
-                        </td>
-                      )}
+
+                      <td>
+                        <div className="bi-winrate-cell">
+                          <div className="bi-progress-track">
+                            <div
+                              className={`bi-progress-fill ${isTeamA ? 'emerald' : 'cyan'}`}
+                              style={{ width: `${winRate}%` }}
+                            />
+                          </div>
+                          <span className="mono">{winRate}%</span>
+                        </div>
+                      </td>
+
+                      <td className="mono" style={{ textAlign: 'center' }}>
+                        {srvWon} reli
+                      </td>
+
+                      <td className="mono" style={{ textAlign: 'center' }}>
+                        {rcvWon} reli
+                      </td>
+
+                      <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>
+                        🔥 {maxStreak} beruntun
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+        </section>
 
-          {/* Match Metadata Cards */}
-          <div className="fm-kpi-grid">
-            <div className="fm-kpi-item">
-              <span className="fm-kpi-label">👤 WASIT BERTUGAS</span>
-              <span className="fm-kpi-val">{sm.controller_label || 'Tidak Tercatat'}</span>
+        {/* BWF Disciplinary Cards Table (if any) */}
+        {cards.length > 0 && (
+          <section className="bi-card">
+            <div className="bi-card-head">
+              <div>
+                <h3 style={{ color: '#f87171' }}>🟨🟥 Catatan Pelanggaran &amp; Kartu Disiplin BWF Law 16</h3>
+                <p>Kartu resmi yang dikeluarkan wasit selama pertandingan ini berlangsung</p>
+              </div>
             </div>
-            <div className="fm-kpi-item">
-              <span className="fm-kpi-label">⏱ DURASI BERMAIN</span>
-              <span className="fm-kpi-val mono" style={{ color: 'var(--cyan)' }}>{duration || '-'}</span>
-            </div>
-            <div className="fm-kpi-item">
-              <span className="fm-kpi-label">🏸 PENGGUNAAN COCK</span>
-              <span className="fm-kpi-val mono" style={{ color: 'var(--gold)' }}>{st.shuttlecock_count ?? 0} Cock</span>
-            </div>
-            <div className="fm-kpi-item">
-              <span className="fm-kpi-label">📈 TOTAL RELI / SERVIS</span>
-              <span className="fm-kpi-val mono">{rallies.length} Reli</span>
-            </div>
-            <div className="fm-kpi-item">
-              <span className="fm-kpi-label">📅 JADWAL &amp; WAKTU MULAI</span>
-              <span className="fm-kpi-val small">
-                {[match.scheduled_date, match.scheduled_time].filter(Boolean).join(' · ') || '-'}
-                {st.started_at && <div className="muted mono" style={{ fontSize: '.74rem' }}>Mulai: {formatLocalDateTime(st.started_at)}</div>}
-              </span>
-            </div>
-            <div className="fm-kpi-item">
-              <span className="fm-kpi-label">🏁 WAKTU SELESAI</span>
-              <span className="fm-kpi-val small mono">
-                {formatLocalDateTime(match.finished_at || st.ended_at) || '-'}
-              </span>
-            </div>
-          </div>
-        </div>
 
-        {/* BWF / PBSI Penalty Cards Section (shown if any cards were issued or with clean status badge) */}
-        <div className="fm-cards-box">
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <span className="small" style={{ fontWeight: 800, color: cards.length > 0 ? '#fca5a5' : '#4ade80' }}>
-              🟨🟥 CATATAN DISIPLIN &amp; KARTU PELANGGARAN (BWF LAW 16 / PBSI)
-            </span>
-            <span className={`badge ${cards.length > 0 ? 'red' : 'green'}`}>
-              {cards.length > 0 ? `${cards.length} Kartu Dikeluarkan` : '✔ Fair Play — 0 Kartu Pelanggaran'}
-            </span>
-          </div>
-          {cards.length > 0 && (
-            <div className="tbl-wrap" style={{ marginTop: '.45rem' }}>
-              <table className="tbl">
+            <div className="bi-tbl-wrap">
+              <table className="bi-tbl">
                 <thead>
                   <tr>
                     <th>Kartu</th>
-                    <th>Pemain / Tim</th>
+                    <th>Pemain &amp; Tim</th>
                     <th>Club / PB</th>
-                    <th>Set &amp; Skor</th>
-                    <th>Alasan Pelanggaran (BWF Clause 16)</th>
-                    <th>Konsekuensi Pertandingan</th>
-                    <th>Waktu</th>
+                    <th>Set &amp; Skor Saat Pelanggaran</th>
+                    <th>Alasan Pelanggaran</th>
+                    <th>Konsekuensi Terhadap Pertandingan</th>
+                    <th>Waktu Kejadian</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1213,74 +1384,74 @@ function FinishedMatchDetailModal({ match, now, onClose, onEdit, onLogs }) {
                     <tr key={c.card_id}>
                       <td>
                         <span className={`badge ${c.type === 'yellow' ? 'gold' : 'red'}`}>
-                          {c.type === 'yellow' ? '🟨 KARTU KUNING' : c.type === 'red' ? '🟥 KARTU MERAH' : '⬛ KARTU HITAM (DSQ)'}
+                          {c.type === 'yellow' ? '🟨 KUNING' : c.type === 'red' ? '🟥 MERAH (FAULT)' : '⬛ HITAM (DSQ)'}
                         </span>
                       </td>
-                      <td>
+                      <td className="bi-wrap-cell">
                         <b>{c.player_name}</b>
-                        <div className="small muted">Tim {(c.team || '').toUpperCase()}</div>
+                        <div className="bi-cell-sub">Tim {(c.team || '').toUpperCase()}</div>
                       </td>
-                      <td className="small">{c.club || '-'}</td>
-                      <td className="mono small">
+                      <td className="bi-wrap-cell">{c.club || '-'}</td>
+                      <td className="mono">
                         Set {c.set} ({c.score_before?.a}-{c.score_before?.b} ➔ <b>{c.score_after?.a}-{c.score_after?.b}</b>)
                       </td>
-                      <td className="small">{c.reason}</td>
-                      <td className="small muted">{c.consequence}</td>
+                      <td className="bi-wrap-cell">{c.reason}</td>
+                      <td className="bi-wrap-cell small muted">{c.consequence}</td>
                       <td className="mono small">{c.timestamp || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
+          </section>
+        )}
 
-        {/* Complete Multi-Row Rally History at the Bottom */}
-        <div className="fm-history-section">
-          <div className="row" style={{ justifyContent: 'space-between', marginBottom: '.5rem' }}>
+        {/* Complete Multi-Row Full Canvas Rally History (Maximized Width & Print Area) */}
+        <section className="bi-card md-rally-history-card">
+          <div className="bi-card-head" style={{ flexWrap: 'wrap', gap: '.65rem' }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#fff' }}>
-                📈 Histori Reli Lengkap Pertandingan ({rallies.length} Reli)
-              </h3>
-              <span className="small muted">
-                Menampilkan urutan perolehan angka dan servis dari Reli #1 hingga poin penutup per-set dalam tampilan multi-baris.
-              </span>
+              <h3>📈 Histori Reli Lengkap Seluruh Pertandingan ({rallies.length} Reli)</h3>
+              <p>
+                Visualisasi progres perolehan angka dari Reli #1 hingga reli penutup per-set secara multi-baris memaksimalkan lebar layar dan area cetak
+              </p>
             </div>
             {rallies.length > 0 && (
-              <div className="row" style={{ gap: '.4rem' }}>
-                <span className="small muted">Kolom per baris:</span>
-                {[15, 20, 25, 30].map((n) => (
+              <div className="row tr-no-print" style={{ gap: '.35rem', alignItems: 'center' }}>
+                <span className="small muted">Kerapatan Kolom:</span>
+                {[15, 20, 25, 30, 40].map((n) => (
                   <button
                     key={n}
                     type="button"
                     className={`btn btn-sm ${perRow === n ? 'btn-primary' : ''}`}
                     onClick={() => setPerRow(n)}
                   >
-                    {n} Reli/Baris
+                    {n}/Baris
                   </button>
                 ))}
               </div>
             )}
           </div>
 
-          {rallies.length > 0 ? (
-            <RallyHistoryStrip
-              match={match}
-              multiRow={true}
-              perRow={perRow}
-              groupBySet={true}
-              topSide="a"
-              bottomSide="b"
-              showLabel={true}
-              showTeamNames={true}
-              title={`PROGRESI RELI LENGKAP · ${teamLabel(match, 'a')} vs ${teamLabel(match, 'b')}`}
-            />
-          ) : (
-            <div className="muted small" style={{ padding: '1.2rem', textAlign: 'center', background: '#0a1328', borderRadius: 10, border: '1px dashed var(--line)' }}>
-              Pertandingan ini diselesaikan melalui input skor langsung / keputusan panitia sehingga tidak memiliki rekaman reli per-poin.
-            </div>
-          )}
-        </div>
+          <div className="md-rally-strip-container">
+            {rallies.length > 0 ? (
+              <RallyHistoryStrip
+                match={match}
+                multiRow={true}
+                perRow={perRow}
+                groupBySet={true}
+                topSide="a"
+                bottomSide="b"
+                showLabel={true}
+                showTeamNames={true}
+                title={`PROGRESI RELI LENGKAP · ${teamLabel(match, 'a')} (Tim A) vs ${teamLabel(match, 'b')} (Tim B)`}
+              />
+            ) : (
+              <div className="bi-empty-box" style={{ background: 'var(--bi-surface-2)', borderRadius: 12 }}>
+                Pertandingan ini diselesaikan melalui input skor langsung / keputusan panitia sehingga tidak memiliki rekaman reli per-poin.
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
