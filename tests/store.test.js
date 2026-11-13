@@ -968,3 +968,64 @@ REM-1,SmashPoint Open,Dewasa,MD,rally_point,sets,21,11,Kevin,Marcus,PB Djarum,1,
   store.flush();
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+
+test('Player Injury / Retirement & Walkover (RETIRE action)', () => {
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tests', '.tmp-retire-'));
+  const store = new Store({ dataDir: dir, courtCount: 4, lockTimeoutMs: 1000, masterPin: '1234' });
+  const sampleCsv = `match_number,tournament_name,category_name,discipline,scoring_method,scoring_type,win_point,interval_point,team_a_p1_name,team_a_p2_name,team_a_club,team_a_details,team_b_p1_name,team_b_p2_name,team_b_club,team_b_details,scheduled_date,court_number,scheduled_time
+RET-1,SmashPoint Open,Dewasa,MS,rally_point,sets,21,11,Anthony Ginting,,SGS,1,Viktor Axelsen,,Denmark,2,2026-10-20,1,14:00 WIB`;
+  store.upsertMatches(ingest(sampleCsv, { courtCount: 4 }).matches);
+
+  // Start match
+  const dev = 'ref-dev-1';
+  const lock = store.lock('RET-1', dev, 'Wasit Anton');
+  const a1 = store.action('RET-1', dev, {
+    type: 'SETUP_START',
+    last_log_id: lock.match.last_log_id,
+    payload: { left: 'a', server_id: 'a1' },
+  });
+
+  // Score a few points
+  const a2 = store.action('RET-1', dev, { type: 'WIN_RALLY', last_log_id: a1.log.log_id, payload: { side: 'left' } }); // A scores 1-0
+  const a3 = store.action('RET-1', dev, { type: 'WIN_RALLY', last_log_id: a2.log.log_id, payload: { side: 'right' } }); // B scores 1-1
+
+  // Anthony Ginting gets injured and retires
+  const res = store.action('RET-1', dev, {
+    type: 'RETIRE',
+    last_log_id: a3.log.log_id,
+    payload: {
+      team: 'a',
+      player_id: 'a1',
+      mode: 'retired',
+      reason: 'Cedera kram pergelangan kaki kiri',
+    },
+  });
+  const retired = res.match;
+
+  assert.equal(retired.session_management.status, 'in_progress');
+  assert.equal(retired.live_state.phase, 'finished');
+  assert.equal(retired.live_state.winner, 'b');
+  assert.equal(retired.live_state.retirement.type, 'retired');
+  assert.equal(retired.live_state.retirement.tag, 'RET');
+  assert.equal(retired.live_state.retirement.team, 'a');
+  assert.equal(retired.live_state.retirement.winner, 'b');
+  assert.match(retired.live_state.retirement.reason, /kram/i);
+
+  // Referee confirms finish
+  const finRes = store.action('RET-1', dev, { type: 'CONFIRM_FINISH', last_log_id: res.log.log_id });
+  assert.equal(finRes.match.session_management.status, 'finished');
+
+  // Check set history has RET note
+  const lastSet = retired.live_state.set_history[0];
+  assert.equal(lastSet.note, 'RET');
+  assert.equal(lastSet.winner, 'b');
+
+  // Verify resultRow for Sheets export
+  const row = resultRow(store.get('RET-1'));
+  assert.equal(row.winner, 'B');
+  assert.match(row.status_note, /\[RET\]/);
+
+  store.flush();
+  fs.rmSync(dir, { recursive: true, force: true });
+});

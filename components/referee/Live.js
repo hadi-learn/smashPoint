@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { breakCountdownInfo, BWF_CARD_REASONS, BWF_CARD_TYPES, courtPositions, detailsToInput, isDoubles, matchDurationText, other, playerName, teamLabel, teamSeedBadge } from '@/lib/engine';
+import { breakCountdownInfo, BWF_CARD_REASONS, BWF_CARD_TYPES, BWF_RETIRE_REASONS, courtPositions, detailsToInput, isDoubles, matchDurationText, other, playerName, teamLabel, teamSeedBadge } from '@/lib/engine';
 import CourtMap from '../CourtMap';
 import { Shuttle } from '../Icons';
 
@@ -227,6 +227,170 @@ function PenaltyCardModal({ match, onClose, send, pending }) {
             {pending
               ? 'Memproses…'
               : `${selectedMeta.icon} Berikan ${selectedMeta.label} ke ${playerName(match, playerId)}`}
+          </button>
+          <button type="button" className="btn btn-ghost btn-lg" onClick={onClose}>
+            Batal
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function RetireModal({ match, onClose, send, pending }) {
+  const st = match.live_state;
+  const dbl = isDoubles(match);
+  const [team, setTeam] = useState('a');
+  const [playerId, setPlayerId] = useState('a1');
+  const [mode, setMode] = useState(st.phase === 'setup' ? 'walkover' : 'retired');
+  const [reasonPreset, setReasonPreset] = useState(BWF_RETIRE_REASONS[0]);
+  const [customNote, setCustomNote] = useState('');
+  const [err, setErr] = useState(null);
+
+  const selectTeam = (t) => {
+    setTeam(t);
+    setPlayerId(`${t}1`);
+  };
+
+  const handleRetire = async (e) => {
+    e.preventDefault();
+    setErr(null);
+    const fullReason = customNote.trim()
+      ? `${reasonPreset} — ${customNote.trim()}`
+      : reasonPreset;
+    const oppTeam = other(team);
+    const oppLabel = teamLabel(match, oppTeam);
+    const injuredName = playerName(match, playerId);
+    const tag = mode === 'walkover' ? 'WALKOVER (WO)' : 'RETIRED (CEDERA / MUNDUR)';
+
+    if (!window.confirm(`KONFIRMASI ${tag}:\n\nPemain: ${injuredName} (Tim ${T(team)})\nAlasan: ${fullReason}\n\nPertandingan akan dihentikan dan dimenangkan oleh Tim ${T(oppTeam)} (${oppLabel}). Lanjutkan?`)) {
+      return;
+    }
+
+    const r = await send('RETIRE', {
+      team,
+      player_id: playerId,
+      mode,
+      reason: fullReason,
+    });
+    if (r?.ok) onClose();
+    else if (r?.error) setErr(r.error);
+  };
+
+  const oppTeam = other(team);
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <form className="modal col" style={{ width: 'min(580px, 100%)', gap: '.85rem' }} onClick={(e) => e.stopPropagation()} onSubmit={handleRetire}>
+        <div className="row">
+          <h2 style={{ margin: 0, color: '#f87171' }}>🚑 Pemain Cedera / Tidak Bisa Lanjut</h2>
+          <div className="spacer" />
+          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+
+        <p className="small muted" style={{ margin: 0 }}>
+          Catat penghentian pertandingan resmi karena cedera medis (Retired) atau ketidakhadiran (Walkover). Kemenangan otomatis diberikan kepada lawan.
+        </p>
+
+        {err && <div className="notice error">{err}</div>}
+
+        {/* Pilih Jenis Penghentian */}
+        <div className="col" style={{ gap: '.4rem' }}>
+          <span className="small" style={{ fontWeight: 800 }}>1. Jenis Status Penghentian:</span>
+          <div className="row" style={{ gap: '.5rem' }}>
+            <button
+              type="button"
+              className={`btn ${mode === 'retired' ? 'btn-red' : ''}`}
+              style={{ flex: 1 }}
+              onClick={() => {
+                setMode('retired');
+                setReasonPreset(BWF_RETIRE_REASONS[0]);
+              }}
+            >
+              🚑 Retired (Cedera / Sakit)
+            </button>
+            <button
+              type="button"
+              className={`btn ${mode === 'walkover' ? 'btn-red' : ''}`}
+              style={{ flex: 1 }}
+              onClick={() => {
+                setMode('walkover');
+                setReasonPreset(BWF_RETIRE_REASONS[3]);
+              }}
+            >
+              🚪 Walkover / WO (Tidak Hadir)
+            </button>
+          </div>
+        </div>
+
+        {/* Pilih Tim & Pemain yang Mundur */}
+        <div className="col" style={{ gap: '.4rem' }}>
+          <span className="small" style={{ fontWeight: 800 }}>2. Tim / Pemain yang Tidak Dapat Melanjutkan:</span>
+          <div className="row" style={{ gap: '.5rem' }}>
+            {['a', 'b'].map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={`btn ${team === t ? 'btn-primary' : ''}`}
+                style={{ flex: 1, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '.1rem' }}
+                onClick={() => selectTeam(t)}
+              >
+                <span className="badge" style={{ alignSelf: 'flex-start' }}>TIM {T(t)}</span>
+                <b style={{ fontSize: '.9rem' }}>{teamLabel(match, t)}</b>
+                <span className="small muted">{match.teams[`team_${t}`].club || '-'}</span>
+              </button>
+            ))}
+          </div>
+
+          {dbl && (
+            <div className="row" style={{ gap: '.5rem', marginTop: '.3rem' }}>
+              {[`${team}1`, `${team}2`].map((pid) => (
+                <button
+                  key={pid}
+                  type="button"
+                  className={`btn btn-sm ${playerId === pid ? 'btn-yellow' : ''}`}
+                  style={{ flex: 1 }}
+                  onClick={() => setPlayerId(pid)}
+                >
+                  👤 {playerName(match, pid)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Pilih Alasan */}
+        <div className="col" style={{ gap: '.4rem' }}>
+          <span className="small" style={{ fontWeight: 800 }}>3. Alasan Resmi Penghentian:</span>
+          <select className="input" value={reasonPreset} onChange={(e) => setReasonPreset(e.target.value)}>
+            {BWF_RETIRE_REASONS.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+          <input
+            className="input"
+            placeholder="Catatan medis tambahan (opsional: contoh 'Kram betis kanan game 2')"
+            value={customNote}
+            onChange={(e) => setCustomNote(e.target.value)}
+          />
+        </div>
+
+        <div className="notice warn small" style={{ margin: 0 }}>
+          🏆 <b>Konsekuensi:</b> Pertandingan dinyatakan selesai dengan status <b>{mode === 'walkover' ? 'WO' : 'RET'}</b>. Kemenangan otomatis diberikan kepada <b>Tim {T(oppTeam)} ({teamLabel(match, oppTeam)})</b>.
+        </div>
+
+        <div className="row">
+          <button
+            type="submit"
+            className="btn btn-red btn-lg"
+            style={{ flex: 1 }}
+            disabled={pending}
+          >
+            {pending ? 'Memproses…' : `🚑 Konfirmasi Penghentian (Menangkan Tim ${T(oppTeam)})`}
           </button>
           <button type="button" className="btn btn-ghost btn-lg" onClick={onClose}>
             Batal
@@ -584,6 +748,7 @@ export function TakeoverModal({ match, onClose, onSubmit }) {
 export default function LiveScreen({ match, now, readOnly, pending, connected, send, spectator, layout = 'landscape-sides' }) {
   const [showOverride, setShowOverride] = useState(false);
   const [showCardModal, setShowCardModal] = useState(false);
+  const [showRetireModal, setShowRetireModal] = useState(false);
   const st = match.live_state;
   const ss = st.service_status;
   const L = st.sides.left;
@@ -783,17 +948,34 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
 
           <div className="ref-finish-duel">
             <div className="ref-finish-winner">
-              <div className="small" style={{ fontWeight: 900, color: '#fde047' }}>🏆 PEMENANG (TIM {T(winSide)})</div>
+              <div className="small" style={{ fontWeight: 900, color: '#fde047' }}>
+                🏆 PEMENANG (TIM {T(winSide)})
+                {st.retirement && <span className="badge red" style={{ marginLeft: '.35rem', fontSize: '.68rem' }}>MENANG {st.retirement.tag}</span>}
+              </div>
               <div className="ref-finish-name">{teamLabel(match, winSide)}</div>
               <div className="small muted">{match.teams[`team_${winSide}`].club || '-'}</div>
             </div>
             <div className="ref-finish-vs">VS</div>
             <div className="ref-finish-runner">
-              <div className="small muted" style={{ fontWeight: 800 }}>RUNNER-UP (TIM {T(loseSide)})</div>
+              <div className="small muted" style={{ fontWeight: 800 }}>
+                RUNNER-UP (TIM {T(loseSide)})
+                {st.retirement && <span className="badge red" style={{ marginLeft: '.35rem', fontSize: '.68rem' }}>{st.retirement.tag} ({st.retirement.type.toUpperCase()})</span>}
+              </div>
               <div className="ref-finish-name-sub">{teamLabel(match, loseSide)}</div>
               <div className="small muted">{match.teams[`team_${loseSide}`].club || '-'}</div>
             </div>
           </div>
+
+          {st.retirement && (
+            <div className="notice warn" style={{ margin: '.2rem 0', padding: '.5rem .75rem' }}>
+              <div className="small" style={{ fontWeight: 800, color: '#fecaca' }}>
+                🚑 {st.retirement.type === 'walkover' ? 'WALKOVER (WO)' : 'PENGUNDURAN DIRI / CEDERA (RETIRED)'}
+              </div>
+              <div className="small" style={{ marginTop: '.15rem', color: '#f8fafc' }}>
+                <b>{st.retirement.player_name}</b> (Tim {T(st.retirement.team)}) tidak dapat melanjutkan pertandingan: &ldquo;{st.retirement.reason}&rdquo;. Skor saat berhenti: {st.retirement.score_at_stop.a}-{st.retirement.score_at_stop.b} (Set {st.retirement.set}).
+              </div>
+            </div>
+          )}
 
           <div className="ref-finish-sets">
             {(st.set_history || []).map((s) => (
@@ -1059,6 +1241,20 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
             >
               🟨🟥 KARTU PELANGGARAN {cards.length > 0 ? `(${cards.length})` : ''}
             </button>
+            <button
+              className="btn"
+              style={{
+                background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.28), rgba(185, 28, 28, 0.38))',
+                borderColor: 'rgba(239, 68, 68, 0.7)',
+                color: '#fca5a5',
+                fontWeight: 800,
+              }}
+              disabled={!canAct || st.phase === 'finished'}
+              onClick={() => setShowRetireModal(true)}
+              title="Catat pemain yang cedera atau tidak dapat melanjutkan pertandingan (Retired / Walkover)"
+            >
+              🚑 CEDERA / RETIRED
+            </button>
             <button className="btn btn-red" disabled={!canAct} onClick={() => setShowOverride(true)}>
               ⚠ OVERRIDE
             </button>
@@ -1067,6 +1263,7 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
         {spectator}
       </div>
       {showCardModal && <PenaltyCardModal match={match} onClose={() => setShowCardModal(false)} send={send} pending={pending} />}
+      {showRetireModal && <RetireModal match={match} onClose={() => setShowRetireModal(false)} send={send} pending={pending} />}
       {showOverride && <OverrideModal match={match} onClose={() => setShowOverride(false)} send={send} pending={pending} />}
     </>
   );

@@ -103,6 +103,11 @@ function PublicMatchDetailModal({ match, onClose }) {
           {Number(match.shuttlecock_count) > 0 && (
             <span>🪶 Shuttlecock: <strong>{match.shuttlecock_count}</strong></span>
           )}
+          {match.live?.retirement && (
+            <span style={{ color: '#f87171' }}>
+              🚑 Status: <strong>{match.live.retirement.tag} ({match.live.retirement.reason})</strong>
+            </span>
+          )}
         </div>
 
         {totalRallies > 0 ? (

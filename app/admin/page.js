@@ -24,6 +24,7 @@ import {
   playerName,
   teamLabel,
   teamSeedBadge,
+  BWF_RETIRE_REASONS,
 } from '@/lib/engine';
 import { StatusBadge } from '@/components/referee/Entry';
 import RallyHistoryStrip from '@/components/RallyHistoryStrip';
@@ -1661,6 +1662,12 @@ function AdminRemoteSetupModal({ match, token, onClose, notify }) {
   const [side, setSide] = useState(st.service_status?.side || 'a');
   const [turn, setTurn] = useState(st.service_status?.turn || 1);
   const [cockCount, setCockCount] = useState(Number(st.shuttlecock_count ?? 0));
+  const [showRetireConfirm, setShowRetireConfirm] = useState(false);
+  const [retireTeam, setRetireTeam] = useState('a');
+  const [retirePlayerId, setRetirePlayerId] = useState('a1');
+  const [retireMode, setRetireMode] = useState('retired');
+  const [retireReason, setRetireReason] = useState(BWF_RETIRE_REASONS[0]);
+  const [retireCustom, setRetireCustom] = useState('');
 
   const runRemote = async (type, payload = {}, closeAfter = true) => {
     setBusy(true);
@@ -1995,7 +2002,116 @@ function AdminRemoteSetupModal({ match, token, onClose, notify }) {
               <button type="button" className="btn btn-yellow" disabled={busy || !match.can_undo} onClick={() => runRemote('UNDO', {}, false)}>
                 ↶ Undo Terakhir
               </button>
+              {st.phase !== 'finished' && (
+                <button
+                  type="button"
+                  className="btn btn-red"
+                  disabled={busy}
+                  onClick={() => {
+                    setRetireTeam(left);
+                    setRetirePlayerId(`${left}1`);
+                    setRetireMode(isSetup ? 'walkover' : 'retired');
+                    setShowRetireConfirm(true);
+                  }}
+                  title="Hentikan pertandingan karena pemain cedera / Walkover"
+                >
+                  🚑 Pemain Cedera / RET / WO
+                </button>
+              )}
             </div>
+
+            {showRetireConfirm && (
+              <div className="card col" style={{ background: 'rgba(153, 27, 27, 0.22)', borderColor: 'rgba(239, 68, 68, 0.55)', gap: '.65rem', marginTop: '.5rem' }}>
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <b style={{ color: '#fca5a5' }}>🚑 Form Penghentian Pertandingan (Cedera / Walkover)</b>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setShowRetireConfirm(false)}>✕</button>
+                </div>
+                <div className="row" style={{ gap: '.5rem' }}>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${retireMode === 'retired' ? 'btn-red' : ''}`}
+                    onClick={() => setRetireMode('retired')}
+                  >
+                    🚑 Retired (Cedera / Mundur)
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${retireMode === 'walkover' ? 'btn-red' : ''}`}
+                    onClick={() => setRetireMode('walkover')}
+                  >
+                    🚪 Walkover / WO (Tidak Hadir)
+                  </button>
+                </div>
+                <div className="row" style={{ gap: '.5rem', alignItems: 'center' }}>
+                  <span className="small muted">Tim yang Tidak Lanjut:</span>
+                  {['a', 'b'].map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={`btn btn-sm ${retireTeam === t ? 'btn-primary' : ''}`}
+                      onClick={() => {
+                        setRetireTeam(t);
+                        setRetirePlayerId(`${t}1`);
+                      }}
+                    >
+                      Tim {t.toUpperCase()}: {teamLabel(match, t)}
+                    </button>
+                  ))}
+                </div>
+                {dbl && (
+                  <div className="row" style={{ gap: '.4rem', alignItems: 'center' }}>
+                    <span className="small muted">Pemain:</span>
+                    {[`${retireTeam}1`, `${retireTeam}2`].map((pid) => (
+                      <button
+                        key={pid}
+                        type="button"
+                        className={`btn btn-sm ${retirePlayerId === pid ? 'btn-yellow' : ''}`}
+                        onClick={() => setRetirePlayerId(pid)}
+                      >
+                        {playerName(match, pid)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="col" style={{ gap: '.3rem' }}>
+                  <span className="small muted">Alasan:</span>
+                  <select className="input" value={retireReason} onChange={(e) => setRetireReason(e.target.value)}>
+                    {BWF_RETIRE_REASONS.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                  <input
+                    className="input"
+                    placeholder="Catatan tambahan (opsional)"
+                    value={retireCustom}
+                    onChange={(e) => setRetireCustom(e.target.value)}
+                  />
+                </div>
+                <div className="row" style={{ gap: '.5rem', justifyContent: 'flex-end' }}>
+                  <button type="button" className="btn btn-ghost" onClick={() => setShowRetireConfirm(false)}>Batal</button>
+                  <button
+                    type="button"
+                    className="btn btn-red"
+                    disabled={busy}
+                    onClick={() => {
+                      const fullReason = retireCustom.trim() ? `${retireReason} — ${retireCustom.trim()}` : retireReason;
+                      const opp = other(retireTeam);
+                      if (window.confirm(`Konfirmasi penghentian laga? Tim ${opp.toUpperCase()} (${teamLabel(match, opp)}) akan otomatis dimenangkan.`)) {
+                        runRemote('RETIRE', {
+                          team: retireTeam,
+                          player_id: retirePlayerId,
+                          mode: retireMode,
+                          reason: fullReason,
+                          auto_confirm: true,
+                        });
+                      }
+                    }}
+                  >
+                    ✔ Terapkan &amp; Menangkan Tim {other(retireTeam).toUpperCase()}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
