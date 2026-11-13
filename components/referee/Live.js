@@ -257,6 +257,7 @@ function OverrideModal({ match, onClose, send, pending }) {
     },
   });
   const [score, setScore] = useState({ ...st.score });
+  const [left, setLeft] = useState(st.sides?.left || 'a');
   const [side, setSide] = useState(st.service_status.side || 'a');
   const [turn, setTurn] = useState(st.service_status.turn || 1);
   const [server, setServer] = useState(st.service_status.player_id || 'a1');
@@ -273,8 +274,8 @@ function OverrideModal({ match, onClose, send, pending }) {
   };
   const setName = (t, k, v) => setNames((x) => ({ ...x, [t]: { ...x[t], [k]: v } }));
   const bump = (t, d) => setScore((s) => ({ ...s, [t]: Math.max(0, (parseInt(s[t], 10) || 0) + d) }));
-  const leftTeam = st.sides?.left || 'a';
-  const rightTeam = leftTeam === 'a' ? 'b' : 'a';
+  const leftTeam = left;
+  const rightTeam = other(leftTeam);
 
   const previewMatch = {
     ...match,
@@ -288,9 +289,97 @@ function OverrideModal({ match, onClose, send, pending }) {
   };
   const previewPositions = courtPositions(previewMatch);
 
+  const pickServer = (pid) => {
+    if (!pid) return;
+    setSide(pid[0]);
+    setServer(pid);
+  };
+
+  const swapTeamVertical = (t) => {
+    setPos((p) => ({ ...p, [t]: { even: p[t].odd, odd: p[t].even } }));
+  };
+
+  const renderSidePositionCol = (screenSide) => {
+    const t = screenSide === 'left' ? leftTeam : rightTeam;
+    const topSlot = screenSide === 'left' ? 'left_top' : 'right_top';
+    const bottomSlot = screenSide === 'left' ? 'left_bottom' : 'right_bottom';
+    const topPid = previewPositions[topSlot];
+    const bottomPid = previewPositions[bottomSlot];
+    const topBoxLabel = screenSide === 'left' ? 'Atas (Kiri/Ganjil)' : 'Atas (Kanan/Genap)';
+    const bottomBoxLabel = screenSide === 'left' ? 'Bawah (Kanan/Genap)' : 'Bawah (Kiri/Ganjil)';
+
+    return (
+      <div className={`setup-side-col ${screenSide}`}>
+        <div className="setup-side-hdr">
+          {screenSide === 'left' ? '◀ SISI KIRI' : 'SISI KANAN ▶'} · TIM {T(t)}
+        </div>
+
+        {/* Score Stepper for this side's team */}
+        <div className="ov-score-stepper" style={{ padding: '.35rem .5rem' }}>
+          <button type="button" className="btn btn-sm" onClick={() => bump(t, -1)}>−</button>
+          <input
+            className="input ov-score-input mono"
+            style={{ width: 64, fontSize: '1.35rem', padding: '.2rem' }}
+            type="number"
+            min={0}
+            value={score[t]}
+            onChange={(e) => setScore((s) => ({ ...s, [t]: e.target.value }))}
+          />
+          <button type="button" className="btn btn-sm btn-green" onClick={() => bump(t, 1)}>+</button>
+        </div>
+
+        {/* Top Player Slot */}
+        <div className={`setup-slot-card ${server === topPid ? 'is-srv' : ''}`}>
+          <div className="setup-slot-tag">⬆ {topBoxLabel}</div>
+          <div className="setup-slot-name">{playerName(match, topPid) || '—'}</div>
+          {topPid && (
+            <div className="setup-slot-actions">
+              <button
+                type="button"
+                className={`icon-btn shuttle ${server === topPid ? 'on' : ''}`}
+                onClick={() => pickServer(topPid)}
+              >
+                <Shuttle size={14} /> Servis
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Swap Top <-> Bottom for this side */}
+        {dbl && (
+          <button
+            type="button"
+            className="btn btn-sm setup-swap-vertical-btn"
+            onClick={() => swapTeamVertical(t)}
+            title={`Tukar posisi Atas ⇅ Bawah untuk pasangan Tim ${T(t)}`}
+          >
+            ⇅ Tukar Atas ↕ Bawah ({screenSide === 'left' ? 'Kiri' : 'Kanan'})
+          </button>
+        )}
+
+        {/* Bottom Player Slot */}
+        <div className={`setup-slot-card ${server === bottomPid ? 'is-srv' : ''}`}>
+          <div className="setup-slot-tag">⬇ {bottomBoxLabel}</div>
+          <div className="setup-slot-name">{playerName(match, bottomPid) || '—'}</div>
+          {bottomPid && (
+            <div className="setup-slot-actions">
+              <button
+                type="button"
+                className={`icon-btn shuttle ${server === bottomPid ? 'on' : ''}`}
+                onClick={() => pickServer(bottomPid)}
+              >
+                <Shuttle size={14} /> Servis
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="modal-bg" onClick={onClose}>
-      <div className="modal col" style={{ width: 'min(780px, 100%)' }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal col" style={{ width: 'min(1080px, 98vw)' }} onClick={(e) => e.stopPropagation()}>
         <div className="row">
           <h2 style={{ margin: 0, color: '#f87171' }}>⚠ Koreksi Cepat Wasit (Override)</h2>
           <div className="spacer" />
@@ -312,127 +401,84 @@ function OverrideModal({ match, onClose, send, pending }) {
         {err && <div className="notice error">{err}</div>}
 
         {tab === 'score' && (
-          <div className="col" style={{ gap: '.85rem' }}>
-            {/* Live CourtMap Visual Preview */}
-            <div style={{ background: 'rgba(2, 6, 23, 0.45)', borderRadius: 12, padding: '.55rem', border: '1px solid rgba(148, 163, 184, 0.2)' }}>
-              <div className="small muted" style={{ fontWeight: 800, marginBottom: '.3rem', textAlign: 'center' }}>
-                🏸 ILUSTRASI POSISI LAPANGAN (KIRI vs KANAN · GENAP/GANJIL · SERVIS)
+          <div className="col" style={{ gap: '.75rem' }}>
+            {/* TOP BAR: Left Team | Center Swap Sides Button | Right Team */}
+            <div className="setup-top-sides-bar">
+              <div className="setup-side-team left">
+                <span className="setup-side-badge left">◀ LAPANGAN KIRI · TIM {T(leftTeam)}</span>
+                <span className="tname">{teamLabel(match, leftTeam)}</span>
+                <span className="tclub">{match.teams[`team_${leftTeam}`].club || '-'}</span>
               </div>
-              <CourtMap match={previewMatch} positions={previewPositions} servicePlayerId={server} compact />
+
+              <button
+                type="button"
+                className="btn btn-blue setup-swap-sides-btn"
+                onClick={() => setLeft(other(leftTeam))}
+                title="Tukar sisi lapangan pasangan Kiri dan Kanan"
+              >
+                ⇄ Tukar Sisi Lapangan (Kiri ↔ Kanan)
+              </button>
+
+              <div className="setup-side-team right">
+                <span className="setup-side-badge right">LAPANGAN KANAN · TIM {T(rightTeam)} ▶</span>
+                <span className="tname">{teamLabel(match, rightTeam)}</span>
+                <span className="tclub">{match.teams[`team_${rightTeam}`].club || '-'}</span>
+              </div>
             </div>
 
-            {/* Visual Left vs Right Court Scoreboard */}
-            <div className="ov-court-grid">
-              {[
-                { key: leftTeam, label: 'SISI KIRI' },
-                { key: rightTeam, label: 'SISI KANAN' },
-              ].map(({ key: t, label: sideLbl }) => {
-                const isSrv = side === t;
-                return (
-                  <div key={t} className={`ov-team-box ${isSrv ? 'serving' : ''}`}>
-                    <div className="row" style={{ justifyContent: 'space-between' }}>
-                      <span className="badge">{sideLbl} · TIM {T(t)}</span>
-                      {isSrv && <span className="badge gold">🏸 SERVIS</span>}
-                    </div>
-                    <div className="ov-team-name">{teamLabel(match, t)}</div>
-                    <div className="ov-score-stepper">
-                      <button type="button" className="btn btn-lg" onClick={() => bump(t, -1)}>−</button>
-                      <input
-                        className="input ov-score-input mono"
-                        type="number"
-                        min={0}
-                        value={score[t]}
-                        onChange={(e) => setScore((s) => ({ ...s, [t]: e.target.value }))}
-                      />
-                      <button type="button" className="btn btn-lg btn-green" onClick={() => bump(t, 1)}>+</button>
-                    </div>
+            {/* MIDDLE STAGE: Left Vertical Controls | Center CourtMap with inline Servis buttons | Right Vertical Controls */}
+            <div className="setup-court-stage">
+              {renderSidePositionCol('left')}
 
-                    {dbl && (
-                      <div className="ov-pos-box">
-                        <div className="row" style={{ justifyContent: 'space-between', marginBottom: '.3rem' }}>
-                          <span className="small muted" style={{ fontWeight: 700 }}>Posisi Kotak Pemain:</span>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-blue"
-                            onClick={() => setPos((p) => ({ ...p, [t]: { even: p[t].odd, odd: p[t].even } }))}
-                          >
-                            ⇅ Tukar Posisi
-                          </button>
-                        </div>
-                        <div className="ov-pos-pills">
-                          <div className="ov-pos-pill">
-                            <span className="muted">Genap (Kanan):</span> <b>{playerName(match, pos[t].even)}</b>
-                          </div>
-                          <div className="ov-pos-pill">
-                            <span className="muted">Ganjil (Kiri):</span> <b>{playerName(match, pos[t].odd)}</b>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Visual Server Picker */}
-            <div className="ov-section">
-              <div className="small muted" style={{ fontWeight: 800, marginBottom: '.4rem' }}>
-                🏸 PILIH PEMAIN YANG MEMEGANG SERVIS SAAT INI:
-              </div>
-              <div className="ov-server-grid">
-                {['a', 'b'].flatMap((t) =>
-                  (dbl ? [`${t}1`, `${t}2`] : [`${t}1`]).map((pid) => {
-                    const active = side === t && server === pid;
-                    return (
-                      <button
-                        key={pid}
-                        type="button"
-                        className={`btn ${active ? 'btn-yellow' : ''}`}
-                        style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                        onClick={() => {
-                          setSide(t);
-                          setServer(pid);
-                        }}
-                      >
-                        {active ? '🏸 ' : ''}Tim {T(t)} · <b>{playerName(match, pid)}</b>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-
-              {dbl && match.rules.scoring_method === 'side_out' && (
-                <div className="row" style={{ marginTop: '.6rem', gap: '.5rem', alignItems: 'center' }}>
-                  <span className="small muted" style={{ fontWeight: 800 }}>Giliran Servis (Side-Out):</span>
-                  {[1, 2].map((n) => (
-                    <button key={n} type="button" className={`btn btn-sm ${turn === n ? 'btn-blue' : ''}`} onClick={() => setTurn(n)}>
-                      {n === 1 ? '● Servis ke-1 (1st)' : '● ● Servis ke-2 (2nd)'}
+              <div className="setup-court-center">
+                <CourtMap
+                  match={previewMatch}
+                  positions={previewPositions}
+                  serverId={server}
+                  serveTurn={turn}
+                  spinKey={leftTeam}
+                  renderActions={(pid) => (
+                    <button
+                      type="button"
+                      className={`icon-btn shuttle ${server === pid ? 'on' : ''}`}
+                      onClick={() => pickServer(pid)}
+                      title="Jadikan pemegang servis saat ini"
+                    >
+                      <Shuttle size={16} /> Servis
                     </button>
-                  ))}
-                </div>
-              )}
+                  )}
+                />
+              </div>
+
+              {renderSidePositionCol('right')}
             </div>
 
-            <div className="row" style={{ gap: '.5rem' }}>
-              <button
-                type="button"
-                className="btn btn-blue"
-                disabled={pending}
-                onClick={() => send('SWITCH_SIDE')}
-                title="Tukar sisi lapangan Tim Kiri ↔ Tim Kanan"
-              >
-                ⇄ Tukar Sisi Kiri ↔ Kanan
-              </button>
-              <button
-                type="button"
-                className="btn btn-red btn-lg"
-                style={{ flex: 1 }}
-                disabled={pending}
-                onClick={() => submit({ score, service: { side, player_id: server, turn }, positions: dbl ? pos : undefined })}
-              >
-                ✔ Terapkan Koreksi Skor, Posisi &amp; Servis
-              </button>
-            </div>
+            {dbl && match.rules.scoring_method === 'side_out' && (
+              <div className="row" style={{ gap: '.5rem', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="small muted" style={{ fontWeight: 800 }}>Giliran Servis (Side-Out):</span>
+                {[1, 2].map((n) => (
+                  <button key={n} type="button" className={`btn btn-sm ${turn === n ? 'btn-blue' : ''}`} onClick={() => setTurn(n)}>
+                    {n === 1 ? '● Servis ke-1 (1st)' : '● ● Servis ke-2 (2nd)'}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="btn btn-red btn-lg btn-block"
+              disabled={pending}
+              onClick={() =>
+                submit({
+                  sides: { left: leftTeam },
+                  score,
+                  service: { side, player_id: server, turn },
+                  positions: dbl ? pos : undefined,
+                })
+              }
+            >
+              ✔ Terapkan Koreksi Sisi, Skor, Posisi &amp; Servis
+            </button>
           </div>
         )}
 
