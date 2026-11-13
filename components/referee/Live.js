@@ -276,6 +276,18 @@ function OverrideModal({ match, onClose, send, pending }) {
   const leftTeam = st.sides?.left || 'a';
   const rightTeam = leftTeam === 'a' ? 'b' : 'a';
 
+  const previewMatch = {
+    ...match,
+    live_state: {
+      ...st,
+      score: { a: parseInt(score.a, 10) || 0, b: parseInt(score.b, 10) || 0 },
+      sides: { left: leftTeam, right: rightTeam },
+      positions: pos,
+      service_status: { side, turn, player_id: server, receiver_id: null },
+    },
+  };
+  const previewPositions = courtPositions(previewMatch);
+
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal col" style={{ width: 'min(780px, 100%)' }} onClick={(e) => e.stopPropagation()}>
@@ -301,6 +313,14 @@ function OverrideModal({ match, onClose, send, pending }) {
 
         {tab === 'score' && (
           <div className="col" style={{ gap: '.85rem' }}>
+            {/* Live CourtMap Visual Preview */}
+            <div style={{ background: 'rgba(2, 6, 23, 0.45)', borderRadius: 12, padding: '.55rem', border: '1px solid rgba(148, 163, 184, 0.2)' }}>
+              <div className="small muted" style={{ fontWeight: 800, marginBottom: '.3rem', textAlign: 'center' }}>
+                🏸 ILUSTRASI POSISI LAPANGAN (KIRI vs KANAN · GENAP/GANJIL · SERVIS)
+              </div>
+              <CourtMap match={previewMatch} positions={previewPositions} servicePlayerId={server} compact />
+            </div>
+
             {/* Visual Left vs Right Court Scoreboard */}
             <div className="ov-court-grid">
               {[
