@@ -1732,71 +1732,89 @@ function AdminRemoteSetupModal({ match, token, onClose, notify }) {
 
         {isSetup ? (
           <div className="col" style={{ gap: '.85rem' }}>
-            <div className="ov-section">
-              <div className="small muted" style={{ fontWeight: 800, marginBottom: '.4rem' }}>1. PILIH POSISI SISI LAPANGAN (KIRI vs KANAN):</div>
-              <div className="row" style={{ gap: '.5rem' }}>
-                <button type="button" className={`btn ${left === 'a' ? 'btn-primary' : ''}`} onClick={() => setLeft('a')}>
-                  Kiri: Tim A ({teamLabel(match, 'a')}) · Kanan: Tim B
-                </button>
-                <button type="button" className={`btn ${left === 'b' ? 'btn-primary' : ''}`} onClick={() => setLeft('b')}>
-                  Kiri: Tim B ({teamLabel(match, 'b')}) · Kanan: Tim A
-                </button>
-              </div>
+            <div className="ov-controls-bar" style={{ marginTop: 0 }}>
+              <span className="small muted">
+                Kiri: <b style={{ color: 'var(--text)' }}>Tim {left.toUpperCase()}</b> · Kanan: <b style={{ color: 'var(--text)' }}>Tim {other(left).toUpperCase()}</b>
+              </span>
+              <button type="button" className="btn btn-sm btn-blue" onClick={() => setLeft((l) => other(l))}>
+                ⇄ Tukar Sisi Lapangan (Kiri ↔ Kanan)
+              </button>
             </div>
 
-            {dbl && (
-              <div className="ov-court-grid">
-                {['a', 'b'].map((t) => (
-                  <div key={t} className="ov-team-box">
-                    <div className="row" style={{ justifyContent: 'space-between' }}>
-                      <span className="badge">TIM {t.toUpperCase()} · {teamLabel(match, t)}</span>
-                      <button type="button" className="btn btn-sm btn-blue" onClick={() => setPos((p) => ({ ...p, [t]: { even: p[t].odd, odd: p[t].even } }))}>
-                        ⇅ Tukar Posisi
-                      </button>
+            <div className="ov-courts-grid" style={{ marginTop: 0 }}>
+              {[
+                { key: left, lbl: 'SISI KIRI' },
+                { key: other(left), lbl: 'SISI KANAN' },
+              ].map(({ key: t, lbl }) => {
+                const isServingTeam = server[0] === t;
+                const playerIds = dbl ? [pos[t].even, pos[t].odd].filter(Boolean) : [`${t}1`];
+                return (
+                  <div key={t} className={`ov-side-card ${isServingTeam ? 'serving' : ''}`}>
+                    <div className="ov-side-head">
+                      <span className="ov-side-badge">{lbl} · TIM {t.toUpperCase()}</span>
+                      {dbl && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-blue"
+                          onClick={() => setPos((p) => ({ ...p, [t]: { even: p[t].odd, odd: p[t].even } }))}
+                        >
+                          ⇅ Tukar Posisi
+                        </button>
+                      )}
                     </div>
-                    <div className="ov-pos-pills">
-                      <div className="ov-pos-pill"><span className="muted">Genap (Kanan):</span> <b>{playerName(match, pos[t].even)}</b></div>
-                      <div className="ov-pos-pill"><span className="muted">Ganjil (Kiri):</span> <b>{playerName(match, pos[t].odd)}</b></div>
+                    <div className="small" style={{ fontWeight: 700 }}>{teamLabel(match, t)}</div>
+
+                    <div className="ov-pos-list">
+                      {playerIds.map((pid, idx) => {
+                        const isSrv = server === pid;
+                        const isRcv = dbl ? receiver === pid : !isServingTeam && pid === `${t}1`;
+                        const boxLabel = dbl ? (idx === 0 ? 'Genap (Kanan)' : 'Ganjil (Kiri)') : 'Tunggal';
+                        return (
+                          <div
+                            key={pid}
+                            className={`ov-player-btn ${isSrv ? 'serving' : ''}`}
+                            style={{ cursor: 'default', gap: '.4rem', flexWrap: 'wrap' }}
+                          >
+                            <div style={{ flex: 1, minWidth: 120 }}>
+                              <div className="muted" style={{ fontSize: '.72rem' }}>{boxLabel}</div>
+                              <div style={{ fontWeight: 700 }}>{playerName(match, pid)}</div>
+                            </div>
+                            <div className="row" style={{ gap: '.3rem' }}>
+                              <button
+                                type="button"
+                                className={`btn btn-sm ${isSrv ? 'btn-yellow' : ''}`}
+                                onClick={() => {
+                                  setServer(pid);
+                                  if (dbl) {
+                                    setPos((p) => (p[t].odd === pid ? { ...p, [t]: { even: pid, odd: p[t].even } } : p));
+                                  }
+                                  const opp = other(t);
+                                  if (receiver[0] !== opp) setReceiver(pos[opp]?.even || `${opp}1`);
+                                }}
+                              >
+                                {isSrv ? '🏸 Servis' : 'Servis'}
+                              </button>
+                              {dbl && !isServingTeam && (
+                                <button
+                                  type="button"
+                                  className={`btn btn-sm ${isRcv ? 'btn-green' : ''}`}
+                                  onClick={() => {
+                                    setReceiver(pid);
+                                    setPos((p) => (p[t].odd === pid ? { ...p, [t]: { even: pid, odd: p[t].even } } : p));
+                                  }}
+                                >
+                                  {isRcv ? '🎯 Penerima' : 'Penerima'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-
-            <div className="ov-section">
-              <div className="small muted" style={{ fontWeight: 800, marginBottom: '.4rem' }}>2. PEMAIN SERVIS PERTAMA:</div>
-              <div className="ov-server-grid">
-                {['a', 'b'].flatMap((t) =>
-                  (dbl ? [`${t}1`, `${t}2`] : [`${t}1`]).map((pid) => (
-                    <button
-                      key={pid}
-                      type="button"
-                      className={`btn ${server === pid ? 'btn-yellow' : ''}`}
-                      onClick={() => {
-                        setServer(pid);
-                        const opp = t === 'a' ? 'b' : 'a';
-                        if (receiver[0] !== opp) setReceiver(`${opp}1`);
-                      }}
-                    >
-                      {server === pid ? '🏸 ' : ''}Tim {t.toUpperCase()}: {playerName(match, pid)}
-                    </button>
-                  ))
-                )}
-              </div>
+                );
+              })}
             </div>
-
-            {dbl && (
-              <div className="ov-section">
-                <div className="small muted" style={{ fontWeight: 800, marginBottom: '.4rem' }}>3. PENERIMA SERVIS PERTAMA:</div>
-                <div className="row" style={{ gap: '.5rem' }}>
-                  {(server[0] === 'a' ? ['b1', 'b2'] : ['a1', 'a2']).map((pid) => (
-                    <button key={pid} type="button" className={`btn ${receiver === pid ? 'btn-green' : ''}`} onClick={() => setReceiver(pid)}>
-                      {receiver === pid ? '✓ ' : ''}{playerName(match, pid)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <button
               type="button"
