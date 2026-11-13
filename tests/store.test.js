@@ -879,6 +879,14 @@ test('RefereeRoster CRUD & bulkAdd', () => {
   assert.equal(deleted.id, a1.id);
   assert.equal(roster.list(false).length, 2);
 
+  const merged = roster.mergeRemote([
+    { name: 'Andi Wijaya', license: 'PBSI-99' },
+    { name: 'Dewi Lestari', license: 'BWF-03', active: 'true' },
+  ]);
+  assert.equal(merged.added, 1);
+  assert.equal(merged.updated, 1);
+  assert.equal(roster.list(false).length, 3);
+
   fs.rmSync(refDir, { recursive: true, force: true });
 });
 

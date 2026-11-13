@@ -247,10 +247,10 @@ function switchTournamentProfile(targetId) {
  * or configured Google Apps Script Web App URL so that pulling schedule on any laptop also restores progress.
  */
 async function fetchRemoteProgressFromSheets(rawUrl) {
-  const remote = { results: [], states: [], logs: [] };
+  const remote = { results: [], states: [], logs: [], referees: [], meta: null };
   const cb = `_t=${Date.now()}`;
 
-  // 1. If a Google Apps Script Webhook URL is configured, query its doGet (which returns results, states, and logs in one JSON call)
+  // 1. If a Google Apps Script Webhook URL is configured, query its doGet (which returns results, states, logs, referees, and meta in one JSON call)
   const webhook = sheetsExporter.webhookUrl || (/script\.google\.com\/macros\/s\//i.test(rawUrl) ? rawUrl : '');
   if (webhook && /script\.google\.com\/macros\/s\//i.test(webhook)) {
     try {
@@ -263,7 +263,9 @@ async function fetchRemoteProgressFromSheets(rawUrl) {
           if (Array.isArray(j.results)) remote.results = j.results;
           if (Array.isArray(j.states)) remote.states = j.states;
           if (Array.isArray(j.logs)) remote.logs = j.logs;
-          if (remote.results.length || remote.states.length) return remote;
+          if (Array.isArray(j.referees)) remote.referees = j.referees;
+          if (j.meta && typeof j.meta === 'object') remote.meta = j.meta;
+          if (remote.results.length || remote.states.length || remote.referees.length) return remote;
         }
       }
     } catch { /* fallback to gviz below */ }
@@ -348,11 +350,13 @@ async function fetchAndIngestUrl(rawUrl, { dryRun = false, sheetName } = {}) {
         const j = JSON.parse(text);
         input = Array.isArray(j) ? j : j.rows || j.matches || text;
         if (j.sheet) usedSheetSource = j.sheet;
-        if (Array.isArray(j.results) || Array.isArray(j.states)) {
+        if (Array.isArray(j.results) || Array.isArray(j.states) || Array.isArray(j.referees)) {
           embeddedRemoteProgress = {
             results: j.results || [],
             states: j.states || [],
             logs: j.logs || [],
+            referees: j.referees || [],
+            meta: j.meta || null,
           };
         }
       } catch { /* fallback to CSV */ }
@@ -392,6 +396,13 @@ async function fetchAndIngestUrl(rawUrl, { dryRun = false, sheetName } = {}) {
   // Restore any finished or live match progress from Google Sheets (`Results` & `SmashPoint_State`) so opening on another laptop continues seamlessly!
   const remoteProgress = embeddedRemoteProgress || (await fetchRemoteProgressFromSheets(rawUrl));
   const restored = store.applyRemoteProgress(remoteProgress);
+  let restoredReferees = { added: 0, updated: 0 };
+  if (Array.isArray(remoteProgress?.referees) && remoteProgress.referees.length > 0) {
+    restoredReferees = refereeRoster.mergeRemote(remoteProgress.referees);
+    if (restoredReferees.added > 0 || restoredReferees.updated > 0) {
+      io.emit('referees:updated', { referees: refereeRoster.list(true) });
+    }
+  }
 
   return {
     ok: true,
@@ -400,6 +411,7 @@ async function fetchAndIngestUrl(rawUrl, { dryRun = false, sheetName } = {}) {
     ...result,
     restored_from_state: restored.restored_from_state,
     restored_from_results: restored.restored_from_results,
+    restored_referees: restoredReferees.added + restoredReferees.updated,
     errors: lastParsed.errors,
   };
 }
@@ -551,10 +563,12 @@ async function handleApi(req, res, url) {
     if (b.bulk_text !== undefined) {
       const result = refereeRoster.bulkAdd(b.bulk_text);
       io.emit('referees:updated', { referees: refereeRoster.list(true) });
+      sheetsExporter.pushReferees(refereeRoster.list(false)).catch(() => {});
       return send(res, 200, { ok: true, ...result, referees: refereeRoster.list(false) });
     }
     const item = refereeRoster.add(b);
     io.emit('referees:updated', { referees: refereeRoster.list(true) });
+    sheetsExporter.pushReferees(refereeRoster.list(false)).catch(() => {});
     return send(res, 200, { ok: true, referee: item, referees: refereeRoster.list(false) });
   }
   if (parts[1] === 'admin' && parts[2] === 'referees' && parts[3]) {
@@ -563,11 +577,13 @@ async function handleApi(req, res, url) {
       const b = await readBody(req);
       const updated = refereeRoster.update(refId, b);
       io.emit('referees:updated', { referees: refereeRoster.list(true) });
+      sheetsExporter.pushReferees(refereeRoster.list(false)).catch(() => {});
       return send(res, 200, { ok: true, referee: updated, referees: refereeRoster.list(false) });
     }
     if (method === 'DELETE') {
       refereeRoster.delete(refId);
       io.emit('referees:updated', { referees: refereeRoster.list(true) });
+      sheetsExporter.pushReferees(refereeRoster.list(false)).catch(() => {});
       return send(res, 200, { ok: true, referees: refereeRoster.list(false) });
     }
   }
@@ -700,7 +716,10 @@ async function handleApi(req, res, url) {
   }
   if (pathname === '/api/admin/export/push-state' && method === 'POST') {
     try {
-      const resSync = await sheetsExporter.pushStateSnapshot(store.matches);
+      const resSync = await sheetsExporter.pushStateSnapshot(store.matches, {
+        referees: refereeRoster.list(false),
+        meta: profileManager.activeProfile(store),
+      });
       emitAdmin();
       return send(res, 200, { ok: true, ...resSync, exporter: sheetsExporter.status() });
     } catch (e) {
