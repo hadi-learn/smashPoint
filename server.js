@@ -13,6 +13,7 @@ import { Server } from 'socket.io';
 import { Store, StoreError } from './lib/server/store.js';
 import { AdminAuth } from './lib/server/auth.js';
 import { ProfileManager } from './lib/server/profiles.js';
+import { RefereeRoster } from './lib/server/referees.js';
 import { SheetsExporter, RESULT_HEADER, LOG_HEADER, resultRow, formatLogRow } from './lib/server/sheetsExporter.js';
 import { ingest, parseDelimited, toCsv, COLUMNS, OPTIONAL_COLUMNS } from './lib/server/ingest.js';
 
@@ -54,6 +55,7 @@ const store = new Store({
   masterPin: MASTER_PIN,
 });
 const adminAuth = new AdminAuth({ dataDir: path.join(ROOT, 'data'), defaultUsername: ADMIN_USERNAME, defaultPassword: ADMIN_PIN });
+const refereeRoster = new RefereeRoster({ dataDir: path.join(ROOT, 'data') });
 const sheetsExporter = new SheetsExporter({
   exportDir: profileManager.exportDirFor(),
   dataDir: profileManager.dataDirFor(),
@@ -451,7 +453,10 @@ async function handleApi(req, res, url) {
   const parts = pathname.split('/').filter(Boolean); // ['api', ...]
 
   if (pathname === '/api/health') return send(res, 200, { ok: true, time: new Date().toISOString(), matches: Object.keys(store.matches).length, active_profile: profileManager.activeProfile(store) });
-  if (pathname === '/api/config') return send(res, 200, { court_count: COURT_COUNT, heartbeat_ms: HEARTBEAT_MS, lock_timeout_ms: LOCK_TIMEOUT_MS, active_profile: profileManager.activeProfile(store) });
+  if (pathname === '/api/config') return send(res, 200, { court_count: COURT_COUNT, heartbeat_ms: HEARTBEAT_MS, lock_timeout_ms: LOCK_TIMEOUT_MS, active_profile: profileManager.activeProfile(store), referees_count: refereeRoster.list(true).length });
+  if (pathname === '/api/referees' && method === 'GET') {
+    return send(res, 200, { ok: true, referees: refereeRoster.list(true) });
+  }
 
   if (pathname === '/api/template.csv') {
     const sample = [
@@ -535,6 +540,36 @@ async function handleApi(req, res, url) {
       displayName: b.display_name,
     });
     return send(res, 200, { ok: true, user: updated });
+  }
+
+  // ---- referee roster management (all admin levels)
+  if (pathname === '/api/admin/referees' && method === 'GET') {
+    return send(res, 200, { ok: true, referees: refereeRoster.list(false) });
+  }
+  if (pathname === '/api/admin/referees' && method === 'POST') {
+    const b = await readBody(req);
+    if (b.bulk_text !== undefined) {
+      const result = refereeRoster.bulkAdd(b.bulk_text);
+      io.emit('referees:updated', { referees: refereeRoster.list(true) });
+      return send(res, 200, { ok: true, ...result, referees: refereeRoster.list(false) });
+    }
+    const item = refereeRoster.add(b);
+    io.emit('referees:updated', { referees: refereeRoster.list(true) });
+    return send(res, 200, { ok: true, referee: item, referees: refereeRoster.list(false) });
+  }
+  if (parts[1] === 'admin' && parts[2] === 'referees' && parts[3]) {
+    const refId = decodeURIComponent(parts[3]);
+    if (method === 'PATCH') {
+      const b = await readBody(req);
+      const updated = refereeRoster.update(refId, b);
+      io.emit('referees:updated', { referees: refereeRoster.list(true) });
+      return send(res, 200, { ok: true, referee: updated, referees: refereeRoster.list(false) });
+    }
+    if (method === 'DELETE') {
+      refereeRoster.delete(refId);
+      io.emit('referees:updated', { referees: refereeRoster.list(true) });
+      return send(res, 200, { ok: true, referees: refereeRoster.list(false) });
+    }
   }
 
   if (pathname === '/api/admin/users' && method === 'GET') {
@@ -801,6 +836,11 @@ async function handleApi(req, res, url) {
       if (op === 'reset') return send(res, 200, { ok: true, match: store.adminReset(id) });
       if (op === 'reopen') return send(res, 200, { ok: true, match: store.adminReopen(id) });
       if (op === 'reset_override') return send(res, 200, { ok: true, match: store.adminResetOverride(id) });
+      if (op === 'clear_setup_request') return send(res, 200, { ok: true, match: store.clearSetupRequest(id, adminUser.username) });
+      if (op === 'remote_action') {
+        const body = await readBody(req);
+        return send(res, 200, store.adminRemoteAction(id, body, adminUser.display_name || adminUser.username));
+      }
       if (op === 'toggle_history') {
         const body = await readBody(req);
         return send(res, 200, { ok: true, match: store.toggleOverlayHistory(id, body?.show) });
@@ -944,6 +984,16 @@ io.on('connection', (socket) => {
   socket.on('match:action', wrap((data) => {
     if (!validDevice(data.device_id)) throw new StoreError('device_id tidak valid');
     return store.action(data.match_number, data.device_id, data);
+  }));
+
+  // ---- referee setup / assistance request to admin
+  socket.on('match:request_setup', wrap(({ match_number, by, note }) => {
+    const match = store.requestSetup(match_number, { by, note });
+    return { ok: true, match };
+  }));
+  socket.on('match:cancel_setup_request', wrap(({ match_number, by }) => {
+    const match = store.clearSetupRequest(match_number, by || 'Wasit');
+    return { ok: true, match };
   }));
 });
 

@@ -16,6 +16,8 @@ import {
   formatPickerToScheduleTime,
   formatDuration,
   formatLocalDateTime,
+  isDoubles,
+  playerName,
   teamLabel,
   teamSeedBadge,
 } from '@/lib/engine';
@@ -1457,7 +1459,7 @@ function FinishedMatchDetailModal({ match, now, onClose, onEdit, onLogs }) {
   );
 }
 
-function CourtGrid({ matches, courtCount, now, onUnlock, onToggleHistory }) {
+function CourtGrid({ matches, courtCount, now, onUnlock, onToggleHistory, onRemoteSetup, onClearSetupRequest }) {
   const courts = useMemo(() => {
     const out = [];
     for (let c = 1; c <= courtCount; c += 1) {
@@ -1470,100 +1472,676 @@ function CourtGrid({ matches, courtCount, now, onUnlock, onToggleHistory }) {
     return out;
   }, [matches, courtCount]);
 
+  const activeRequests = useMemo(
+    () => matches.filter((m) => Boolean(m.session_management?.setup_request)),
+    [matches]
+  );
+
   return (
-    <div className="admin-courts">
-      {courts.map(({ c, featured: m, extraActive, next, queue, done }) => {
-        const age = m ? heartbeatAge(m, now) : null;
-        const stale = m && m.session_management.locked && age > 30;
-        const st = m?.live_state;
-        return (
-          <div key={c} className={`court-card ${m ? 'active' : ''} ${stale || extraActive > 0 ? 'warn' : ''}`}>
-            <div className="row" style={{ gap: '.4rem' }}>
-              <span className="cnum">Lap. {c}</span>
-              <div className="spacer" />
-              <Link className="small" href={`/display?court=${c}`} target="_blank">
-                📺
-              </Link>
-            </div>
-            {m ? (
-              <>
-                <div className="row" style={{ gap: '.4rem' }}>
-                  <b>{m.match_number}</b>
-                  <StatusBadge match={m} />
-                  {st.phase === 'interval' && <span className="badge gold">INTERVAL</span>}
-                  {st.started_at && (
-                    <span className="badge cyan mono" title="Durasi Pertandingan">
-                      ⏱ {matchDurationText(m, now)}
-                    </span>
-                  )}
-                  <span className="badge gold mono" title="Jumlah Penggunaan Shuttlecock">
-                    🏸 {st.shuttlecock_count ?? 0} Cock
+    <div className="col" style={{ gap: '.75rem' }}>
+      {activeRequests.length > 0 && (
+        <div className="admin-setup-alert-banner">
+          <div className="row" style={{ gap: '.6rem', flexWrap: 'wrap' }}>
+            <span className="badge" style={{ background: '#dc2626', color: '#fff', fontWeight: 900 }}>
+              🚨 {activeRequests.length} REQUEST SETUP / BANTUAN WASIT
+            </span>
+            {activeRequests.map((rm) => (
+              <button
+                key={rm.match_number}
+                type="button"
+                className="btn btn-sm btn-yellow"
+                onClick={() => onRemoteSetup?.(rm)}
+              >
+                Lap. {rm.court_number} · {rm.match_number} ({rm.session_management.setup_request.by}): &ldquo;{rm.session_management.setup_request.note}&rdquo; → 🛠️ Setup Sekarang
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="admin-courts">
+        {courts.map(({ c, featured: m, extraActive, next, queue, done }) => {
+          const age = m ? heartbeatAge(m, now) : null;
+          const stale = m && m.session_management.locked && age > 30;
+          const st = m?.live_state;
+          const req = m?.session_management?.setup_request || null;
+          return (
+            <div key={c} className={`court-card ${m ? 'active' : ''} ${stale || extraActive > 0 ? 'warn' : ''} ${req ? 'setup-requested' : ''}`}>
+              <div className="row" style={{ gap: '.4rem' }}>
+                <span className="cnum">Lap. {c}</span>
+                {req && (
+                  <span className="badge" style={{ background: '#ef4444', color: '#fff', fontWeight: 900, animation: 'pulse 1.5s infinite' }}>
+                    🚨 REQUEST SETUP
                   </span>
-                </div>
-                <div className="cteam">
-                  {teamLabel(m, 'a')}
-                  {teamSeedBadge(m, 'a') && <span className="seed-pill">{teamSeedBadge(m, 'a')}</span>}
-                </div>
-                <div className="cteam">
-                  {teamLabel(m, 'b')}
-                  {teamSeedBadge(m, 'b') && <span className="seed-pill">{teamSeedBadge(m, 'b')}</span>}
-                </div>
-                <div className="cscore">
-                  {st.score.a} - {st.score.b}
-                  {m.rules.scoring_type === 'sets' && (
-                    <span className="small muted">
-                      {' '}
-                      ({st.sets.a}-{st.sets.b})
-                    </span>
-                  )}
-                </div>
-                <div className="small">
-                  {m.session_management.locked ? (
-                    <span style={{ color: stale ? '#fbbf24' : '#4ade80' }}>
-                      🔒 {m.session_management.controller_label || `…${m.session_management.controller_tag}`} · ♥ {age}s
-                    </span>
-                  ) : (
-                    <span className="muted">🔓 tanpa pengontrol</span>
-                  )}
-                </div>
-                <div className="row" style={{ gap: '.3rem', marginTop: '.3rem', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    className={`btn btn-sm ${m.live_state?.show_rally_history ? 'btn-yellow' : 'btn-ghost'}`}
-                    onClick={() => onToggleHistory?.(m.match_number)}
-                    title="Aktifkan / Sembunyikan tampilan 10 servis terakhir pada overlay YouTube Lapangan ini"
-                  >
-                    📊 Histori OBS: {m.live_state?.show_rally_history ? 'ON' : 'OFF'}
-                  </button>
-                  {m.session_management.locked && (
-                    <button className="btn btn-sm btn-red" onClick={() => onUnlock(m.match_number)}>
-                      Lepas Kunci
-                    </button>
-                  )}
-                </div>
-                {extraActive > 0 && <div className="small" style={{ color: '#fbbf24' }}>⚠ {extraActive} match aktif lain di lapangan ini</div>}
-              </>
-            ) : (
-              <div className="small muted" style={{ flex: 1 }}>
-                {next ? (
-                  <>
-                    Berikutnya: <b style={{ color: 'var(--text)' }}>{next.match_number}</b> {[next.scheduled_date, next.scheduled_time].filter(Boolean).join(' ')}
-                    <br />
-                    {teamLabel(next, 'a')}
-                    {teamSeedBadge(next, 'a') && <span className="seed-pill">{teamSeedBadge(next, 'a')}</span>} vs {teamLabel(next, 'b')}
-                    {teamSeedBadge(next, 'b') && <span className="seed-pill">{teamSeedBadge(next, 'b')}</span>}
-                  </>
-                ) : (
-                  'Kosong'
                 )}
+                <div className="spacer" />
+                <Link className="small" href={`/display?court=${c}`} target="_blank">
+                  📺
+                </Link>
+              </div>
+              {req && (
+                <div className="court-req-box">
+                  <div className="small" style={{ fontWeight: 800, color: '#fef08a' }}>
+                    🆘 {req.by}: &ldquo;{req.note}&rdquo;
+                  </div>
+                  <div className="row" style={{ gap: '.35rem', marginTop: '.25rem' }}>
+                    <button type="button" className="btn btn-sm btn-yellow" onClick={() => onRemoteSetup?.(m)}>
+                      🛠️ Bantu Setup / Edit
+                    </button>
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => onClearSetupRequest?.(m.match_number)}>
+                      Tutup Alert
+                    </button>
+                  </div>
+                </div>
+              )}
+              {m ? (
+                <>
+                  <div className="row" style={{ gap: '.4rem' }}>
+                    <b>{m.match_number}</b>
+                    <StatusBadge match={m} />
+                    {st.phase === 'interval' && <span className="badge gold">INTERVAL</span>}
+                    {st.phase === 'set_break' && <span className="badge blue">SET BREAK</span>}
+                    {st.started_at && (
+                      <span className="badge cyan mono" title="Durasi Pertandingan">
+                        ⏱ {matchDurationText(m, now)}
+                      </span>
+                    )}
+                    <span className="badge gold mono" title="Jumlah Penggunaan Shuttlecock">
+                      🏸 {st.shuttlecock_count ?? 0} Cock
+                    </span>
+                  </div>
+                  <div className="cteam">
+                    {teamLabel(m, 'a')}
+                    {teamSeedBadge(m, 'a') && <span className="seed-pill">{teamSeedBadge(m, 'a')}</span>}
+                  </div>
+                  <div className="cteam">
+                    {teamLabel(m, 'b')}
+                    {teamSeedBadge(m, 'b') && <span className="seed-pill">{teamSeedBadge(m, 'b')}</span>}
+                  </div>
+                  <div className="cscore">
+                    {st.score.a} - {st.score.b}
+                    {m.rules.scoring_type === 'sets' && (
+                      <span className="small muted">
+                        {' '}
+                        ({st.sets.a}-{st.sets.b})
+                      </span>
+                    )}
+                  </div>
+                  <div className="small">
+                    {m.session_management.locked ? (
+                      <span style={{ color: stale ? '#fbbf24' : '#4ade80' }}>
+                        🔒 {m.session_management.controller_label || `…${m.session_management.controller_tag}`} · ♥ {age}s
+                      </span>
+                    ) : (
+                      <span className="muted">🔓 tanpa pengontrol</span>
+                    )}
+                  </div>
+                  <div className="row" style={{ gap: '.3rem', marginTop: '.3rem', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-blue"
+                      onClick={() => onRemoteSetup?.(m)}
+                      title="Setup awal atau koreksi live skor, posisi pemain, dan servis langsung dari Admin"
+                    >
+                      🛠️ Setup / Edit Live
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${m.live_state?.show_rally_history ? 'btn-yellow' : 'btn-ghost'}`}
+                      onClick={() => onToggleHistory?.(m.match_number)}
+                      title="Aktifkan / Sembunyikan tampilan 10 servis terakhir pada overlay YouTube Lapangan ini"
+                    >
+                      📊 OBS: {m.live_state?.show_rally_history ? 'ON' : 'OFF'}
+                    </button>
+                    {m.session_management.locked && (
+                      <button className="btn btn-sm btn-red" onClick={() => onUnlock(m.match_number)}>
+                        Lepas Kunci
+                      </button>
+                    )}
+                  </div>
+                  {extraActive > 0 && <div className="small" style={{ color: '#fbbf24' }}>⚠ {extraActive} match aktif lain di lapangan ini</div>}
+                </>
+              ) : (
+                <div className="small muted" style={{ flex: 1 }}>
+                  {next ? (
+                    <>
+                      Berikutnya: <b style={{ color: 'var(--text)' }}>{next.match_number}</b> {[next.scheduled_date, next.scheduled_time].filter(Boolean).join(' ')}
+                      <br />
+                      {teamLabel(next, 'a')}
+                      {teamSeedBadge(next, 'a') && <span className="seed-pill">{teamSeedBadge(next, 'a')}</span>} vs {teamLabel(next, 'b')}
+                      {teamSeedBadge(next, 'b') && <span className="seed-pill">{teamSeedBadge(next, 'b')}</span>}
+                      <div style={{ marginTop: '.35rem' }}>
+                        <button type="button" className="btn btn-sm btn-blue" onClick={() => onRemoteSetup?.(next)}>
+                          🛠️ Pre-Setup Match Ini
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    'Kosong'
+                  )}
+                </div>
+              )}
+              <div className="small muted">
+                Antrian {queue} · Selesai {done}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * AdminRemoteSetupModal
+ * Admin dapat melakukan Setup Awal (SETUP_START) maupun Koreksi Live (OVERRIDE, SWITCH_SIDE, CONFIRM_INTERVAL, NEXT_SET, UNDO)
+ * secara remote untuk membantu tablet wasit di lapangan.
+ */
+function AdminRemoteSetupModal({ match, token, onClose, notify }) {
+  const st = match.live_state;
+  const dbl = isDoubles(match);
+  const isSetup = st.phase === 'setup';
+  const [busy, setBusy] = useState(false);
+
+  // Setup state
+  const [left, setLeft] = useState(st.sides?.left || 'a');
+  const [pos, setPos] = useState(() => ({
+    a: { even: st.positions?.a?.even || 'a1', odd: st.positions?.a?.odd || (dbl ? 'a2' : null) },
+    b: { even: st.positions?.b?.even || 'b1', odd: st.positions?.b?.odd || (dbl ? 'b2' : null) },
+  }));
+  const [server, setServer] = useState(st.service_status?.player_id || 'a1');
+  const [receiver, setReceiver] = useState(st.service_status?.receiver_id || 'b1');
+
+  // Live override state
+  const [score, setScore] = useState({ ...st.score });
+  const [side, setSide] = useState(st.service_status?.side || 'a');
+  const [turn, setTurn] = useState(st.service_status?.turn || 1);
+  const [cockCount, setCockCount] = useState(Number(st.shuttlecock_count ?? 0));
+
+  const runRemote = async (type, payload = {}, closeAfter = true) => {
+    setBusy(true);
+    const r = await api(`/api/matches/${encodeURIComponent(match.match_number)}/remote_action`, {
+      method: 'POST',
+      pin: token,
+      body: { type, payload },
+    });
+    setBusy(false);
+    if (r.ok) {
+      notify({ type: 'ok', text: `🛠️ Remote aksi (${type}) untuk ${match.match_number} berhasil diterapkan ke tablet wasit & display!` });
+      if (closeAfter) onClose();
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal menjalankan aksi remote' });
+    }
+  };
+
+  const req = match.session_management?.setup_request;
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal col" style={{ width: 'min(820px, 100%)' }} onClick={(e) => e.stopPropagation()}>
+        <div className="row">
+          <h2 style={{ margin: 0 }}>🛠️ Remote Setup &amp; Kendali Wasit: {match.match_number} (Lap. {match.court_number})</h2>
+          <div className="spacer" />
+          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
+        </div>
+
+        {req && (
+          <div className="notice warn small">
+            🆘 <b>Permintaan Wasit ({req.by}):</b> &ldquo;{req.note}&rdquo; — Menerapkan perubahan di sini akan otomatis menyelesaikan alert ini.
+          </div>
+        )}
+
+        <div className="row small muted" style={{ gap: '1rem' }}>
+          <span>Kategori: <b style={{ color: 'var(--text)' }}>{match.category_name} ({match.discipline})</b></span>
+          <span>Fase: <b className="mono" style={{ color: 'var(--gold)' }}>{st.phase.toUpperCase()}</b></span>
+          <span>Wasit: <b style={{ color: 'var(--text)' }}>{match.session_management?.controller_label || '-'}</b></span>
+        </div>
+
+        {isSetup ? (
+          <div className="col" style={{ gap: '.85rem' }}>
+            <div className="ov-section">
+              <div className="small muted" style={{ fontWeight: 800, marginBottom: '.4rem' }}>1. PILIH POSISI SISI LAPANGAN (KIRI vs KANAN):</div>
+              <div className="row" style={{ gap: '.5rem' }}>
+                <button type="button" className={`btn ${left === 'a' ? 'btn-primary' : ''}`} onClick={() => setLeft('a')}>
+                  Kiri: Tim A ({teamLabel(match, 'a')}) · Kanan: Tim B
+                </button>
+                <button type="button" className={`btn ${left === 'b' ? 'btn-primary' : ''}`} onClick={() => setLeft('b')}>
+                  Kiri: Tim B ({teamLabel(match, 'b')}) · Kanan: Tim A
+                </button>
+              </div>
+            </div>
+
+            {dbl && (
+              <div className="ov-court-grid">
+                {['a', 'b'].map((t) => (
+                  <div key={t} className="ov-team-box">
+                    <div className="row" style={{ justifyContent: 'space-between' }}>
+                      <span className="badge">TIM {t.toUpperCase()} · {teamLabel(match, t)}</span>
+                      <button type="button" className="btn btn-sm btn-blue" onClick={() => setPos((p) => ({ ...p, [t]: { even: p[t].odd, odd: p[t].even } }))}>
+                        ⇅ Tukar Posisi
+                      </button>
+                    </div>
+                    <div className="ov-pos-pills">
+                      <div className="ov-pos-pill"><span className="muted">Genap (Kanan):</span> <b>{playerName(match, pos[t].even)}</b></div>
+                      <div className="ov-pos-pill"><span className="muted">Ganjil (Kiri):</span> <b>{playerName(match, pos[t].odd)}</b></div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
-            <div className="small muted">
-              Antrian {queue} · Selesai {done}
+
+            <div className="ov-section">
+              <div className="small muted" style={{ fontWeight: 800, marginBottom: '.4rem' }}>2. PEMAIN SERVIS PERTAMA:</div>
+              <div className="ov-server-grid">
+                {['a', 'b'].flatMap((t) =>
+                  (dbl ? [`${t}1`, `${t}2`] : [`${t}1`]).map((pid) => (
+                    <button
+                      key={pid}
+                      type="button"
+                      className={`btn ${server === pid ? 'btn-yellow' : ''}`}
+                      onClick={() => {
+                        setServer(pid);
+                        const opp = t === 'a' ? 'b' : 'a';
+                        if (receiver[0] !== opp) setReceiver(`${opp}1`);
+                      }}
+                    >
+                      {server === pid ? '🏸 ' : ''}Tim {t.toUpperCase()}: {playerName(match, pid)}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {dbl && (
+              <div className="ov-section">
+                <div className="small muted" style={{ fontWeight: 800, marginBottom: '.4rem' }}>3. PENERIMA SERVIS PERTAMA:</div>
+                <div className="row" style={{ gap: '.5rem' }}>
+                  {(server[0] === 'a' ? ['b1', 'b2'] : ['a1', 'a2']).map((pid) => (
+                    <button key={pid} type="button" className={`btn ${receiver === pid ? 'btn-green' : ''}`} onClick={() => setReceiver(pid)}>
+                      {receiver === pid ? '✓ ' : ''}{playerName(match, pid)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="btn btn-green btn-lg"
+              disabled={busy}
+              onClick={() => runRemote('SETUP_START', { left, positions: pos, server_id: server, receiver_id: receiver })}
+            >
+              ▶ Terapkan Setup &amp; Mulai Pertandingan (Live ke Tablet Wasit)
+            </button>
+          </div>
+        ) : (
+          <div className="col" style={{ gap: '.85rem' }}>
+            <div className="ov-court-grid">
+              {[
+                { key: st.sides?.left || 'a', lbl: 'SISI KIRI' },
+                { key: st.sides?.right || 'b', lbl: 'SISI KANAN' },
+              ].map(({ key: t, lbl }) => (
+                <div key={t} className={`ov-team-box ${side === t ? 'serving' : ''}`}>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <span className="badge">{lbl} · TIM {t.toUpperCase()}</span>
+                    {side === t && <span className="badge gold">🏸 SERVIS</span>}
+                  </div>
+                  <div className="ov-team-name">{teamLabel(match, t)}</div>
+                  <div className="ov-score-stepper">
+                    <button type="button" className="btn btn-lg" onClick={() => setScore((s) => ({ ...s, [t]: Math.max(0, (parseInt(s[t], 10) || 0) - 1) }))}>−</button>
+                    <input
+                      className="input ov-score-input mono"
+                      type="number"
+                      min={0}
+                      value={score[t]}
+                      onChange={(e) => setScore((s) => ({ ...s, [t]: e.target.value }))}
+                    />
+                    <button type="button" className="btn btn-lg btn-green" onClick={() => setScore((s) => ({ ...s, [t]: (parseInt(s[t], 10) || 0) + 1 }))}>+</button>
+                  </div>
+                  {dbl && (
+                    <div className="ov-pos-box">
+                      <div className="row" style={{ justifyContent: 'space-between', marginBottom: '.25rem' }}>
+                        <span className="small muted">Posisi:</span>
+                        <button type="button" className="btn btn-sm btn-blue" onClick={() => setPos((p) => ({ ...p, [t]: { even: p[t].odd, odd: p[t].even } }))}>
+                          ⇅ Tukar Posisi
+                        </button>
+                      </div>
+                      <div className="ov-pos-pills">
+                        <div className="ov-pos-pill"><span className="muted">Genap:</span> <b>{playerName(match, pos[t].even)}</b></div>
+                        <div className="ov-pos-pill"><span className="muted">Ganjil:</span> <b>{playerName(match, pos[t].odd)}</b></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="ov-section">
+              <div className="small muted" style={{ fontWeight: 800, marginBottom: '.4rem' }}>PEMEGANG SERVIS &amp; SHUTTLECOCK:</div>
+              <div className="ov-server-grid">
+                {['a', 'b'].flatMap((t) =>
+                  (dbl ? [`${t}1`, `${t}2`] : [`${t}1`]).map((pid) => (
+                    <button
+                      key={pid}
+                      type="button"
+                      className={`btn btn-sm ${side === t && server === pid ? 'btn-yellow' : ''}`}
+                      onClick={() => {
+                        setSide(t);
+                        setServer(pid);
+                      }}
+                    >
+                      {side === t && server === pid ? '🏸 ' : ''}Tim {t.toUpperCase()}: {playerName(match, pid)}
+                    </button>
+                  ))
+                )}
+              </div>
+              <div className="row" style={{ marginTop: '.55rem', gap: '.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                {dbl && match.rules.scoring_method === 'side_out' && (
+                  <div className="row" style={{ gap: '.35rem' }}>
+                    {[1, 2].map((n) => (
+                      <button key={n} type="button" className={`btn btn-sm ${turn === n ? 'btn-blue' : ''}`} onClick={() => setTurn(n)}>
+                        Servis {n}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="row" style={{ gap: '.35rem', alignItems: 'center' }}>
+                  <span className="small muted">🏸 Cock:</span>
+                  <button type="button" className="btn btn-sm" onClick={() => setCockCount((c) => Math.max(0, c - 1))}>−</button>
+                  <b className="mono">{cockCount}</b>
+                  <button type="button" className="btn btn-sm" onClick={() => setCockCount((c) => c + 1)}>+</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="row" style={{ gap: '.45rem', flexWrap: 'wrap' }}>
+              {['live', 'interval', 'set_break'].includes(st.phase) && (
+                <button
+                  type="button"
+                  className="btn btn-green"
+                  style={{ flex: 1 }}
+                  disabled={busy}
+                  onClick={() =>
+                    runRemote('OVERRIDE', {
+                      score,
+                      service: { side, player_id: server, turn },
+                      positions: dbl ? pos : undefined,
+                      shuttlecock_count: cockCount,
+                    })
+                  }
+                >
+                  ✔ Simpan Koreksi Live ke Tablet Wasit
+                </button>
+              )}
+              {st.phase === 'live' && (
+                <button type="button" className="btn btn-blue" disabled={busy} onClick={() => runRemote('SWITCH_SIDE', {}, false)}>
+                  ⇄ Tukar Sisi
+                </button>
+              )}
+              {st.phase === 'interval' && (
+                <button type="button" className="btn btn-yellow" disabled={busy} onClick={() => runRemote('CONFIRM_INTERVAL')}>
+                  ▶ Lanjutkan Interval
+                </button>
+              )}
+              {st.phase === 'set_break' && (
+                <button type="button" className="btn btn-yellow" disabled={busy} onClick={() => runRemote('NEXT_SET')}>
+                  ▶ Lanjut Set Berikutnya
+                </button>
+              )}
+              <button type="button" className="btn btn-yellow" disabled={busy || !match.can_undo} onClick={() => runRemote('UNDO', {}, false)}>
+                ↶ Undo Terakhir
+              </button>
             </div>
           </div>
-        );
-      })}
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * RefereeRosterPanel
+ * Admin mengelola daftar nama resmi wasit agar seragam di modul wasit, log & laporan.
+ */
+function RefereeRosterPanel({ token, notify }) {
+  const [referees, setReferees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [name, setName] = useState('');
+  const [license, setLicense] = useState('');
+  const [phone, setPhone] = useState('');
+  const [bulkText, setBulkText] = useState('');
+  const [search, setSearch] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editLicense, setEditLicense] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const r = await api('/api/admin/referees', { pin: token });
+    setLoading(false);
+    if (r.ok && Array.isArray(r.referees)) setReferees(r.referees);
+  }, [token]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    const r = await api('/api/admin/referees', { method: 'POST', pin: token, body: { name, license, phone } });
+    setBusy(false);
+    if (r.ok) {
+      setReferees(r.referees || []);
+      setName('');
+      setLicense('');
+      setPhone('');
+      notify({ type: 'ok', text: `✅ Wasit "${r.referee.name}" ditambahkan ke daftar resmi.` });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal menambah wasit' });
+    }
+  };
+
+  const handleBulk = async (e) => {
+    e.preventDefault();
+    if (!bulkText.trim()) return;
+    setBusy(true);
+    const r = await api('/api/admin/referees', { method: 'POST', pin: token, body: { bulk_text: bulkText } });
+    setBusy(false);
+    if (r.ok) {
+      setReferees(r.referees || []);
+      setBulkText('');
+      notify({
+        type: 'ok',
+        text: `✅ Ditambahkan: ${r.added?.length || 0} wasit${r.skipped?.length ? ` · Dilewati (duplikat): ${r.skipped.length}` : ''}`,
+      });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal import massal' });
+    }
+  };
+
+  const handleSaveEdit = async (id) => {
+    if (!editName.trim()) return;
+    setBusy(true);
+    const r = await api(`/api/admin/referees/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      pin: token,
+      body: { name: editName, license: editLicense },
+    });
+    setBusy(false);
+    if (r.ok) {
+      setReferees(r.referees || []);
+      setEditingId(null);
+      notify({ type: 'ok', text: 'Nama wasit diperbarui' });
+    } else {
+      notify({ type: 'error', text: r.error || 'Gagal mengubah' });
+    }
+  };
+
+  const handleToggleActive = async (refItem) => {
+    const r = await api(`/api/admin/referees/${encodeURIComponent(refItem.id)}`, {
+      method: 'PATCH',
+      pin: token,
+      body: { active: refItem.active === false },
+    });
+    if (r.ok) setReferees(r.referees || []);
+  };
+
+  const handleDelete = async (refItem) => {
+    if (!window.confirm(`Hapus "${refItem.name}" dari daftar wasit resmi?`)) return;
+    const r = await api(`/api/admin/referees/${encodeURIComponent(refItem.id)}`, { method: 'DELETE', pin: token });
+    if (r.ok) {
+      setReferees(r.referees || []);
+      notify({ type: 'ok', text: `Wasit "${refItem.name}" dihapus` });
+    }
+  };
+
+  const filtered = referees.filter((r) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return r.name.toLowerCase().includes(q) || (r.license && r.license.toLowerCase().includes(q));
+  });
+
+  return (
+    <div className="col" style={{ gap: '1rem' }}>
+      <div className="setup-grid" style={{ gridTemplateColumns: 'minmax(300px, 420px) 1fr' }}>
+        <div className="col" style={{ gap: '1rem' }}>
+          <form className="card col" onSubmit={handleAdd}>
+            <h3 style={{ margin: 0, color: 'var(--gold)' }}>➕ Tambah Wasit Resmi</h3>
+            <p className="muted small" style={{ margin: 0 }}>
+              Nama yang didaftarkan di sini akan langsung tampil sebagai pilihan cepat &amp; pencarian di tablet Wasit agar penulisan nama seragam tanpa typo.
+            </p>
+            <label className="field">
+              Nama Lengkap / Panggilan Wasit *
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Contoh: Budi Santoso" required />
+            </label>
+            <div className="row" style={{ gap: '.5rem' }}>
+              <label className="field" style={{ flex: 1 }}>
+                Lisensi / Grade (Opsional)
+                <input className="input" value={license} onChange={(e) => setLicense(e.target.value)} placeholder="PBSI Nasional / Daerah" />
+              </label>
+              <label className="field" style={{ flex: 1 }}>
+                No. HP (Opsional)
+                <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0812…" />
+              </label>
+            </div>
+            <button type="submit" className="btn btn-green" disabled={busy}>
+              + Tambah ke Daftar Wasit
+            </button>
+          </form>
+
+          <form className="card col" onSubmit={handleBulk}>
+            <h3 style={{ margin: 0 }}>📋 Import Banyak Nama Sekaligus</h3>
+            <p className="muted small" style={{ margin: 0 }}>
+              Tempel daftar nama wasit (pisahkan dengan baris baru / Enter atau koma).
+            </p>
+            <textarea
+              className="input"
+              rows={5}
+              value={bulkText}
+              onChange={(e) => setBulkText(e.target.value)}
+              placeholder={'Ahmad Fauzi\nBudi Santoso\nCitra Lestari\nDedi Kurniawan'}
+            />
+            <button type="submit" className="btn btn-blue" disabled={busy || !bulkText.trim()}>
+              ⬆ Import Daftar Wasit
+            </button>
+          </form>
+        </div>
+
+        <div className="card col">
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
+            <div>
+              <h3 style={{ margin: 0 }}>👨‍⚖️ Daftar Wasit Bertugas ({referees.length})</h3>
+              <span className="small muted">Aktif: {referees.filter((r) => r.active !== false).length} wasit</span>
+            </div>
+            <input
+              className="input"
+              style={{ width: 240 }}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="🔍 Cari nama wasit…"
+            />
+          </div>
+
+          {loading ? (
+            <div className="muted small">Memuat daftar wasit…</div>
+          ) : filtered.length === 0 ? (
+            <div className="muted small" style={{ padding: '1rem', textAlign: 'center' }}>
+              Belum ada nama wasit terdaftar. Tambahkan di sebelah kiri.
+            </div>
+          ) : (
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Nama Wasit</th>
+                    <th>Lisensi</th>
+                    <th>Status</th>
+                    <th style={{ width: 210 }}>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((r) => (
+                    <tr key={r.id}>
+                      <td>
+                        {editingId === r.id ? (
+                          <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />
+                        ) : (
+                          <b>👤 {r.name}</b>
+                        )}
+                      </td>
+                      <td>
+                        {editingId === r.id ? (
+                          <input className="input" value={editLicense} onChange={(e) => setEditLicense(e.target.value)} placeholder="Lisensi" />
+                        ) : (
+                          <span className="small muted">{r.license || '-'}</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`badge ${r.active !== false ? 'green' : ''}`}>
+                          {r.active !== false ? 'Aktif' : 'Nonaktif'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="row" style={{ gap: '.3rem' }}>
+                          {editingId === r.id ? (
+                            <>
+                              <button type="button" className="btn btn-sm btn-green" onClick={() => handleSaveEdit(r.id)}>Simpan</button>
+                              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditingId(null)}>Batal</button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                onClick={() => {
+                                  setEditingId(r.id);
+                                  setEditName(r.name);
+                                  setEditLicense(r.license || '');
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button type="button" className="btn btn-sm btn-yellow" onClick={() => handleToggleActive(r)}>
+                                {r.active !== false ? 'Nonaktifkan' : 'Aktifkan'}
+                              </button>
+                              <button type="button" className="btn btn-sm btn-red" onClick={() => handleDelete(r)}>
+                                Hapus
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -4907,6 +5485,7 @@ export default function AdminPage() {
   const [courtCount, setCourtCount] = useState(15);
   const [logsFor, setLogsFor] = useState(null);
   const [editMatch, setEditMatch] = useState(null);
+  const [remoteSetupMatch, setRemoteSetupMatch] = useState(null);
   const [detailMatch, setDetailMatch] = useState(null);
   const [showCloseTournamentModal, setShowCloseTournamentModal] = useState(false);
   const [showTournamentReportModal, setShowTournamentReportModal] = useState(false);
@@ -4944,7 +5523,7 @@ export default function AdminPage() {
       } catch { /* ignore */ }
     }
     const savedTab = lsGet('sp_admin_active_tab', 'dashboard');
-    if (['dashboard', 'board', 'users'].includes(savedTab)) setActiveTabState(savedTab);
+    if (['dashboard', 'board', 'referees', 'users'].includes(savedTab)) setActiveTabState(savedTab);
     const savedBoard = lsGet('sp_admin_board_prefs', null);
     if (savedBoard && typeof savedBoard === 'object') {
       setBoardPrefsState((prev) => ({
@@ -5066,6 +5645,13 @@ export default function AdminPage() {
           </button>
           <button
             type="button"
+            className={`btn btn-sm ${activeTab === 'referees' ? 'btn-primary' : ''}`}
+            onClick={() => setActiveTab('referees')}
+          >
+            👨‍⚖️ Daftar Wasit
+          </button>
+          <button
+            type="button"
             className={`btn btn-sm ${activeTab === 'users' ? 'btn-primary' : ''}`}
             onClick={() => setActiveTab('users')}
           >
@@ -5125,6 +5711,8 @@ export default function AdminPage() {
           }}
           notify={notify}
         />
+      ) : activeTab === 'referees' ? (
+        <RefereeRosterPanel token={token} notify={notify} />
       ) : activeTab === 'board' ? (
         <GroupedMatchBoard
           matches={matches}
@@ -5141,6 +5729,11 @@ export default function AdminPage() {
             matches={matches}
             courtCount={courtCount}
             now={now}
+            onRemoteSetup={(m) => setRemoteSetupMatch(m)}
+            onClearSetupRequest={async (id) => {
+              const r = await api(`/api/matches/${encodeURIComponent(id)}/clear_setup_request`, { method: 'POST', pin: token });
+              if (r.ok) notify({ type: 'ok', text: `Alert request setup ${id} ditutup.` });
+            }}
             onUnlock={async (id) => {
               if (!window.confirm(`Lepas paksa kunci sesi ${id}? Perangkat wasit akan dialihkan ke mode pantau.`)) return;
               const r = await api(`/api/matches/${encodeURIComponent(id)}/unlock`, { method: 'POST', pin: token });
@@ -5217,6 +5810,14 @@ export default function AdminPage() {
           onClose={() => setShowTournamentReportModal(false)}
           onSelectMatch={(m) => setDetailMatch(m)}
           onOpenCloseModal={() => setShowCloseTournamentModal(true)}
+        />
+      )}
+      {remoteSetupMatch && (
+        <AdminRemoteSetupModal
+          match={matches.find((x) => x.match_number === remoteSetupMatch.match_number) || remoteSetupMatch}
+          token={token}
+          onClose={() => setRemoteSetupMatch(null)}
+          notify={notify}
         />
       )}
       {editMatch && (

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { Store, StoreError } from '../lib/server/store.js';
 import { AdminAuth } from '../lib/server/auth.js';
 import { ProfileManager } from '../lib/server/profiles.js';
+import { RefereeRoster } from '../lib/server/referees.js';
 import { SheetsExporter, resultRow, formatLogRow, RESULT_HEADER, LOG_HEADER } from '../lib/server/sheetsExporter.js';
 import { ingest } from '../lib/server/ingest.js';
 import {
@@ -850,4 +851,112 @@ M-901,Kejuaraan Kota,Ganda Putra,MD,rally_point,continuous,2,1,Fajar,Rian,SGS,1,
 
   store.flush();
   fs.rmSync(closeDir, { recursive: true, force: true });
+});
+
+
+test('RefereeRoster CRUD & bulkAdd', () => {
+  const refDir = fs.mkdtempSync(path.join(process.cwd(), 'tests', '.tmp-ref-'));
+  const roster = new RefereeRoster({ dataDir: refDir });
+
+  const a1 = roster.add({ name: 'Budi Santoso', license: 'PBSI-01', phone: '08123456' });
+  assert.equal(a1.name, 'Budi Santoso');
+  assert.equal(a1.active, true);
+  assert.throws(() => roster.add({ name: 'budi santoso' }), /sudah ada dalam daftar/i);
+
+  const bulk = roster.bulkAdd('Andi Wijaya\nBudi Santoso\nCitra Dewi');
+  assert.equal(bulk.added.length, 2);
+  assert.equal(bulk.skipped.length, 1);
+
+  const all = roster.list(false);
+  assert.equal(all.length, 3);
+
+  const updated = roster.update(a1.id, { active: false, license: 'BWF-01' });
+  assert.equal(updated.active, false);
+  assert.equal(updated.license, 'BWF-01');
+  assert.equal(roster.list(true).length, 2);
+
+  const deleted = roster.delete(a1.id);
+  assert.equal(deleted.id, a1.id);
+  assert.equal(roster.list(false).length, 2);
+
+  fs.rmSync(refDir, { recursive: true, force: true });
+});
+
+test('Store requestSetup, clearSetupRequest & adminRemoteAction (SETUP_START & OVERRIDE)', () => {
+  const dir = fs.mkdtempSync(path.join(process.cwd(), 'tests', '.tmp-remote-'));
+  const store = new Store({ dataDir: dir, courtCount: 4, lockTimeoutMs: 1000, masterPin: '1234' });
+  const sampleCsv = `match_number,tournament_name,category_name,discipline,scoring_method,scoring_type,win_point,interval_point,team_a_p1_name,team_a_p2_name,team_a_club,team_a_details,team_b_p1_name,team_b_p2_name,team_b_club,team_b_details,scheduled_date,court_number,scheduled_time
+REM-1,SmashPoint Open,Dewasa,MD,rally_point,sets,21,11,Kevin,Marcus,PB Djarum,1,Fajar,Rian,SGS,2,2026-10-20,2,14:00 WIB`;
+  store.upsertMatches(ingest(sampleCsv, { courtCount: 4 }).matches);
+  const created = store.get('REM-1');
+  assert.equal(created.match_number, 'REM-1');
+
+  // 1. Referee requests setup
+  const reqRes = store.requestSetup('REM-1', { by: 'Budi Santoso', note: 'Tolong setup posisi awal' });
+  const reqState = reqRes.session_management.setup_request;
+  assert.ok(reqState);
+  assert.equal(reqState.by, 'Budi Santoso');
+  assert.equal(reqState.note, 'Tolong setup posisi awal');
+
+  // 2. Admin remotely runs SETUP_START (auto clears setup_request)
+  const startedRes = store.adminRemoteAction(
+    'REM-1',
+    {
+      type: 'SETUP_START',
+      payload: {
+        left: 'a',
+        server_id: 'a1',
+        receiver_id: 'b1',
+        positions: {
+          a: { even: 'a1', odd: 'a2' },
+          b: { even: 'b1', odd: 'b2' },
+        },
+      },
+    },
+    'Admin Utama',
+  );
+  const started = startedRes.match || startedRes;
+  assert.equal(started.session_management.status, 'in_progress');
+  assert.equal(started.session_management.setup_request, null);
+  assert.equal(started.live_state.phase, 'live');
+
+  // 3. Referee requests setup mid-match
+  store.requestSetup('REM-1', { by: 'Budi Santoso', note: 'Salah input skor & server' });
+  assert.ok(store.get('REM-1').session_management.setup_request);
+
+  // 4. Admin remotely runs OVERRIDE
+  const overriddenRes = store.adminRemoteAction(
+    'REM-1',
+    {
+      type: 'OVERRIDE',
+      payload: {
+        score: { a: 12, b: 10 },
+        service: { side: 'b', player_id: 'b2', turn: 1 },
+        positions: {
+          a: { even: 'a2', odd: 'a1' },
+          b: { even: 'b1', odd: 'b2' },
+        },
+        shuttlecock_count: 3,
+        reason: 'Koreksi skor oleh panitia',
+      },
+    },
+    'Admin Utama',
+  );
+  const overridden = overriddenRes.match || overriddenRes;
+  assert.equal(overridden.session_management.setup_request, null);
+  assert.equal(overridden.live_state.score.a, 12);
+  assert.equal(overridden.live_state.score.b, 10);
+  assert.equal(overridden.live_state.service_status.side, 'b');
+  assert.equal(overridden.live_state.service_status.player_id, 'b2');
+  assert.equal(overridden.live_state.shuttlecock_count, 3);
+  assert.equal(overridden.live_state.positions.a.even, 'a2');
+
+  // 5. Explicit clearSetupRequest
+  store.requestSetup('REM-1', { by: 'Budi Santoso', note: 'Test clear' });
+  const clearedRes = store.clearSetupRequest('REM-1');
+  const cleared = clearedRes.match || clearedRes;
+  assert.equal(cleared.session_management.setup_request, null);
+
+  store.flush();
+  fs.rmSync(dir, { recursive: true, force: true });
 });

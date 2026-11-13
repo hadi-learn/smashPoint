@@ -362,6 +362,47 @@ export default function RefereePage() {
         )}
         {mode === 'controller' && <span className="badge green">● PENGONTROL</span>}
         {mode === 'spectator' && <span className="badge red">👁 MODE PANTAU (Read-Only)</span>}
+        {mode === 'controller' && match && sm.status !== 'finished' && (
+          match.session_management?.setup_request ? (
+            <button
+              type="button"
+              className="btn btn-sm btn-yellow"
+              onClick={async () => {
+                await emitAck('match:cancel_setup_request', { match_number: match.match_number, by: label });
+                setNotice({ type: 'info', text: 'Permintaan bantuan setup dibatalkan.' });
+              }}
+              title={`Permintaan aktif: ${match.session_management.setup_request.note}. Klik untuk membatalkan.`}
+            >
+              ⏳ Menunggu Setup Admin (Batalkan)
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{ borderColor: '#f59e0b', color: '#fde68a', background: 'rgba(245, 158, 11, 0.16)', fontWeight: 800 }}
+              disabled={!connected}
+              onClick={async () => {
+                const note = window.prompt(
+                  'Kirim permintaan bantuan Setup / Koreksi ke Admin?\n(Opsional: tulis catatan singkat, misal: "Salah posisi pemain" atau "Mohon setup awal")',
+                  match.live_state?.phase === 'setup' ? 'Mohon bantu setup awal pertandingan' : 'Mohon bantu koreksi skor / posisi pemain'
+                );
+                if (note === null) return;
+                const r = await emitAck('match:request_setup', {
+                  match_number: match.match_number,
+                  by: label,
+                  note: note.trim() || 'Mohon bantuan setup Admin',
+                });
+                if (r?.ok) {
+                  applyMatch(r.match);
+                  setNotice({ type: 'ok', text: '🆘 Permintaan bantuan Setup telah dikirim ke monitor Admin!' });
+                }
+              }}
+              title="Minta Admin untuk melakukan setup awal atau koreksi posisi/skor dari meja panitia"
+            >
+              🆘 Request Setup Admin
+            </button>
+          )
+        )}
         {pending && <span className="badge gold">mengirim…</span>}
         <div className="spacer" />
 

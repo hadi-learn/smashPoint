@@ -241,7 +241,7 @@ function OverrideModal({ match, onClose, send, pending }) {
   const st = match.live_state;
   const dbl = isDoubles(match);
   const scoringEditable = ['live', 'interval'].includes(st.phase);
-  const [tab, setTab] = useState(scoringEditable ? 'score' : 'names');
+  const [tab, setTab] = useState(scoringEditable ? 'score' : 'court');
   const [names, setNames] = useState({
     team_a: {
       p1: match.teams.team_a.p1,
@@ -262,7 +262,7 @@ function OverrideModal({ match, onClose, send, pending }) {
   const [server, setServer] = useState(st.service_status.player_id || 'a1');
   const [pos, setPos] = useState(st.positions);
   const [court, setCourt] = useState(String(match.court_number));
-  const [cockCount, setCockCount] = useState(String(st.shuttlecock_count ?? 0));
+  const [cockCount, setCockCount] = useState(Number(st.shuttlecock_count ?? 0));
   const [err, setErr] = useState(null);
 
   const submit = async (payload) => {
@@ -273,13 +273,14 @@ function OverrideModal({ match, onClose, send, pending }) {
   };
   const setName = (t, k, v) => setNames((x) => ({ ...x, [t]: { ...x[t], [k]: v } }));
   const bump = (t, d) => setScore((s) => ({ ...s, [t]: Math.max(0, (parseInt(s[t], 10) || 0) + d) }));
-  const serverOptions = dbl ? [`${side}1`, `${side}2`] : [`${side}1`];
+  const leftTeam = st.sides?.left || 'a';
+  const rightTeam = leftTeam === 'a' ? 'b' : 'a';
 
   return (
     <div className="modal-bg" onClick={onClose}>
-      <div className="modal col" onClick={(e) => e.stopPropagation()}>
+      <div className="modal col" style={{ width: 'min(780px, 100%)' }} onClick={(e) => e.stopPropagation()}>
         <div className="row">
-          <h2 style={{ margin: 0, color: '#f87171' }}>⚠ OVERRIDE / Koreksi Darurat</h2>
+          <h2 style={{ margin: 0, color: '#f87171' }}>⚠ Koreksi Cepat Wasit (Override)</h2>
           <div className="spacer" />
           <button className="btn btn-sm btn-ghost" onClick={onClose}>
             ✕
@@ -287,90 +288,160 @@ function OverrideModal({ match, onClose, send, pending }) {
         </div>
         <div className="tabs">
           <button className={`btn btn-sm ${tab === 'score' ? 'active' : ''}`} disabled={!scoringEditable} onClick={() => setTab('score')}>
-            Skor & Servis
-          </button>
-          <button className={`btn btn-sm ${tab === 'names' ? 'active' : ''}`} onClick={() => setTab('names')}>
-            Nama & Club
+            🎯 Skor, Posisi &amp; Servis
           </button>
           <button className={`btn btn-sm ${tab === 'court' ? 'active' : ''}`} onClick={() => setTab('court')}>
-            Lapangan
+            🏸 Cock &amp; Lapangan
+          </button>
+          <button className={`btn btn-sm ${tab === 'names' ? 'active' : ''}`} onClick={() => setTab('names')}>
+            👥 Nama &amp; Club
           </button>
         </div>
         {err && <div className="notice error">{err}</div>}
 
         {tab === 'score' && (
-          <div className="col">
-            <div className="row" style={{ justifyContent: 'space-around' }}>
-              {['a', 'b'].map((t) => (
-                <div key={t} className="col" style={{ alignItems: 'center' }}>
-                  <div className="muted small">TIM {T(t)} · {teamLabel(match, t)}</div>
-                  <div className="row">
-                    <button className="btn btn-lg" onClick={() => bump(t, -1)}>
-                      −
-                    </button>
-                    <input className="input" style={{ width: 90, fontSize: '2rem', textAlign: 'center', fontWeight: 900 }} type="number" min={0} value={score[t]} onChange={(e) => setScore((s) => ({ ...s, [t]: e.target.value }))} />
-                    <button className="btn btn-lg" onClick={() => bump(t, 1)}>
-                      +
-                    </button>
+          <div className="col" style={{ gap: '.85rem' }}>
+            {/* Visual Left vs Right Court Scoreboard */}
+            <div className="ov-court-grid">
+              {[
+                { key: leftTeam, label: 'SISI KIRI' },
+                { key: rightTeam, label: 'SISI KANAN' },
+              ].map(({ key: t, label: sideLbl }) => {
+                const isSrv = side === t;
+                return (
+                  <div key={t} className={`ov-team-box ${isSrv ? 'serving' : ''}`}>
+                    <div className="row" style={{ justifyContent: 'space-between' }}>
+                      <span className="badge">{sideLbl} · TIM {T(t)}</span>
+                      {isSrv && <span className="badge gold">🏸 SERVIS</span>}
+                    </div>
+                    <div className="ov-team-name">{teamLabel(match, t)}</div>
+                    <div className="ov-score-stepper">
+                      <button type="button" className="btn btn-lg" onClick={() => bump(t, -1)}>−</button>
+                      <input
+                        className="input ov-score-input mono"
+                        type="number"
+                        min={0}
+                        value={score[t]}
+                        onChange={(e) => setScore((s) => ({ ...s, [t]: e.target.value }))}
+                      />
+                      <button type="button" className="btn btn-lg btn-green" onClick={() => bump(t, 1)}>+</button>
+                    </div>
+
+                    {dbl && (
+                      <div className="ov-pos-box">
+                        <div className="row" style={{ justifyContent: 'space-between', marginBottom: '.3rem' }}>
+                          <span className="small muted" style={{ fontWeight: 700 }}>Posisi Kotak Pemain:</span>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-blue"
+                            onClick={() => setPos((p) => ({ ...p, [t]: { even: p[t].odd, odd: p[t].even } }))}
+                          >
+                            ⇅ Tukar Posisi
+                          </button>
+                        </div>
+                        <div className="ov-pos-pills">
+                          <div className="ov-pos-pill">
+                            <span className="muted">Genap (Kanan):</span> <b>{playerName(match, pos[t].even)}</b>
+                          </div>
+                          <div className="ov-pos-pill">
+                            <span className="muted">Ganjil (Kiri):</span> <b>{playerName(match, pos[t].odd)}</b>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
+                );
+              })}
+            </div>
+
+            {/* Visual Server Picker */}
+            <div className="ov-section">
+              <div className="small muted" style={{ fontWeight: 800, marginBottom: '.4rem' }}>
+                🏸 PILIH PEMAIN YANG MEMEGANG SERVIS SAAT INI:
+              </div>
+              <div className="ov-server-grid">
+                {['a', 'b'].flatMap((t) =>
+                  (dbl ? [`${t}1`, `${t}2`] : [`${t}1`]).map((pid) => {
+                    const active = side === t && server === pid;
+                    return (
+                      <button
+                        key={pid}
+                        type="button"
+                        className={`btn ${active ? 'btn-yellow' : ''}`}
+                        style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                        onClick={() => {
+                          setSide(t);
+                          setServer(pid);
+                        }}
+                      >
+                        {active ? '🏸 ' : ''}Tim {T(t)} · <b>{playerName(match, pid)}</b>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+
+              {dbl && match.rules.scoring_method === 'side_out' && (
+                <div className="row" style={{ marginTop: '.6rem', gap: '.5rem', alignItems: 'center' }}>
+                  <span className="small muted" style={{ fontWeight: 800 }}>Giliran Servis (Side-Out):</span>
+                  {[1, 2].map((n) => (
+                    <button key={n} type="button" className={`btn btn-sm ${turn === n ? 'btn-blue' : ''}`} onClick={() => setTurn(n)}>
+                      {n === 1 ? '● Servis ke-1 (1st)' : '● ● Servis ke-2 (2nd)'}
+                    </button>
+                  ))}
                 </div>
-              ))}
+              )}
+            </div>
+
+            <div className="row" style={{ gap: '.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-blue"
+                disabled={pending}
+                onClick={() => send('SWITCH_SIDE')}
+                title="Tukar sisi lapangan Tim Kiri ↔ Tim Kanan"
+              >
+                ⇄ Tukar Sisi Kiri ↔ Kanan
+              </button>
+              <button
+                type="button"
+                className="btn btn-red btn-lg"
+                style={{ flex: 1 }}
+                disabled={pending}
+                onClick={() => submit({ score, service: { side, player_id: server, turn }, positions: dbl ? pos : undefined })}
+              >
+                ✔ Terapkan Koreksi Skor, Posisi &amp; Servis
+              </button>
+            </div>
+          </div>
+        )}
+
+        {tab === 'court' && (
+          <div className="col" style={{ gap: '.85rem' }}>
+            <div className="ov-section">
+              <div className="small muted" style={{ fontWeight: 800, marginBottom: '.4rem' }}>
+                🏸 JUMLAH PENGGUNAAN SHUTTLECOCK (COCK):
+              </div>
+              <div className="row" style={{ gap: '.75rem', alignItems: 'center' }}>
+                <button type="button" className="btn btn-lg" onClick={() => setCockCount((c) => Math.max(0, c - 1))}>−</button>
+                <input
+                  className="input mono"
+                  style={{ width: 110, textAlign: 'center', fontSize: '1.6rem', fontWeight: 900 }}
+                  type="number"
+                  min={0}
+                  max={999}
+                  value={cockCount}
+                  onChange={(e) => setCockCount(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                />
+                <button type="button" className="btn btn-lg btn-yellow" onClick={() => setCockCount((c) => Math.min(999, c + 1))}>+</button>
+              </div>
             </div>
             <label className="field">
-              Tim yang servis
-              <div className="row">
-                {['a', 'b'].map((t) => (
-                  <button
-                    key={t}
-                    className={`btn ${side === t ? 'btn-yellow' : ''}`}
-                    onClick={() => {
-                      setSide(t);
-                      setServer(`${t}1`);
-                    }}
-                  >
-                    Tim {T(t)}: {teamLabel(match, t)}
-                  </button>
-                ))}
-              </div>
+              Nomor Lapangan (TV lapangan baru akan otomatis menampilkan match ini)
+              <input className="input" type="number" min={1} value={court} onChange={(e) => setCourt(e.target.value)} />
             </label>
-            {dbl && (
-              <label className="field">
-                Pemain servis
-                <div className="row">
-                  {serverOptions.map((pid) => (
-                    <button key={pid} className={`btn ${server === pid ? 'btn-yellow' : ''}`} onClick={() => setServer(pid)}>
-                      <Shuttle size={16} /> {playerName(match, pid)}
-                    </button>
-                  ))}
-                </div>
-              </label>
-            )}
-            {dbl && match.rules.scoring_method === 'side_out' && (
-              <label className="field">
-                Giliran servis
-                <div className="row">
-                  {[1, 2].map((n) => (
-                    <button key={n} className={`btn ${turn === n ? 'btn-blue' : ''}`} onClick={() => setTurn(n)}>
-                      Servis {n === 1 ? '1 (1st)' : '2 (2nd)'}
-                    </button>
-                  ))}
-                </div>
-              </label>
-            )}
-            {dbl && (
-              <label className="field">
-                Posisi pemain (Kotak Kanan/Genap · Kotak Kiri/Ganjil)
-                <div className="row">
-                  {['a', 'b'].map((t) => (
-                    <button key={t} className="btn" onClick={() => setPos((p) => ({ ...p, [t]: { even: p[t].odd, odd: p[t].even } }))}>
-                      ⇅ Tim {T(t)}: Kanan={playerName(match, pos[t].even)} · Kiri={playerName(match, pos[t].odd)}
-                    </button>
-                  ))}
-                </div>
-              </label>
-            )}
-            <button className="btn btn-red btn-lg" disabled={pending} onClick={() => submit({ score, service: { side, player_id: server, turn }, positions: dbl ? pos : undefined })}>
-              Terapkan Koreksi Skor & Servis
+            <button type="button" className="btn btn-red btn-lg" disabled={pending} onClick={() => submit({ court_number: court, shuttlecock_count: cockCount })}>
+              ✔ Simpan Lapangan &amp; Jumlah Cock
             </button>
           </div>
         )}
@@ -387,6 +458,7 @@ function OverrideModal({ match, onClose, send, pending }) {
               </div>
             ))}
             <button
+              type="button"
               className="btn btn-red btn-lg"
               disabled={pending}
               onClick={() => {
@@ -399,23 +471,7 @@ function OverrideModal({ match, onClose, send, pending }) {
                 submit({ names: n });
               }}
             >
-              Simpan Nama, Club & Seeded
-            </button>
-          </div>
-        )}
-
-        {tab === 'court' && (
-          <div className="col">
-            <label className="field">
-              Nomor Lapangan (TV lapangan baru akan otomatis menampilkan match ini)
-              <input className="input" type="number" min={1} value={court} onChange={(e) => setCourt(e.target.value)} />
-            </label>
-            <label className="field">
-              Jumlah Penggunaan Shuttlecock (Cock)
-              <input className="input" type="number" min={0} max={999} value={cockCount} onChange={(e) => setCockCount(e.target.value)} />
-            </label>
-            <button className="btn btn-red btn-lg" disabled={pending} onClick={() => submit({ court_number: court, shuttlecock_count: cockCount })}>
-              Simpan Lapangan &amp; Jumlah Cock
+              ✔ Simpan Nama, Club &amp; Seeded
             </button>
           </div>
         )}
@@ -641,25 +697,115 @@ export default function LiveScreen({ match, now, readOnly, pending, connected, s
       </div>
     );
   } else if (st.phase === 'finished') {
+    const winSide = st.winner || 'a';
+    const loseSide = winSide === 'a' ? 'b' : 'a';
+    const methodLabel = match.rules?.scoring_method === 'side_out' ? 'Side-Out' : 'Rally Point';
+    const typeLabel = isSets ? 'Sets (Best of 3)' : 'Continuous';
+    const ralliesCount = Array.isArray(st.rally_history) ? st.rally_history.length : 0;
+
     overlay = (
-      <div className="phase-overlay">
-        <h2>PERTANDINGAN SELESAI</h2>
-        <div style={{ fontSize: '1.6rem', fontWeight: 800 }}>🏆 {teamLabel(match, st.winner)}</div>
-        <div className="muted">
-          {st.set_history.map((s) => `${s.a}-${s.b}`).join('  ·  ')}
-          {duration ? `  ·  ⏱ ${duration}` : ''}
-          {`  ·  🏸 ${st.shuttlecock_count ?? 0} Cock`}
-        </div>
-        {!readOnly && (
-          <div className="row">
-            <button className="btn btn-yellow btn-lg" disabled={!canAct} onClick={() => send('UNDO')}>
-              ↶ UNDO
-            </button>
-            <button className="btn btn-green btn-lg" disabled={!canAct} onClick={() => send('CONFIRM_FINISH')}>
-              ✔ Konfirmasi Hasil & Kirim
-            </button>
+      <div className="phase-overlay ref-finish-overlay">
+        <div className="ref-finish-card">
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem' }}>
+            <span className="badge gold" style={{ fontSize: '.78rem', padding: '.22rem .65rem' }}>
+              🏁 RINGKASAN AKHIR PERTANDINGAN
+            </span>
+            <span className="badge blue mono">
+              {match.match_number} · {typeLabel} · {methodLabel}
+            </span>
           </div>
-        )}
+
+          <div className="ref-finish-duel">
+            <div className="ref-finish-winner">
+              <div className="small" style={{ fontWeight: 900, color: '#fde047' }}>🏆 PEMENANG (TIM {T(winSide)})</div>
+              <div className="ref-finish-name">{teamLabel(match, winSide)}</div>
+              <div className="small muted">{match.teams[`team_${winSide}`].club || '-'}</div>
+            </div>
+            <div className="ref-finish-vs">VS</div>
+            <div className="ref-finish-runner">
+              <div className="small muted" style={{ fontWeight: 800 }}>RUNNER-UP (TIM {T(loseSide)})</div>
+              <div className="ref-finish-name-sub">{teamLabel(match, loseSide)}</div>
+              <div className="small muted">{match.teams[`team_${loseSide}`].club || '-'}</div>
+            </div>
+          </div>
+
+          <div className="ref-finish-sets">
+            {(st.set_history || []).map((s) => (
+              <div key={s.set} className="ref-finish-set-pill">
+                <span>{isSets ? `Set ${s.set}` : 'Skor Akhir'}</span>
+                <b className="mono">{s.a} - {s.b}</b>
+              </div>
+            ))}
+          </div>
+
+          {/* Highlighted Shuttlecock Verification + Cards Check */}
+          <div className="ref-finish-highlights">
+            <div className="ref-finish-hl-box cock">
+              <div className="small" style={{ fontWeight: 900, color: 'var(--gold)' }}>
+                🏸 PASTIKAN JUMLAH COCK SUDAH BENAR:
+              </div>
+              <div className="row" style={{ justifyContent: 'center', gap: '.6rem', marginTop: '.25rem' }}>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={!canAct || (st.shuttlecock_count ?? 0) <= 0}
+                    onClick={() => send('SHUTTLECOCK', { delta: -1 })}
+                  >
+                    −1
+                  </button>
+                )}
+                <span className="mono" style={{ fontSize: '1.35rem', fontWeight: 900, color: '#fff' }}>
+                  {st.shuttlecock_count ?? 0} Cock
+                </span>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-yellow"
+                    disabled={!canAct}
+                    onClick={() => send('SHUTTLECOCK', { delta: 1 })}
+                  >
+                    +1
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className={`ref-finish-hl-box ${cards.length > 0 ? 'has-cards' : 'clean'}`}>
+              <div className="small" style={{ fontWeight: 900, color: cards.length > 0 ? '#fca5a5' : '#4ade80' }}>
+                🟨🟥 KARTU PELANGGARAN BWF:
+              </div>
+              {cards.length > 0 ? (
+                <div className="ref-finish-cards-list">
+                  {cards.map((c) => (
+                    <div key={c.card_id} className="small">
+                      {c.type === 'yellow' ? '🟨' : c.type === 'red' ? '🟥' : '⬛'} <b>{c.player_name}</b> ({c.reason})
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="small" style={{ marginTop: '.2rem', fontWeight: 700 }}>✔ 0 Kartu — Fair Play</div>
+              )}
+            </div>
+          </div>
+
+          <div className="row small muted" style={{ justifyContent: 'center', gap: '.85rem' }}>
+            <span>👤 Wasit: <b style={{ color: '#e2e8f0' }}>{match.session_management?.controller_label || '-'}</b></span>
+            <span>⏱ Durasi: <b className="mono" style={{ color: 'var(--cyan)' }}>{duration || '-'}</b></span>
+            <span>📈 Total Reli: <b className="mono">{ralliesCount}</b></span>
+          </div>
+
+          {!readOnly && (
+            <div className="row" style={{ justifyContent: 'center', gap: '.65rem', marginTop: '.2rem' }}>
+              <button className="btn btn-yellow btn-lg" disabled={!canAct} onClick={() => send('UNDO')}>
+                ↶ UNDO Poin Terakhir
+              </button>
+              <button className="btn btn-green btn-lg" disabled={!canAct} onClick={() => send('CONFIRM_FINISH')}>
+                ✅ Konfirmasi &amp; Simpan Hasil Akhir
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     );
   } else if (st.phase === 'setup') {

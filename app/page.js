@@ -56,6 +56,17 @@ export default function Home() {
             </Link>
           </div>
         </div>
+        <div className="card home-card">
+          <div className="icon">🌐</div>
+          <h2>Portal Publik Turnamen</h2>
+          <p className="muted small">
+            Halaman khusus penonton &amp; peserta: pantau Live Score real-time, Jadwal Pertandingan, serta Hasil &amp; Histori Reli lengkap.
+          </p>
+          <div className="spacer" />
+          <Link className="btn btn-primary" href="/portal">
+            Buka Portal Publik
+          </Link>
+        </div>
       </section>
     </main>
   );

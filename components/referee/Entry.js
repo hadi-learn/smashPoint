@@ -72,6 +72,9 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
   const [code, setCode] = useState('');
   const [courtCount, setCourtCount] = useState(15);
   const [activeProfile, setActiveProfile] = useState(null);
+  const [roster, setRoster] = useState([]);
+  const [refSearch, setRefSearch] = useState('');
+  const [manualMode, setManualMode] = useState(false);
   const [court, setCourt] = useState(null);
   const [list, setList] = useState(null);
   const [nameAlert, setNameAlert] = useState(false);
@@ -85,13 +88,29 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
       if (c.court_count) setCourtCount(c.court_count);
       if (c.active_profile) setActiveProfile(c.active_profile);
     });
+    api('/api/referees').then((r) => {
+      if (r.ok && Array.isArray(r.referees)) setRoster(r.referees);
+    });
     const s = getSocket();
     const onProfileSwitched = ({ active_profile }) => {
       if (active_profile) setActiveProfile(active_profile);
     };
+    const onRefereesUpdated = ({ referees }) => {
+      if (Array.isArray(referees)) setRoster(referees);
+    };
     s.on('profile:switched', onProfileSwitched);
-    return () => s.off('profile:switched', onProfileSwitched);
+    s.on('referees:updated', onRefereesUpdated);
+    return () => {
+      s.off('profile:switched', onProfileSwitched);
+      s.off('referees:updated', onRefereesUpdated);
+    };
   }, []);
+
+  const filteredRoster = roster.filter((r) => {
+    const q = refSearch.trim().toLowerCase();
+    if (!q) return true;
+    return r.name.toLowerCase().includes(q) || (r.license && r.license.toLowerCase().includes(q));
+  });
 
   useEffect(() => {
     if (!court) return;
@@ -136,36 +155,102 @@ export function EntryScreen({ label, setLabel, deviceId, onOpen }) {
         {(nameAlert || !hasName) && (
           <div className={`notice ${nameAlert ? 'error' : 'warn'} small`}>
             {nameAlert
-              ? '⚠️ Harap isi Nama Wasit terlebih dahulu pada kolom di bawah sebelum membuka atau memilih pertandingan!'
+              ? '⚠️ Harap pilih atau isi Nama Wasit terlebih dahulu sebelum membuka atau memilih pertandingan!'
+              : roster.length > 0
+              ? 'ℹ️ Pilih nama Anda dari daftar wasit resmi di bawah (ketik untuk mencari cepat) agar penulisan nama seragam di semua laporan.'
               : 'ℹ️ Masukkan nama lengkap atau panggilan Anda sebagai identitas Wasit yang bertugas sebelum memilih pertandingan.'}
           </div>
         )}
-        <div className="row">
-          <label className="field" style={{ flex: 1, minWidth: 220 }}>
-            Nama Wasit Bertugas (tampil pada laporan &amp; pengontrol lapangan) *
-            <input
-              className="input"
-              style={{
-                fontSize: '1.15rem',
-                fontWeight: 700,
-                borderColor: !hasName ? 'var(--gold)' : undefined,
-              }}
-              value={label}
-              placeholder="Contoh: Wasit Budi / Umpire Andi (Lap. 3)"
-              onChange={(e) => {
-                setLabel(e.target.value);
-                if (e.target.value.trim()) setNameAlert(false);
-              }}
-              maxLength={40}
-              autoFocus={!hasName}
-            />
-          </label>
-          <div className="small muted">
-            ID Perangkat:
-            <br />
-            <span className="mono">{deviceId}</span>
+
+        {roster.length > 0 && !manualMode ? (
+          <div className="col" style={{ gap: '.65rem' }}>
+            <div className="row" style={{ gap: '.5rem', alignItems: 'center' }}>
+              <input
+                className="input"
+                style={{ flex: 1, fontSize: '1.02rem', fontWeight: 600 }}
+                value={refSearch}
+                onChange={(e) => setRefSearch(e.target.value)}
+                placeholder={`🔍 Cari nama wasit dari ${roster.length} wasit terdaftar…`}
+              />
+              {refSearch && (
+                <button type="button" className="btn btn-sm" onClick={() => setRefSearch('')}>
+                  Reset
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => setManualMode(true)}
+                title="Gunakan input manual jika nama wasit belum didaftarkan oleh Admin"
+              >
+                ✏️ Ketik Manual
+              </button>
+            </div>
+            <div className="ref-roster-grid">
+              {filteredRoster.length > 0 ? (
+                filteredRoster.map((r) => {
+                  const selected = String(label || '').trim().toLowerCase() === r.name.toLowerCase();
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className={`ref-roster-chip ${selected ? 'selected' : ''}`}
+                      onClick={() => {
+                        setLabel(r.name);
+                        setNameAlert(false);
+                      }}
+                    >
+                      <span className="ref-roster-name">{selected ? '✓ ' : '👤 '}{r.name}</span>
+                      {r.license && <span className="ref-roster-lic">{r.license}</span>}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="muted small" style={{ padding: '.5rem' }}>
+                  Tidak ada wasit yang cocok dengan &ldquo;{refSearch}&rdquo;.{' '}
+                  <button type="button" className="btn btn-sm" onClick={() => setManualMode(true)}>
+                    Ketik Manual
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="small muted" style={{ textAlign: 'right' }}>
+              ID Perangkat: <span className="mono">{deviceId}</span>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="row">
+            <label className="field" style={{ flex: 1, minWidth: 220 }}>
+              Nama Wasit Bertugas (tampil pada laporan &amp; pengontrol lapangan) *
+              <input
+                className="input"
+                style={{
+                  fontSize: '1.15rem',
+                  fontWeight: 700,
+                  borderColor: !hasName ? 'var(--gold)' : undefined,
+                }}
+                value={label}
+                placeholder="Contoh: Wasit Budi / Umpire Andi (Lap. 3)"
+                onChange={(e) => {
+                  setLabel(e.target.value);
+                  if (e.target.value.trim()) setNameAlert(false);
+                }}
+                maxLength={40}
+                autoFocus={!hasName}
+              />
+            </label>
+            {roster.length > 0 && (
+              <button type="button" className="btn btn-sm btn-blue" style={{ alignSelf: 'flex-end' }} onClick={() => setManualMode(false)}>
+                📋 Pilih dari Daftar Wasit ({roster.length})
+              </button>
+            )}
+            <div className="small muted">
+              ID Perangkat:
+              <br />
+              <span className="mono">{deviceId}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       <form
