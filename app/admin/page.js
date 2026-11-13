@@ -1,6 +1,7 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import CourtMap from '@/components/CourtMap';
 import { api, emitAck, getSocket, lsGet, lsSet, useNow } from '@/lib/client';
 import {
   DISCIPLINES,
@@ -17,6 +18,8 @@ import {
   formatDuration,
   formatLocalDateTime,
   isDoubles,
+  other,
+  courtPositions,
   playerName,
   teamLabel,
   teamSeedBadge,
@@ -1676,6 +1679,23 @@ function AdminRemoteSetupModal({ match, token, onClose, notify }) {
 
   const req = match.session_management?.setup_request;
 
+  const previewMatch = useMemo(() => {
+    const srvSide = isSetup ? (server ? server[0] : 'a') : side;
+    const srvPid = isSetup ? server : pos[side]?.even || `${side}1`;
+    const rcvPid = isSetup ? receiver : null;
+    return {
+      ...match,
+      live_state: {
+        ...st,
+        score: isSetup ? { a: 0, b: 0 } : score,
+        sides: { left, right: other(left) },
+        positions: pos,
+        service_status: { side: srvSide, turn: isSetup ? 1 : turn, player_id: srvPid, receiver_id: rcvPid },
+      },
+    };
+  }, [match, st, isSetup, left, pos, server, receiver, side, turn, score]);
+  const previewPositions = useMemo(() => courtPositions(previewMatch), [previewMatch]);
+
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal col" style={{ width: 'min(820px, 100%)' }} onClick={(e) => e.stopPropagation()}>
@@ -1695,6 +1715,19 @@ function AdminRemoteSetupModal({ match, token, onClose, notify }) {
           <span>Kategori: <b style={{ color: 'var(--text)' }}>{match.category_name} ({match.discipline})</b></span>
           <span>Fase: <b className="mono" style={{ color: 'var(--gold)' }}>{st.phase.toUpperCase()}</b></span>
           <span>Wasit: <b style={{ color: 'var(--text)' }}>{match.session_management?.controller_label || '-'}</b></span>
+        </div>
+
+        <div style={{ background: 'rgba(2, 6, 23, 0.45)', borderRadius: 12, padding: '.6rem', border: '1px solid rgba(148, 163, 184, 0.2)' }}>
+          <div className="small muted" style={{ fontWeight: 800, marginBottom: '.35rem', textAlign: 'center' }}>
+            🏸 PREVIEW POSISI LAPANGAN (KIRI vs KANAN · GENAP/GANJIL · SERVIS)
+          </div>
+          <CourtMap
+            match={previewMatch}
+            positions={previewPositions}
+            servicePlayerId={previewMatch.live_state.service_status.player_id}
+            receiverPlayerId={previewMatch.live_state.service_status.receiver_id}
+            compact
+          />
         </div>
 
         {isSetup ? (
