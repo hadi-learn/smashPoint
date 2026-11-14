@@ -310,7 +310,7 @@ async function fetchRemoteProgressFromSheets(rawUrl) {
   return remote;
 }
 
-async function fetchAndIngestUrl(rawUrl, { dryRun = false, sheetName } = {}) {
+async function fetchAndIngestUrl(rawUrl, { dryRun = false, sheetName, defaults } = {}) {
   const targetSheet = String(sheetName || sheetSync.sheetName || 'Jadwal').trim();
   const candidates = buildSheetsCandidateUrls(rawUrl, targetSheet);
   let lastParsed = null;
@@ -362,7 +362,10 @@ async function fetchAndIngestUrl(rawUrl, { dryRun = false, sheetName } = {}) {
       } catch { /* fallback to CSV */ }
     }
 
-    const parsed = ingest(input, { courtCount: COURT_COUNT });
+    const parsed = ingest(input, {
+      courtCount: COURT_COUNT,
+      defaults: defaults || { scoringPreset: 'bwf_rally_21' },
+    });
     lastParsed = parsed;
     // If we found valid matches (or rows on the primary named sheet), stop trying fallbacks
     if (parsed.matches.length > 0) {
@@ -814,6 +817,11 @@ async function handleApi(req, res, url) {
 
   if (pathname === '/api/import' && method === 'POST') {
     const b = await readBody(req);
+    const defaults = {
+      scoringPreset: b.scoring_preset || 'bwf_rally_21',
+      tournamentName: b.default_tournament_name || '',
+      courtNumber: b.default_court_number || '',
+    };
     if (b.url) {
       sheetSync.url = String(b.url).trim();
       if (b.sheet_name !== undefined) {
@@ -821,7 +829,7 @@ async function handleApi(req, res, url) {
       }
       saveSyncConfig();
       restartAutoSyncTimer();
-      const resData = await fetchAndIngestUrl(b.url, { dryRun: Boolean(b.dry_run), sheetName: sheetSync.sheetName });
+      const resData = await fetchAndIngestUrl(b.url, { dryRun: Boolean(b.dry_run), sheetName: sheetSync.sheetName, defaults });
       if (!b.dry_run) {
         sheetSync.lastSync = new Date().toISOString();
         sheetSync.lastResult = { total: resData.total, created: resData.created, updated: resData.updated, errors: resData.errors?.length || 0 };
@@ -831,7 +839,7 @@ async function handleApi(req, res, url) {
       return send(res, 200, { ...resData, sync: syncStatus() });
     }
     const input = b.rows || b.csv || '';
-    const parsed = ingest(input, { courtCount: COURT_COUNT });
+    const parsed = ingest(input, { courtCount: COURT_COUNT, defaults });
     if (b.dry_run) return send(res, 200, { ok: true, dry_run: true, valid: parsed.matches.length, total: parsed.total, errors: parsed.errors });
     const result = store.upsertMatches(parsed.matches);
     return send(res, 200, { ok: true, total: parsed.total, ...result, errors: parsed.errors });

@@ -7,7 +7,7 @@ import { AdminAuth } from '../lib/server/auth.js';
 import { ProfileManager } from '../lib/server/profiles.js';
 import { RefereeRoster } from '../lib/server/referees.js';
 import { SheetsExporter, resultRow, formatLogRow, RESULT_HEADER, LOG_HEADER } from '../lib/server/sheetsExporter.js';
-import { ingest } from '../lib/server/ingest.js';
+import { ingest, SCORING_PRESETS } from '../lib/server/ingest.js';
 import {
   breakCountdownInfo,
   BWF_INTERVAL_SECONDS,
@@ -1028,4 +1028,61 @@ RET-1,SmashPoint Open,Dewasa,MS,rally_point,sets,21,11,Anthony Ginting,,SGS,1,Vi
 
   store.flush();
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('Ingest Tournament Planner / SI PBSI format with smart adapter and scoring presets', () => {
+  // Verify 4 scoring presets and last preset is side_out + continuous + 30 + 15
+  assert.equal(SCORING_PRESETS.length, 4);
+  const lastPreset = SCORING_PRESETS[SCORING_PRESETS.length - 1];
+  assert.equal(lastPreset.id, 'sideout_continuous_30');
+  assert.equal(lastPreset.scoring_method, 'side_out');
+  assert.equal(lastPreset.scoring_type, 'continuous');
+  assert.equal(lastPreset.win_point, 30);
+  assert.equal(lastPreset.interval_point, 15);
+
+  // Tournament Planner / SI PBSI style TSV with title banner above header, inline seeds & clubs, doubles "/", "Court X"
+  const tpExport = [
+    'Order of Play - Sirnas PBSI 2026',
+    'Match Nr\tEvent\tRound\tTeam 1\tTeam 2\tCourt\tDate\tNot Before',
+    'TP-01\tGanda Putra Dewasa\tQF\tFajar Alfian (PB SGS) / M. Rian Ardianto (PB Jaya Raya) [1]\tLeo Rolly Carnando / Daniel Marthin [3/4]\tCourt 2\t2026-11-15\t09:30',
+    'TP-02\tTunggal Putri U-19\tR16\tPutri Kusuma Wardani (PB Exist) [2]\tEster Nurumi Tri Wardoyo (PB Jaya Raya)\tLapangan 4\t2026-11-15\t10:15',
+  ].join('\n');
+
+  const parsed = ingest(tpExport, {
+    courtCount: 15,
+    defaults: {
+      scoringPreset: 'sideout_continuous_30',
+      tournamentName: 'Sirnas PBSI 2026',
+    },
+  });
+
+  assert.equal(parsed.errors.length, 0);
+  assert.equal(parsed.matches.length, 2);
+
+  const m1 = parsed.matches[0];
+  assert.equal(m1.match_number, 'TP-01');
+  assert.equal(m1.tournament_name, 'Sirnas PBSI 2026');
+  assert.equal(m1.category_name, 'Ganda Putra Dewasa - QF');
+  assert.equal(m1.discipline, 'MD');
+  assert.equal(m1.court_number, 2);
+  assert.equal(m1.teams.team_a.p1, 'Fajar Alfian');
+  assert.equal(m1.teams.team_a.p2, 'M. Rian Ardianto');
+  assert.equal(m1.teams.team_a.club, 'PB SGS / PB Jaya Raya');
+  assert.equal(m1.teams.team_a.details, '1');
+  assert.equal(m1.teams.team_b.p1, 'Leo Rolly Carnando');
+  assert.equal(m1.teams.team_b.p2, 'Daniel Marthin');
+  assert.equal(m1.teams.team_b.details, '3/4');
+  assert.equal(m1.rules.scoring_method, 'side_out');
+  assert.equal(m1.rules.scoring_type, 'continuous');
+  assert.equal(m1.rules.win_point, 30);
+  assert.equal(m1.rules.interval_point, 15);
+
+  const m2 = parsed.matches[1];
+  assert.equal(m2.discipline, 'WS');
+  assert.equal(m2.court_number, 4);
+  assert.equal(m2.teams.team_a.p1, 'Putri Kusuma Wardani');
+  assert.equal(m2.teams.team_a.p2, null);
+  assert.equal(m2.teams.team_a.club, 'PB Exist');
+  assert.equal(m2.teams.team_a.details, '2');
+  assert.equal(m2.teams.team_b.club, 'PB Jaya Raya');
 });

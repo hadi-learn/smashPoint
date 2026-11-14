@@ -102,6 +102,13 @@ function LoginGate({ onOk }) {
   );
 }
 
+const IMPORT_SCORING_PRESETS = [
+  ['bwf_rally_21', 'BWF Standar (Rally Point · Sets · 21 · Interval 11)'],
+  ['veteran_rally_30', 'Rally 30 Continuous (Rally Point · Continuous · 30 · Interval 15)'],
+  ['legacy_sideout_15', 'Klasik Side-Out 15 (Side-Out · Sets · 15 · Interval 0)'],
+  ['sideout_continuous_30', 'Side-Out 30 Continuous (Side-Out · Continuous · 30 · Interval 15)'],
+];
+
 function ImportPanel({ pin, sync, onSyncChange, onDone }) {
   const [tab, setTab] = useState('url');
   const [csv, setCsv] = useState('');
@@ -109,6 +116,11 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
   const [sheetName, setSheetName] = useState('Jadwal');
   const [intervalSec, setIntervalSec] = useState(0);
   const [fileName, setFileName] = useState('');
+  const [excelSheets, setExcelSheets] = useState([]);
+  const [selectedExcelSheet, setSelectedExcelSheet] = useState('');
+  const [workbookRef, setWorkbookRef] = useState(null);
+  const [scoringPreset, setScoringPreset] = useState('bwf_rally_21');
+  const [defaultTournament, setDefaultTournament] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
 
@@ -123,7 +135,16 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
     setBusy(true);
     setResult(null);
     const body = tab === 'url' ? { url, sheet_name: sheetName } : { csv };
-    const r = await api('/api/import', { method: 'POST', pin, body: { ...body, dry_run: dry } });
+    const r = await api('/api/import', {
+      method: 'POST',
+      pin,
+      body: {
+        ...body,
+        scoring_preset: scoringPreset,
+        default_tournament_name: defaultTournament.trim(),
+        dry_run: dry,
+      },
+    });
     setBusy(false);
     setResult(r);
     if (r.sync) onSyncChange?.(r.sync);
@@ -141,13 +162,37 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
     if (r.result) setResult(r.result);
   };
 
-  const onFile = (e) => {
+  const applyExcelSheet = async (wb, name) => {
+    const XLSX = await import('xlsx');
+    const ws = wb.Sheets[name];
+    if (!ws) return;
+    setSelectedExcelSheet(name);
+    setCsv(XLSX.utils.sheet_to_csv(ws, { blankrows: false }));
+  };
+
+  const onFile = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     setFileName(f.name);
-    const rd = new FileReader();
-    rd.onload = () => setCsv(String(rd.result || ''));
-    rd.readAsText(f);
+    setResult(null);
+    if (/\.(xlsx|xls)$/i.test(f.name)) {
+      const XLSX = await import('xlsx');
+      const buf = await f.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const names = wb.SheetNames || [];
+      setWorkbookRef(wb);
+      setExcelSheets(names);
+      const preferred =
+        names.find((n) => /order|play|match|jadwal|schedule/i.test(n)) || names[0] || '';
+      if (preferred) await applyExcelSheet(wb, preferred);
+    } else {
+      setWorkbookRef(null);
+      setExcelSheets([]);
+      setSelectedExcelSheet('');
+      const rd = new FileReader();
+      rd.onload = () => setCsv(String(rd.result || ''));
+      rd.readAsText(f);
+    }
   };
   const hasInput = tab === 'url' ? url.trim() : csv.trim();
   const isPubLink = /\/d\/e\/|\/pub\b/.test(url);
@@ -165,7 +210,7 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
         {[
           ['url', '⚡ Live URL Google Sheets'],
           ['paste', 'Tempel dari Sheets/Excel'],
-          ['file', 'File CSV'],
+          ['file', 'File Excel (.xlsx) / CSV'],
         ].map(([k, l]) => (
           <button key={k} className={`btn btn-sm ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
             {l}
@@ -173,11 +218,29 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
         ))}
       </div>
       {tab === 'file' && (
-        <label className="field">
-          File CSV/TSV (header sesuai 19 kolom PRD)
-          <input className="input" type="file" accept=".csv,.tsv,.txt,.json" onChange={onFile} />
-          {fileName && <span className="small">{fileName} · {csv.split(/\r?\n/).filter(Boolean).length - 1} baris</span>}
-        </label>
+        <div className="col" style={{ gap: '.5rem' }}>
+          <label className="field">
+            File Excel (.xlsx / .xls dari Tournament Planner / SI PBSI) atau CSV/TSV
+            <input className="input" type="file" accept=".xlsx,.xls,.csv,.tsv,.txt,.json" onChange={onFile} />
+            {fileName && <span className="small">{fileName} · {Math.max(0, csv.split(/\r?\n/).filter(Boolean).length - 1)} baris</span>}
+          </label>
+          {excelSheets.length > 1 && (
+            <label className="field">
+              Pilih Tab / Sheet Excel
+              <select
+                className="input"
+                value={selectedExcelSheet}
+                onChange={(e) => workbookRef && applyExcelSheet(workbookRef, e.target.value)}
+              >
+                {excelSheets.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
       )}
       {tab === 'paste' && <textarea className="input mono" rows={7} placeholder="Tempel tabel termasuk baris header (tab / koma / titik koma)" value={csv} onChange={(e) => setCsv(e.target.value)} />}
       {tab === 'url' && (
@@ -233,6 +296,27 @@ function ImportPanel({ pin, sync, onSyncChange, onDone }) {
           {sync?.last_error && <div className="notice error small">Auto-Sync Error: {sync.last_error}</div>}
         </div>
       )}
+      <div className="row" style={{ background: '#0a1328', padding: '.6rem .8rem', borderRadius: 10, border: '1px solid var(--line)', gap: '.75rem', flexWrap: 'wrap' }}>
+        <label className="field" style={{ flex: '1 1 280px', margin: 0 }}>
+          <span className="small" style={{ fontWeight: 700 }}>⚙️ Preset Aturan Skor Default (jika file BWF/PBSI/Excel tanpa kolom skor)</span>
+          <select className="input" value={scoringPreset} onChange={(e) => setScoringPreset(e.target.value)}>
+            {IMPORT_SCORING_PRESETS.map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field" style={{ flex: '1 1 220px', margin: 0 }}>
+          <span className="small" style={{ fontWeight: 700 }}>🏆 Nama Turnamen Default (opsional)</span>
+          <input
+            className="input"
+            value={defaultTournament}
+            onChange={(e) => setDefaultTournament(e.target.value)}
+            placeholder="Contoh: Sirnas PBSI 2026"
+          />
+        </label>
+      </div>
       <div className="row">
         <button className="btn" disabled={!hasInput || busy} onClick={() => run(true)}>
           Validasi
